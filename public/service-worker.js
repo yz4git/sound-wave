@@ -1,5 +1,5 @@
-const CACHE = 'sound-wave-v4';
-const CORE = ['./', './index.html', './app.js', './styles.css', './manifest.webmanifest', './icon.svg'];
+const CACHE = 'sound-wave-v5-vite';
+const CORE = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(CORE)));
@@ -32,12 +32,10 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
-  if (
-    event.request.mode === 'navigate' ||
-    url.pathname.endsWith('/index.html') ||
-    url.pathname.endsWith('/app.js') ||
-    url.pathname.endsWith('/styles.css')
-  ) {
+  // HTML is network-first so each deployment immediately discovers the new
+  // Vite-generated hashed asset names. Hashed /assets files are immutable and
+  // safe to cache-first after the first successful fetch.
+  if (event.request.mode === 'navigate' || url.pathname.endsWith('/index.html')) {
     event.respondWith(networkFirst(event.request));
     return;
   }
