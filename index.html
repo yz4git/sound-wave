@@ -8,7 +8,6 @@
     <meta name="apple-mobile-web-app-title" content="SOUND WAVE" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon.svg" type="image/svg+xml" />
-    <link rel="stylesheet" href="./styles.css" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>SOUND WAVE</title>
   </head>
@@ -33,22 +32,12 @@
         <button data-intent="intensify"><b>INTENSIFY</b><span>raise tension</span></button>
       </section>
       <button id="start" class="start-screen">
-        <span class="start-kicker">GENERATIVE MUSIC GAME · RUNTIME V4</span>
+        <span class="start-kicker">GENERATIVE MUSIC GAME · VITE PRODUCTION</span>
         <strong>TAP TO ENTER<br />THE WAVE</strong>
         <small>No fixed chart. Shape the music on the pulse.</small>
       </button>
       <div id="rotate" role="status">ROTATE TO LANDSCAPE</div>
     </main>
-    <script>
-      window.addEventListener('load', function () {
-        window.setTimeout(function () {
-          if (document.documentElement.dataset.soundWaveBoot !== 'ready') {
-            var small = document.querySelector('#start small');
-            if (small) small.textContent = 'BOOT CHECK FAILED — JAVASCRIPT DID NOT START';
-          }
-        }, 3000);
-      });
-    </script>
-    <script src="./app.js"></script>
+    <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
