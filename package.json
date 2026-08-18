@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.json && vite build",
+    "build": "tsc -p tsconfig.json && vite build && cp app.js dist/app.js && cp styles.css dist/styles.css",
     "test": "vitest run",
     "test:watch": "vitest"
   },
