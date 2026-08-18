@@ -18,7 +18,7 @@ import {
 } from '../core/rhythm';
 import { calculateModifierBonus, chooseModifier, modifierDefinition, type ModifierId } from './RunModifiers';
 
-export type InputJudgement = 'perfect' | 'good' | 'reframed' | 'miss';
+export type InputJudgement = 'perfect' | 'good' | 'reframed' | 'miss' | 'echo';
 
 export interface InputResult {
   judgement: InputJudgement;
@@ -51,6 +51,7 @@ export interface GameState {
   seed: number;
   activeModifiers: ModifierId[];
   lastUnlock: string | null;
+  consumedSteps: number[];
 }
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
@@ -125,6 +126,7 @@ export function createGameState(
     seed,
     activeModifiers: [],
     lastUnlock: null,
+    consumedSteps: [],
   };
 }
 
@@ -155,6 +157,7 @@ function nextBar(state: GameState): GameState {
     seed: nextSeed,
     activeModifiers,
     lastUnlock,
+    consumedSteps: [],
   };
 }
 
@@ -187,10 +190,26 @@ export function handleIntent(state: GameState, intent: PlayerIntent): GameState 
   });
   const errorMs = nearest.distanceInSteps * stepMs;
   const timing = judgeTiming(errorMs, stepMs);
-  const reframed = timing <= 0.36 && nearest.distanceInSteps <= 1.05;
-  const hit = timing > 0.36 || reframed;
   const coherence = coherenceForIntent(state.music, intent);
   const nextMusic = applyHarmonicIntent(state.music, intent);
+
+  if (state.consumedSteps.includes(nearest.index)) {
+    const result: InputResult = {
+      judgement: 'echo',
+      intent,
+      errorMs,
+      timing,
+      coherence,
+      flow: state.flow,
+      scoreDelta: 0,
+      targetIndex: nearest.index,
+      message: 'ECHO',
+    };
+    return { ...state, music: nextMusic, lastInput: result };
+  }
+
+  const reframed = timing <= 0.36 && nearest.distanceInSteps <= 1.05;
+  const hit = timing > 0.36 || reframed;
   const surprise = surpriseFor(state.challenge, state.previousChallenge);
   const resolution = intent === 'resolve'
     ? Math.max(nextMusic.resolution, 0.24)
@@ -255,6 +274,7 @@ export function handleIntent(state: GameState, intent: PlayerIntent): GameState 
     maxCombo: Math.max(state.maxCombo, combo),
     flow: clamp01(state.flow * 0.72 + flow * 0.28 + modifierBonus.flowBonus),
     samplesThisBar: [...state.samplesThisBar, sample],
+    consumedSteps: hit ? [...state.consumedSteps, index] : state.consumedSteps,
     lastInput: result,
   };
 }
