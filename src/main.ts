@@ -83,11 +83,12 @@ function applyIntent(intent: PlayerIntent, button?: HTMLButtonElement): void {
     sound.playChord(state.music.chord, state.music.tension);
   }
   sound.playIntentAccent(state.music.chord.root, result.flow);
-  sound.playPercussion(result.judgement === 'miss' ? 'miss' : 'hit', Math.max(0.3, result.flow));
-  renderer.impact(result.judgement === 'miss' ? 0.18 : result.flow);
+  const feedbackVoice = result.judgement === 'miss' ? 'miss' : result.judgement === 'echo' ? 'tick' : 'hit';
+  sound.playPercussion(feedbackVoice, Math.max(0.3, result.flow));
+  renderer.impact(result.judgement === 'miss' ? 0.18 : result.judgement === 'echo' ? 0.12 : result.flow);
   flashTimer = 0.55;
 
-  if (navigator.vibrate && result.judgement !== 'miss') navigator.vibrate(result.judgement === 'perfect' ? 14 : 8);
+  if (navigator.vibrate && result.judgement !== 'miss' && result.judgement !== 'echo') navigator.vibrate(result.judgement === 'perfect' ? 14 : 8);
   if (button) {
     button.classList.add('active');
     window.setTimeout(() => button.classList.remove('active'), 90);
