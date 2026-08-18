@@ -27,14 +27,19 @@ let lastFrame = performance.now();
 let previousStep = -1;
 let flashTimer = 0;
 let previousBar = -1;
+let unlockTimer = 0;
 
 function syncHud(): void {
   scoreEl.textContent = state.score.toLocaleString();
   comboEl.textContent = String(state.combo);
   flowEl.textContent = `${Math.round(state.flow * 100)}%`;
   bpmEl.textContent = String(Math.round(state.bpm));
-  chordEl.textContent = `${state.music.chord.label}  ·  ${state.challenge.polyrhythm === 1 ? 'STRAIGHT' : `${state.challenge.polyrhythm}:4 POLY`}`;
-  if (state.lastInput && flashTimer > 0) {
+  const modifierTag = state.activeModifiers.length > 0 ? `  ·  MOD ×${state.activeModifiers.length}` : '';
+  chordEl.textContent = `${state.music.chord.label}  ·  ${state.challenge.polyrhythm === 1 ? 'STRAIGHT' : `${state.challenge.polyrhythm}:4 POLY`}${modifierTag}`;
+  if (state.lastUnlock && unlockTimer > 0) {
+    judgementEl.textContent = `MUTATION ACQUIRED — ${state.lastUnlock}`;
+    judgementEl.classList.add('flash');
+  } else if (state.lastInput && flashTimer > 0) {
     judgementEl.textContent = `${state.lastInput.message}  +${state.lastInput.scoreDelta}`;
     judgementEl.classList.add('flash');
   } else {
@@ -147,12 +152,14 @@ function frame(now: number): void {
     const oldBar = state.bar;
     state = advanceGame(state, deltaMs);
     if (state.bar !== oldBar) {
+      if (state.lastUnlock) unlockTimer = 2.4;
       sound.setTempo(state.bpm);
       sound.playChord(state.music.chord, state.music.tension);
     }
     pulseMetronome();
   }
   flashTimer = Math.max(0, flashTimer - deltaMs / 1000);
+  unlockTimer = Math.max(0, unlockTimer - deltaMs / 1000);
   renderer.render(state, deltaMs / 1000);
   syncHud();
   requestAnimationFrame(frame);
