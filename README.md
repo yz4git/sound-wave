@@ -78,7 +78,8 @@ The target experience is a repeating curve of **prediction → surprise → tens
 - `src/game/RunModifiers.ts` — theory-based roguelike bonuses
 - `src/game/Profile.ts` — validated local persistence
 - `src/ui/Renderer.ts` — Canvas 2D rhythm orbit, harmonic wave field and feedback
-- `src/main.ts` — touch/keyboard input, audio lifecycle, PWA runtime and frame loop
+- `src/main.ts` — the only browser runtime entrypoint; touch/keyboard input, audio lifecycle, PWA runtime and frame loop
+- `src/styles.css` — the only application stylesheet, imported from `src/main.ts`
 
 ## Development
 
@@ -87,9 +88,36 @@ npm install
 npm run dev
 npm test
 npm run build
+npm run validate:prod
 ```
 
-GitHub Actions runs tests and a production build on pushes to `main` and on pull requests.
+## Production / ChatGPT Sites
+
+Production is **Vite-only**. Source files are never deployed as the runnable application.
+
+The canonical pipeline is:
+
+```text
+src/main.ts + src/**/*.ts + src/styles.css
+                ↓
+            Vite build
+                ↓
+   dist/index.html + dist/assets/*
+                ↓
+          ChatGPT Sites
+```
+
+Rules:
+
+- `npm run build` must succeed before deployment.
+- Only the generated `dist/` artifact should be used as the production site payload.
+- `dist/index.html` must reference Vite-generated hashed JavaScript and CSS under `dist/assets/`.
+- Production must never serve `/src/main.ts` directly.
+- The temporary root `app.js` and root `styles.css` fallback runtime were removed; gameplay logic exists only in the TypeScript source tree.
+- `npm run validate:prod` verifies that the built artifact contains Vite bundles, PWA files and no fallback-runtime references.
+- The service worker uses network-first navigation plus cache-first hashed Vite assets, so a new deployment discovers new bundle names without keeping an old HTML shell indefinitely.
+
+GitHub Actions runs tests, creates the production Vite build and validates the resulting `dist/` artifact on pushes to `main` and on pull requests.
 
 ## Stack
 
