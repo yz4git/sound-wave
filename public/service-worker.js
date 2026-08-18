@@ -1,4 +1,4 @@
-const CACHE = 'sound-wave-v2';
+const CACHE = 'sound-wave-v3';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', (event) => {
@@ -16,7 +16,7 @@ self.addEventListener('activate', (event) => {
 
 async function networkFirst(request) {
   try {
-    const response = await fetch(request);
+    const response = await fetch(request, { cache: 'no-store' });
     if (response.ok) {
       const cache = await caches.open(CACHE);
       await cache.put(request, response.clone());
@@ -32,9 +32,14 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
-  // Always prefer the network for page navigations so a newly deployed bundle
-  // is picked up immediately. Hashed Vite assets can safely remain cache-first.
-  if (event.request.mode === 'navigate' || url.pathname.endsWith('/index.html')) {
+  // Entrypoints must never be held on an old deployment. This covers both the
+  // build-independent source layout and Vite-generated navigation documents.
+  if (
+    event.request.mode === 'navigate' ||
+    url.pathname.endsWith('/index.html') ||
+    url.pathname.endsWith('/app.js') ||
+    url.pathname.endsWith('/styles.css')
+  ) {
     event.respondWith(networkFirst(event.request));
     return;
   }
