@@ -35,6 +35,7 @@ export interface InputResult {
 export interface GameState {
   running: boolean;
   elapsedMs: number;
+  phaseMs: number;
   bpm: number;
   bar: number;
   score: number;
@@ -58,9 +59,9 @@ export function barDurationMs(bpm: number): number {
   return (60000 / bpm) * 4;
 }
 
-export function phaseInBar(state: Pick<GameState, 'elapsedMs' | 'bpm'>): number {
+export function phaseInBar(state: Pick<GameState, 'phaseMs' | 'bpm'>): number {
   const duration = barDurationMs(state.bpm);
-  return ((state.elapsedMs % duration) + duration) % duration / duration;
+  return ((state.phaseMs % duration) + duration) % duration / duration;
 }
 
 export function coherenceForIntent(music: MusicState, intent: PlayerIntent): number {
@@ -98,12 +99,17 @@ function surpriseFor(challenge: RhythmChallenge, previous: RhythmChallenge | nul
   return clamp01(0.28 + structuralChange * 0.65 + challenge.complexity * 0.16);
 }
 
-export function createGameState(seed = Date.now(), tonality: Tonality = { tonic: 0, mode: 'minor' }): GameState {
-  const skill = createInitialSkill();
+export function createGameState(
+  seed = Date.now(),
+  tonality: Tonality = { tonic: 0, mode: 'minor' },
+  initialSkill: SkillModel = createInitialSkill(),
+): GameState {
+  const skill = initialSkill;
   const challenge = generateRhythmChallenge(skill, seed);
   return {
     running: false,
     elapsedMs: 0,
+    phaseMs: 0,
     bpm: 112,
     bar: 0,
     score: 0,
@@ -155,9 +161,17 @@ function nextBar(state: GameState): GameState {
 export function advanceGame(state: GameState, deltaMs: number): GameState {
   if (!state.running) return state;
   const safeDelta = Math.max(0, Math.min(250, deltaMs));
-  let next: GameState = { ...state, elapsedMs: state.elapsedMs + safeDelta };
-  const targetBar = Math.floor(next.elapsedMs / barDurationMs(next.bpm));
-  while (next.bar < targetBar) next = nextBar(next);
+  let next: GameState = {
+    ...state,
+    elapsedMs: state.elapsedMs + safeDelta,
+    phaseMs: state.phaseMs + safeDelta,
+  };
+  let guard = 0;
+  while (next.phaseMs >= barDurationMs(next.bpm) && guard < 4) {
+    const duration = barDurationMs(next.bpm);
+    next = nextBar({ ...next, phaseMs: next.phaseMs - duration });
+    guard += 1;
+  }
   return next;
 }
 
