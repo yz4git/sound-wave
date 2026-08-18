@@ -167,3 +167,9 @@ function frame(now: number): void {
 
 syncHud();
 requestAnimationFrame(frame);
+
+if ('serviceWorker' in navigator && location.protocol === 'https:') {
+  window.addEventListener('load', () => {
+    void navigator.serviceWorker.register('./service-worker.js');
+  });
+}
