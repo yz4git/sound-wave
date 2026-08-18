@@ -37,3 +37,16 @@ describe('game flow model', () => {
     expect(state.lastInput?.judgement).toBe('perfect');
   });
 });
+
+describe('target consumption', () => {
+  it('scores a target only once and turns repeats into ECHO', () => {
+    let state = startGame(createGameState(77));
+    state = handleIntent(state, 'intensify');
+    const scoreAfterFirst = state.score;
+    const comboAfterFirst = state.combo;
+    state = handleIntent(state, 'intensify');
+    expect(state.score).toBe(scoreAfterFirst);
+    expect(state.combo).toBe(comboAfterFirst);
+    expect(state.lastInput?.judgement).toBe('echo');
+  });
+});
