@@ -3,6 +3,7 @@ import { SoundEngine } from './audio/SoundEngine';
 import type { PlayerIntent } from './core/music';
 import { advanceGame, createGameState, handleIntent, phaseInBar, startGame } from './game/GameEngine';
 import { Renderer } from './ui/Renderer';
+import { loadProfile, saveProfile, updateProfile } from './game/Profile';
 
 function required<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
@@ -22,7 +23,8 @@ const intentButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[
 
 const renderer = new Renderer(canvas);
 const sound = new SoundEngine({ tempo: 112 });
-let state = createGameState();
+let profile = loadProfile();
+let state = createGameState(Date.now(), { tonic: 0, mode: 'minor' }, profile.skill);
 let lastFrame = performance.now();
 let previousStep = -1;
 let flashTimer = 0;
@@ -95,6 +97,8 @@ function applyIntent(intent: PlayerIntent, button?: HTMLButtonElement): void {
 
 async function begin(): Promise<void> {
   await sound.unlock();
+  profile = { ...profile, sessions: profile.sessions + 1 };
+  saveProfile(profile);
   state = startGame(state);
   sound.playChord(state.music.chord, state.music.tension);
   startButton.classList.add('hidden');
@@ -152,6 +156,8 @@ function frame(now: number): void {
     const oldBar = state.bar;
     state = advanceGame(state, deltaMs);
     if (state.bar !== oldBar) {
+      profile = updateProfile(profile, state.skill, state.score, state.maxCombo);
+      saveProfile(profile);
       if (state.lastUnlock) unlockTimer = 2.4;
       sound.setTempo(state.bpm);
       sound.playChord(state.music.chord, state.music.tension);
