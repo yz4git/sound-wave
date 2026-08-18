@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.json && vite build && cp app.js dist/app.js && cp styles.css dist/styles.css",
+    "build": "tsc -p tsconfig.json && vite build",
+    "validate:prod": "node scripts/validate-production.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
