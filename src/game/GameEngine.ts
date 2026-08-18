@@ -16,6 +16,7 @@ import {
   type RhythmChallenge,
   type SkillModel,
 } from '../core/rhythm';
+import { calculateModifierBonus, chooseModifier, modifierDefinition, type ModifierId } from './RunModifiers';
 
 export type InputJudgement = 'perfect' | 'good' | 'reframed' | 'miss';
 
@@ -47,6 +48,8 @@ export interface GameState {
   samplesThisBar: HitSample[];
   lastInput: InputResult | null;
   seed: number;
+  activeModifiers: ModifierId[];
+  lastUnlock: string | null;
 }
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
@@ -114,6 +117,8 @@ export function createGameState(seed = Date.now(), tonality: Tonality = { tonic:
     samplesThisBar: [],
     lastInput: null,
     seed,
+    activeModifiers: [],
+    lastUnlock: null,
   };
 }
 
@@ -127,6 +132,12 @@ function nextBar(state: GameState): GameState {
   const challenge = generateRhythmChallenge(updatedSkill, nextSeed, state.challenge);
   const tempoLift = updatedSkill.stability > 0.7 && state.bar > 3 ? 0.35 : 0;
   const bpm = Math.min(156, state.bpm + tempoLift);
+  const upcomingBar = state.bar + 1;
+  const unlockId = upcomingBar > 0 && upcomingBar % 4 === 0
+    ? chooseModifier(state.activeModifiers, nextSeed)
+    : null;
+  const activeModifiers = unlockId ? [...state.activeModifiers, unlockId] : state.activeModifiers;
+  const lastUnlock = unlockId ? modifierDefinition(unlockId).name : null;
   return {
     ...state,
     bpm,
@@ -136,6 +147,8 @@ function nextBar(state: GameState): GameState {
     challenge,
     samplesThisBar: [],
     seed: nextSeed,
+    activeModifiers,
+    lastUnlock,
   };
 }
 
@@ -180,10 +193,19 @@ export function handleIntent(state: GameState, intent: PlayerIntent): GameState 
   const combo = hit ? state.combo + 1 : 0;
   const comboMultiplier = 1 + Math.min(combo, 24) * 0.035;
   const musicality = coherence * 0.42 + flow * 0.34 + timing * 0.24;
-  const scoreDelta = hit ? Math.round(120 * musicality * comboMultiplier) : 0;
   const index = nearest.index;
   const syncopated = index % state.challenge.subdivisions !== 0;
   const polyrhythmic = state.challenge.polyrhythm !== 1;
+  const modifierBonus = calculateModifierBonus(state.activeModifiers, {
+    intent,
+    judgement,
+    tension: state.music.tension,
+    syncopated,
+    polyrhythm: state.challenge.polyrhythm,
+  });
+  const scoreDelta = hit
+    ? Math.round(120 * musicality * comboMultiplier * modifierBonus.scoreMultiplier)
+    : 0;
   const sample: HitSample = {
     errorMs,
     hit,
@@ -217,7 +239,7 @@ export function handleIntent(state: GameState, intent: PlayerIntent): GameState 
     score: state.score + scoreDelta,
     combo,
     maxCombo: Math.max(state.maxCombo, combo),
-    flow: clamp01(state.flow * 0.72 + flow * 0.28),
+    flow: clamp01(state.flow * 0.72 + flow * 0.28 + modifierBonus.flowBonus),
     samplesThisBar: [...state.samplesThisBar, sample],
     lastInput: result,
   };
