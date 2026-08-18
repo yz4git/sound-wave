@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 const distDir = 'dist';
@@ -17,23 +17,20 @@ if (/\/src\/main\.ts|src\/main\.ts/.test(html)) {
   fail('dist/index.html still references TypeScript source');
 }
 
-if (/app\.js|styles\.css/.test(html)) {
+if (/(?:src|href)=["'][^"']*(?:^|\/)app\.js["']|(?:src|href)=["'][^"']*(?:^|\/)styles\.css["']/.test(html)) {
   fail('dist/index.html references the removed build-independent runtime');
 }
 
-const assetsDir = join(distDir, 'assets');
-if (!existsSync(assetsDir)) fail('dist/assets is missing');
+const assetRefs = [...html.matchAll(/(?:src|href)=["']\.\/?assets\/([^"']+)["']/g)].map((match) => match[1]);
+const jsRefs = assetRefs.filter((name) => name.endsWith('.js'));
+const cssRefs = assetRefs.filter((name) => name.endsWith('.css'));
 
-const assets = readdirSync(assetsDir);
-const jsAssets = assets.filter((name) => name.endsWith('.js'));
-const cssAssets = assets.filter((name) => name.endsWith('.css'));
+if (jsRefs.length === 0) fail('dist/index.html has no Vite JavaScript bundle reference');
+if (cssRefs.length === 0) fail('dist/index.html has no Vite CSS bundle reference');
 
-if (jsAssets.length === 0) fail('no Vite JavaScript bundle found in dist/assets');
-if (cssAssets.length === 0) fail('no Vite CSS bundle found in dist/assets');
-
-for (const name of [...jsAssets, ...cssAssets]) {
-  if (!html.includes(`./assets/${name}`) && !html.includes(`/assets/${name}`)) {
-    fail(`dist/index.html does not reference generated asset ${name}`);
+for (const name of assetRefs) {
+  if (!existsSync(join(distDir, 'assets', name))) {
+    fail(`referenced Vite asset is missing: dist/assets/${name}`);
   }
 }
 
@@ -41,4 +38,4 @@ for (const required of ['service-worker.js', 'manifest.webmanifest', 'icon.svg']
   if (!existsSync(join(distDir, required))) fail(`dist/${required} is missing`);
 }
 
-console.log(`[validate:prod] OK — ${jsAssets.length} JS bundle(s), ${cssAssets.length} CSS bundle(s), Vite-only production artifact`);
+console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact`);
