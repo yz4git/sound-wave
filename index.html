@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#080a12" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <title>SOUND WAVE</title>
+  </head>
+  <body>
+    <main id="app">
+      <canvas id="game" aria-label="Sound Wave generative rhythm field"></canvas>
+      <section id="hud" aria-live="polite">
+        <div class="brand">SOUND <strong>WAVE</strong></div>
+        <div class="metric"><span>SCORE</span><b id="score">0</b></div>
+        <div class="metric"><span>COMBO</span><b id="combo">0</b></div>
+        <div class="metric"><span>FLOW</span><b id="flow">50%</b></div>
+        <div class="metric"><span>BPM</span><b id="bpm">112</b></div>
+      </section>
+      <section id="status">
+        <div id="chord">C · tonic</div>
+        <div id="judgement">PREDICT → SHAPE → RESOLVE</div>
+      </section>
+      <section id="controls" aria-label="Harmonic controls">
+        <button data-intent="resolve"><b>RESOLVE</b><span>release tension</span></button>
+        <button data-intent="delay"><b>DELAY</b><span>hold the edge</span></button>
+        <button data-intent="diverge"><b>DIVERGE</b><span>break expectation</span></button>
+        <button data-intent="intensify"><b>INTENSIFY</b><span>raise tension</span></button>
+      </section>
+      <button id="start" class="start-screen">
+        <span class="start-kicker">GENERATIVE MUSIC GAME</span>
+        <strong>TAP TO ENTER<br />THE WAVE</strong>
+        <small>No fixed chart. Shape the music on the pulse.</small>
+      </button>
+      <div id="rotate" role="status">ROTATE TO LANDSCAPE</div>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
