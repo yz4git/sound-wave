@@ -1,4 +1,4 @@
-const CACHE = 'sound-wave-v1';
+const CACHE = 'sound-wave-v2';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', (event) => {
@@ -14,14 +14,35 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+async function networkFirst(request) {
+  try {
+    const response = await fetch(request);
+    if (response.ok) {
+      const cache = await caches.open(CACHE);
+      await cache.put(request, response.clone());
+    }
+    return response;
+  } catch {
+    return (await caches.match(request)) ?? Response.error();
+  }
+}
+
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   const url = new URL(event.request.url);
   if (url.origin !== self.location.origin) return;
 
+  // Always prefer the network for page navigations so a newly deployed bundle
+  // is picked up immediately. Hashed Vite assets can safely remain cache-first.
+  if (event.request.mode === 'navigate' || url.pathname.endsWith('/index.html')) {
+    event.respondWith(networkFirst(event.request));
+    return;
+  }
+
   event.respondWith(
     caches.match(event.request).then((cached) => {
-      const update = fetch(event.request)
+      if (cached) return cached;
+      return fetch(event.request)
         .then((response) => {
           if (response.ok) {
             const clone = response.clone();
@@ -29,8 +50,7 @@ self.addEventListener('fetch', (event) => {
           }
           return response;
         })
-        .catch(() => cached ?? Response.error());
-      return cached ?? update;
+        .catch(() => Response.error());
     }),
   );
 });
