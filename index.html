@@ -39,6 +39,16 @@
       </button>
       <div id="rotate" role="status">ROTATE TO LANDSCAPE</div>
     </main>
+    <script>
+      window.addEventListener('load', function () {
+        window.setTimeout(function () {
+          if (document.documentElement.dataset.soundWaveBoot !== 'ready') {
+            var small = document.querySelector('#start small');
+            if (small) small.textContent = 'BOOT CHECK FAILED — JAVASCRIPT DID NOT START';
+          }
+        }, 3000);
+      });
+    </script>
     <script type="module" src="./app.js"></script>
   </body>
 </html>
