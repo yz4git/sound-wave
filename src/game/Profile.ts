@@ -34,9 +34,22 @@ function validSkill(value: unknown): value is SkillModel {
     && validUnit(skill.stability);
 }
 
-export function loadProfile(storage: Pick<Storage, 'getItem'> = localStorage): PlayerProfile {
+function browserStorage(): Storage | null {
   try {
-    const raw = storage.getItem(STORAGE_KEY);
+    return typeof window !== 'undefined' ? window.localStorage : null;
+  } catch {
+    // Safari private mode, sandboxed webviews and embedded hosts may throw merely
+    // by reading window.localStorage. Storage must never be allowed to block boot.
+    return null;
+  }
+}
+
+export function loadProfile(storage?: Pick<Storage, 'getItem'> | null): PlayerProfile {
+  try {
+    const target = storage === undefined ? browserStorage() : storage;
+    if (!target) return createProfile();
+
+    const raw = target.getItem(STORAGE_KEY);
     if (!raw) return createProfile();
     const parsed = JSON.parse(raw) as Partial<PlayerProfile>;
     if (parsed.version !== 1 || !validSkill(parsed.skill)) return createProfile();
@@ -54,12 +67,15 @@ export function loadProfile(storage: Pick<Storage, 'getItem'> = localStorage): P
 
 export function saveProfile(
   profile: PlayerProfile,
-  storage: Pick<Storage, 'setItem'> = localStorage,
+  storage?: Pick<Storage, 'setItem'> | null,
 ): void {
   try {
-    storage.setItem(STORAGE_KEY, JSON.stringify(profile));
+    const target = storage === undefined ? browserStorage() : storage;
+    if (!target) return;
+    target.setItem(STORAGE_KEY, JSON.stringify(profile));
   } catch {
-    // Storage may be unavailable in private browsing or a constrained webview.
+    // Storage may be unavailable in private browsing, sandboxed webviews or a
+    // constrained host. Persistence is optional; gameplay must continue.
   }
 }
 
