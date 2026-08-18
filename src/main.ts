@@ -30,6 +30,8 @@ let previousStep = -1;
 let flashTimer = 0;
 let previousBar = -1;
 let unlockTimer = 0;
+let startRequested = false;
+let audioUnavailable = false;
 
 function syncHud(): void {
   scoreEl.textContent = state.score.toLocaleString();
@@ -44,6 +46,9 @@ function syncHud(): void {
   } else if (state.lastInput && flashTimer > 0) {
     judgementEl.textContent = `${state.lastInput.message}  +${state.lastInput.scoreDelta}`;
     judgementEl.classList.add('flash');
+  } else if (audioUnavailable) {
+    judgementEl.textContent = 'AUDIO UNAVAILABLE — GAMEPLAY CONTINUES';
+    judgementEl.classList.remove('flash');
   } else {
     judgementEl.textContent = state.music.tension > 0.68
       ? 'TENSION HIGH — RESOLVE, DELAY OR BREAK IT'
@@ -96,20 +101,45 @@ function applyIntent(intent: PlayerIntent, button?: HTMLButtonElement): void {
   syncHud();
 }
 
-async function begin(): Promise<void> {
-  await sound.unlock();
+function begin(): void {
+  if (startRequested || state.running) return;
+  startRequested = true;
+
+  // Gameplay must never wait for AudioContext startup. Some iOS/WebView builds can
+  // reject or indefinitely defer resume(), so enter the game synchronously while
+  // we are still inside the user's gesture and treat audio as an enhancement.
   profile = { ...profile, sessions: profile.sessions + 1 };
   saveProfile(profile);
   state = startGame(state);
-  sound.playChord(state.music.chord, state.music.tension);
   startButton.classList.add('hidden');
+  startButton.setAttribute('aria-hidden', 'true');
+  startButton.disabled = true;
   lastFrame = performance.now();
+  syncHud();
+
+  void sound.unlock()
+    .then(() => {
+      audioUnavailable = false;
+      sound.playChord(state.music.chord, state.music.tension);
+      syncHud();
+    })
+    .catch((error: unknown) => {
+      audioUnavailable = true;
+      console.warn('Sound Wave audio could not start; continuing silently.', error);
+      syncHud();
+    });
 }
 
-startButton.addEventListener('pointerdown', (event: PointerEvent) => {
+function handleStartGesture(event: Event): void {
   event.preventDefault();
-  void begin();
-}, { passive: false });
+  begin();
+}
+
+// pointerdown gives AudioContext the earliest possible user gesture on modern
+// Safari. click is a compatibility fallback for WebViews that do not dispatch
+// Pointer Events reliably. begin() is idempotent, so receiving both is safe.
+startButton.addEventListener('pointerdown', handleStartGesture, { passive: false });
+startButton.addEventListener('click', handleStartGesture, { passive: false });
 
 for (const button of intentButtons) {
   button.addEventListener('pointerdown', (event: PointerEvent) => {
@@ -177,6 +207,8 @@ requestAnimationFrame(frame);
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
   window.addEventListener('load', () => {
-    void navigator.serviceWorker.register('./service-worker.js');
+    void navigator.serviceWorker.register('./service-worker.js', { updateViaCache: 'none' })
+      .then((registration) => registration.update())
+      .catch((error: unknown) => console.warn('Service worker registration failed.', error));
   });
 }
