@@ -69,19 +69,19 @@ export function calculateModifierBonus(
   if (context.intent === 'resolve' && context.tension >= 0.65) {
     trigger('resonant-release', 1.35, 0.025);
   }
-  if (context.syncopated && context.judgement !== 'miss') {
+  if (context.syncopated && context.judgement !== 'miss' && context.judgement !== 'echo') {
     trigger('offbeat-engine', 1.3, 0.01);
   }
-  if (context.intent === 'delay' && context.tension >= 0.6 && context.judgement !== 'miss') {
+  if (context.intent === 'delay' && context.tension >= 0.6 && context.judgement !== 'miss' && context.judgement !== 'echo') {
     trigger('edge-sustain', 1.08, 0.07);
   }
-  if (context.intent === 'diverge' && context.judgement !== 'miss') {
+  if (context.intent === 'diverge' && context.judgement !== 'miss' && context.judgement !== 'echo') {
     trigger('deceptive-current', 1.25, 0.015);
   }
   if (context.intent === 'intensify' && context.judgement === 'perfect') {
     trigger('overdrive', 1.4, 0.02);
   }
-  if (context.polyrhythm !== 1 && context.judgement !== 'miss') {
+  if (context.polyrhythm !== 1 && context.judgement !== 'miss' && context.judgement !== 'echo') {
     trigger('poly-core', 1.35, 0.025);
   }
 
