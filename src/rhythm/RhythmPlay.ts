@@ -14,14 +14,15 @@ import {
 } from './RhythmPlayEngine';
 
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
+const HTML_ESCAPES: Record<string, string> = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+};
 
 function escapeHtml(value: string): string {
-  return value.replace(/[&<>"]/g, (character) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-  })[character] ?? character);
+  return value.replace(/[&<>"]/g, (character) => HTML_ESCAPES[character] ?? character);
 }
 
 export class RhythmPlay {
@@ -151,9 +152,6 @@ export class RhythmPlay {
 
     this.root.addEventListener('pointerup', (event) => {
       if (!this.holding) return;
-      const target = event.target as HTMLElement;
-      const holdButton = target.closest<HTMLButtonElement>('[data-rhythm-input="hold-start"]');
-      if (!holdButton) return;
       event.preventDefault();
       this.holding = false;
       this.submit('hold-end');
@@ -182,6 +180,31 @@ export class RhythmPlay {
       const next = RHYTHM_MINIGAMES[(index + 1) % RHYTHM_MINIGAMES.length];
       if (next) this.startGame(next.id);
     }, { passive: false });
+
+    window.addEventListener('keydown', (event) => {
+      if (!this.active || !this.state || this.state.finished || event.repeat) return;
+      if (this.state.game.id === 'beat-pop' && (event.key === ' ' || event.key === 'Enter')) {
+        event.preventDefault();
+        this.submit('tap');
+      } else if (this.state.game.id === 'echo-pair' && (event.key === 'ArrowLeft' || event.key.toLowerCase() === 'a')) {
+        event.preventDefault();
+        this.submit('left');
+      } else if (this.state.game.id === 'echo-pair' && (event.key === 'ArrowRight' || event.key.toLowerCase() === 'd')) {
+        event.preventDefault();
+        this.submit('right');
+      } else if (this.state.game.id === 'hold-release' && event.key === ' ') {
+        event.preventDefault();
+        this.holding = true;
+        this.submit('hold-start');
+      }
+    });
+
+    window.addEventListener('keyup', (event) => {
+      if (!this.active || !this.holding || event.key !== ' ') return;
+      event.preventDefault();
+      this.holding = false;
+      this.submit('hold-end');
+    });
 
     this.root.addEventListener('contextmenu', (event) => event.preventDefault());
   }
@@ -310,6 +333,8 @@ export class RhythmPlay {
     const progress = clamp01(state.elapsedMs / durationMs);
     const playfield = this.required<HTMLElement>('#rhythm-playfield');
     playfield.style.setProperty('--rhythm-phase', beatPhase.toFixed(4));
+    playfield.style.setProperty('--rhythm-angle', `${Math.round(beatPhase * 360)}deg`);
+    playfield.style.setProperty('--rhythm-scale', (0.88 + (1 - beatPhase) * 0.12).toFixed(3));
     playfield.style.setProperty('--rhythm-progress', progress.toFixed(4));
     playfield.classList.toggle('holding', this.holding);
     this.required<HTMLElement>('#rhythm-score').textContent = state.score.toLocaleString();
