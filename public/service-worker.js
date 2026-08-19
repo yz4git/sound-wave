@@ -1,4 +1,4 @@
-const CACHE = 'sound-wave-v8-jam-lab';
+const CACHE = 'sound-wave-v9-rhythm-play';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', (event) => {
