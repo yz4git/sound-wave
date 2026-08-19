@@ -12,8 +12,11 @@ import {
 } from './game/GameEngine';
 import { modifierDefinition, type ModifierId } from './game/RunModifiers';
 import { pressureDanger, type PressureEvent } from './game/PressureSystem';
+import { JamLab } from './jam/JamLabEntry';
 import { Renderer } from './ui/Renderer';
 import { loadProfile, saveProfile, updateProfile } from './game/Profile';
+
+type AppMode = 'game' | 'jam';
 
 function required<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
@@ -21,6 +24,7 @@ function required<T extends Element>(selector: string): T {
   return element;
 }
 
+const appEl = required<HTMLElement>('#app');
 const canvas = required<HTMLCanvasElement>('#game');
 const startButton = required<HTMLButtonElement>('#start');
 const startKickerEl = required<HTMLElement>('#start .start-kicker');
@@ -43,10 +47,14 @@ const intentFeedbackPrimaryEl = required<HTMLElement>('#intent-feedback-primary'
 const intentFeedbackShiftEl = required<HTMLElement>('#intent-feedback-shift');
 const mutationEl = required<HTMLElement>('#mutation');
 const mutationOptionsEl = required<HTMLElement>('#mutation-options');
+const jamRoot = required<HTMLElement>('#jam-lab');
+const appModeButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-app-mode-button]'));
 const intentButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-intent]'));
 
 const renderer = new Renderer(canvas);
 const sound = new SoundEngine({ tempo: 112 });
+const jamLab = new JamLab(jamRoot);
+let appMode: AppMode = 'game';
 let profile = loadProfile();
 let state = createGameState(Date.now(), { tonic: 0, mode: 'minor' }, profile.skill);
 let lastFrame = performance.now();
@@ -63,6 +71,39 @@ let startRequested = false;
 let collapseShown = false;
 let audioUnavailable = false;
 
+function setAppMode(mode: AppMode): void {
+  if (appMode === mode) return;
+  appMode = mode;
+  appEl.dataset.appMode = mode;
+  for (const button of appModeButtons) {
+    button.classList.toggle('active', button.dataset.appModeButton === mode);
+  }
+
+  if (mode === 'jam') {
+    sound.suspend();
+    void jamLab.activate().catch((error: unknown) => {
+      console.warn('Jam Lab audio could not start.', error);
+    });
+  } else {
+    jamLab.deactivate();
+    sound.resume();
+    lastFrame = performance.now();
+    lastIntentAtMs = lastFrame;
+    if (state.running && !state.collapsed) sound.playChord(state.music.chord, state.music.tension);
+    syncHud();
+    renderer.resize();
+  }
+}
+
+for (const button of appModeButtons) {
+  button.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    const mode = button.dataset.appModeButton as AppMode | undefined;
+    if (mode) setAppMode(mode);
+  }, { passive: false });
+  button.addEventListener('contextmenu', (event) => event.preventDefault());
+}
+
 function pressureEventToken(event: PressureEvent | null): string {
   if (!event) return '';
   return `${event.type}:${event.waveIds.join(',')}:${event.message}:${event.scoreBonus}:${Math.round(event.stabilityDelta * 1000)}`;
@@ -71,7 +112,7 @@ function pressureEventToken(event: PressureEvent | null): string {
 let lastPressureEventToken = pressureEventToken(state.pressure.lastEvent);
 
 function chooseMutation(id: ModifierId): void {
-  if (!state.pendingModifierChoices.includes(id)) return;
+  if (appMode !== 'game' || !state.pendingModifierChoices.includes(id)) return;
   state = selectModifier(state, id);
   unlockTimer = 2.4;
   lastFrame = performance.now();
@@ -331,7 +372,7 @@ function advanceTransport(deltaMs: number): void {
 }
 
 function syncStateToInputTime(): void {
-  if (!state.running || state.collapsed || state.pendingModifierChoices.length > 0) return;
+  if (appMode !== 'game' || !state.running || state.collapsed || state.pendingModifierChoices.length > 0) return;
   const now = performance.now();
   const deltaMs = Math.min(60, Math.max(0, now - lastFrame));
   if (deltaMs > 0) advanceTransport(deltaMs);
@@ -374,7 +415,7 @@ function showIntentResult(intent: PlayerIntent, beforeTension: number, beforeCho
 }
 
 function applyIntent(intent: PlayerIntent, button?: HTMLButtonElement): void {
-  if (!state.running || state.collapsed || state.pendingModifierChoices.length > 0) return;
+  if (appMode !== 'game' || !state.running || state.collapsed || state.pendingModifierChoices.length > 0) return;
   syncStateToInputTime();
   if (state.pendingModifierChoices.length > 0 || state.collapsed) {
     syncHud();
@@ -455,7 +496,7 @@ function begin(): void {
 }
 
 function showCollapseOverlay(): void {
-  if (!state.collapsed || collapseShown) return;
+  if (appMode !== 'game' || !state.collapsed || collapseShown) return;
   collapseShown = true;
   startRequested = false;
   profile = updateProfile(profile, state.skill, state.score, state.maxCombo);
@@ -474,6 +515,7 @@ function showCollapseOverlay(): void {
 
 function handleStartGesture(event: Event): void {
   event.preventDefault();
+  setAppMode('game');
   begin();
 }
 
@@ -501,6 +543,7 @@ const keyMap: Record<string, PlayerIntent> = {
 };
 
 window.addEventListener('keydown', (event) => {
+  if (appMode !== 'game') return;
   if (state.collapsed && (event.key === 'Enter' || event.key === ' ')) {
     event.preventDefault();
     begin();
@@ -523,14 +566,22 @@ window.addEventListener('keydown', (event) => {
   applyIntent(intent, button);
 });
 
-window.addEventListener('resize', () => renderer.resize());
-window.addEventListener('orientationchange', () => window.setTimeout(() => renderer.resize(), 120));
+window.addEventListener('resize', () => {
+  if (appMode === 'game') renderer.resize();
+});
+window.addEventListener('orientationchange', () => window.setTimeout(() => {
+  if (appMode === 'game') renderer.resize();
+}, 120));
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) sound.suspend();
-  else {
+  if (document.hidden) {
+    sound.suspend();
+    jamLab.suspendAudio();
+  } else if (appMode === 'game') {
     sound.resume();
     lastFrame = performance.now();
     lastIntentAtMs = lastFrame;
+  } else {
+    jamLab.resumeAudio();
   }
 });
 document.addEventListener('touchmove', (event) => event.preventDefault(), { passive: false });
@@ -538,18 +589,20 @@ document.addEventListener('touchmove', (event) => event.preventDefault(), { pass
 function frame(now: number): void {
   const deltaMs = Math.min(100, Math.max(0, now - lastFrame));
   lastFrame = now;
-  if (state.running) {
-    advanceTransport(deltaMs);
-    pulseMetronome();
+  if (appMode === 'game') {
+    if (state.running) {
+      advanceTransport(deltaMs);
+      pulseMetronome();
+    }
+    if (state.collapsed) showCollapseOverlay();
+    flashTimer = Math.max(0, flashTimer - deltaMs / 1000);
+    unlockTimer = Math.max(0, unlockTimer - deltaMs / 1000);
+    phraseTimer = Math.max(0, phraseTimer - deltaMs / 1000);
+    intentFeedbackTimer = Math.max(0, intentFeedbackTimer - deltaMs / 1000);
+    pressureAlertTimer = Math.max(0, pressureAlertTimer - deltaMs / 1000);
+    renderer.render(state, deltaMs / 1000);
+    syncHud();
   }
-  if (state.collapsed) showCollapseOverlay();
-  flashTimer = Math.max(0, flashTimer - deltaMs / 1000);
-  unlockTimer = Math.max(0, unlockTimer - deltaMs / 1000);
-  phraseTimer = Math.max(0, phraseTimer - deltaMs / 1000);
-  intentFeedbackTimer = Math.max(0, intentFeedbackTimer - deltaMs / 1000);
-  pressureAlertTimer = Math.max(0, pressureAlertTimer - deltaMs / 1000);
-  renderer.render(state, deltaMs / 1000);
-  syncHud();
   requestAnimationFrame(frame);
 }
 
