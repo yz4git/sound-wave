@@ -1,6 +1,7 @@
 import type { PlayerIntent } from '../core/music';
 import { aggregateSkill } from '../core/rhythm';
 import { phaseInBar, type GameState } from '../game/GameEngine';
+import { pressureDanger, waveProgress, type PressureWave, type WaveLane } from '../game/PressureSystem';
 
 interface Pulse {
   x: number;
@@ -15,6 +16,11 @@ interface IntentVisual {
   strength: number;
   fromTension: number;
   toTension: number;
+}
+
+interface Point {
+  x: number;
+  y: number;
 }
 
 const TAU = Math.PI * 2;
@@ -94,12 +100,40 @@ export class Renderer {
 
     this.drawGrid(state);
     this.drawWaveField(state);
+    this.drawPressureLanes(state);
+    this.drawPressureWaves(state);
     this.drawCore(state);
     this.drawIntentEffects(deltaSeconds);
     this.drawPulses(deltaSeconds);
     this.drawPhraseClimax(deltaSeconds);
     // Rhythm targets and cursor are always last so feedback never hides the next input.
     this.drawRhythmOrbit(state);
+  }
+
+  private laneGeometry(lane: WaveLane): { start: Point; control: Point; end: Point } {
+    const end = { x: this.width * 0.5, y: this.height * 0.48 };
+    const radius = Math.max(145, Math.min(this.height * 0.54, this.width * 0.31, 260));
+    const angle = lane === 0 ? -2.28 : lane === 1 ? -Math.PI / 2 : -0.86;
+    const start = {
+      x: end.x + Math.cos(angle) * radius,
+      y: end.y + Math.sin(angle) * radius,
+    };
+    const lateral = lane === 0 ? -34 : lane === 2 ? 34 : 0;
+    const control = {
+      x: (start.x + end.x) * 0.5 + lateral,
+      y: (start.y + end.y) * 0.5 - 14,
+    };
+    return { start, control, end };
+  }
+
+  private pointOnLane(lane: WaveLane, progress: number): Point {
+    const { start, control, end } = this.laneGeometry(lane);
+    const t = clamp01(progress);
+    const inv = 1 - t;
+    return {
+      x: inv * inv * start.x + 2 * inv * t * control.x + t * t * end.x,
+      y: inv * inv * start.y + 2 * inv * t * control.y + t * t * end.y,
+    };
   }
 
   private drawGrid(state: GameState): void {
@@ -147,10 +181,129 @@ export class Renderer {
         else ctx.lineTo(x, y);
       }
       ctx.strokeStyle = lane === 2
-        ? `rgba(101,243,223,${0.26 + state.flow * 0.35})`
-        : `rgba(103,116,255,${0.08 + lane * 0.025})`;
-      ctx.lineWidth = lane === 2 ? 2 : 1;
+        ? `rgba(101,243,223,${0.18 + state.flow * 0.26})`
+        : `rgba(103,116,255,${0.055 + lane * 0.018})`;
+      ctx.lineWidth = lane === 2 ? 1.6 : 1;
       ctx.stroke();
+    }
+    ctx.restore();
+  }
+
+  private drawPressureLanes(state: GameState): void {
+    const ctx = this.ctx;
+    const danger = pressureDanger(state.pressure);
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.setLineDash([4, 9]);
+    for (const lane of [0, 1, 2] as const) {
+      const { start, control, end } = this.laneGeometry(lane);
+      ctx.strokeStyle = `rgba(${Math.round(116 + danger * 95)},${Math.round(128 - danger * 22)},${Math.round(178 - danger * 34)},${0.12 + danger * 0.13})`;
+      ctx.lineWidth = lane === 1 ? 1.35 : 1;
+      ctx.beginPath();
+      ctx.moveTo(start.x, start.y);
+      ctx.quadraticCurveTo(control.x, control.y, end.x, end.y);
+      ctx.stroke();
+
+      ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(133,145,190,.28)';
+      ctx.beginPath();
+      ctx.arc(start.x, start.y, 2.2, 0, TAU);
+      ctx.fill();
+      ctx.setLineDash([4, 9]);
+    }
+    ctx.restore();
+  }
+
+  private waveColor(wave: PressureWave, alpha: number): string {
+    const a = clamp01(alpha);
+    if (wave.amplified) return `rgba(255,109,159,${a})`;
+    if (wave.kind === 'accent') return `rgba(101,243,223,${a})`;
+    if (wave.kind === 'dissonance') return `rgba(255,186,98,${a})`;
+    return `rgba(218,225,255,${a})`;
+  }
+
+  private drawPressureWaves(state: GameState): void {
+    const ctx = this.ctx;
+    if (state.pressure.waves.length === 0) return;
+    const ordered = [...state.pressure.waves].sort((a, b) => b.etaMs - a.etaMs);
+    const priorityId = [...state.pressure.waves].sort((a, b) => a.etaMs - b.etaMs)[0]?.id;
+
+    ctx.save();
+    for (const wave of ordered) {
+      const progress = waveProgress(wave);
+      const point = this.pointOnLane(wave.lane, progress);
+      const priority = wave.id === priorityId;
+      const size = 4.5 + wave.pressure * 3.2 + progress * 2.8;
+      const alpha = 0.48 + progress * 0.42;
+      const color = this.waveColor(wave, alpha);
+
+      if (priority) {
+        ctx.shadowColor = this.waveColor(wave, 0.9);
+        ctx.shadowBlur = 12 + progress * 12;
+        ctx.strokeStyle = this.waveColor(wave, 0.38);
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, size + 7 + Math.sin(state.elapsedMs * 0.01) * 1.5, 0, TAU);
+        ctx.stroke();
+      } else {
+        ctx.shadowBlur = 0;
+      }
+
+      ctx.fillStyle = color;
+      ctx.strokeStyle = this.waveColor(wave, Math.min(1, alpha + 0.2));
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      if (wave.kind === 'dissonance') {
+        ctx.moveTo(point.x, point.y - size);
+        ctx.lineTo(point.x + size, point.y);
+        ctx.lineTo(point.x, point.y + size);
+        ctx.lineTo(point.x - size, point.y);
+        ctx.closePath();
+      } else if (wave.kind === 'accent') {
+        for (let i = 0; i < 8; i += 1) {
+          const angle = -Math.PI / 2 + (i / 8) * TAU;
+          const radius = i % 2 === 0 ? size * 1.18 : size * 0.62;
+          const x = point.x + Math.cos(angle) * radius;
+          const y = point.y + Math.sin(angle) * radius;
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        }
+        ctx.closePath();
+      } else {
+        ctx.arc(point.x, point.y, size, 0, TAU);
+      }
+      ctx.fill();
+      ctx.stroke();
+
+      if (wave.delayed) {
+        ctx.shadowBlur = 0;
+        ctx.strokeStyle = 'rgba(166,140,255,.72)';
+        ctx.setLineDash([4, 5]);
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, size + 4, -Math.PI * 0.85, Math.PI * 0.65);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      if (wave.diverged) {
+        ctx.strokeStyle = 'rgba(255,186,98,.68)';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(point.x - 5, point.y + size + 4);
+        ctx.lineTo(point.x, point.y + size + 8);
+        ctx.lineTo(point.x + 5, point.y + size + 4);
+        ctx.stroke();
+      }
+      if (wave.amplified) {
+        ctx.strokeStyle = 'rgba(255,109,159,.72)';
+        ctx.lineWidth = 1.2;
+        for (let i = 0; i < 6; i += 1) {
+          const angle = (i / 6) * TAU;
+          ctx.beginPath();
+          ctx.moveTo(point.x + Math.cos(angle) * (size + 2), point.y + Math.sin(angle) * (size + 2));
+          ctx.lineTo(point.x + Math.cos(angle) * (size + 7), point.y + Math.sin(angle) * (size + 7));
+          ctx.stroke();
+        }
+      }
     }
     ctx.restore();
   }
@@ -212,16 +365,33 @@ export class Renderer {
     const tension = state.music.tension;
     const flow = state.flow;
     const skill = aggregateSkill(state.skill);
+    const danger = pressureDanger(state.pressure);
+    const stability = state.pressure.stability;
 
     ctx.save();
-    const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius * 2.5);
-    glow.addColorStop(0, `rgba(101,243,223,${0.18 + flow * 0.14})`);
-    glow.addColorStop(0.45, `rgba(92,92,255,${0.08 + tension * 0.16})`);
+    const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius * 2.75);
+    glow.addColorStop(0, `rgba(${Math.round(101 + danger * 140)},${Math.round(243 - danger * 120)},${Math.round(223 - danger * 85)},${0.17 + flow * 0.12 + danger * 0.12})`);
+    glow.addColorStop(0.45, `rgba(${Math.round(92 + danger * 130)},${Math.round(92 - danger * 24)},${Math.round(255 - danger * 70)},${0.07 + tension * 0.13 + danger * 0.1})`);
     glow.addColorStop(1, 'rgba(0,0,0,0)');
     ctx.fillStyle = glow;
     ctx.beginPath();
-    ctx.arc(cx, cy, radius * 2.5, 0, TAU);
+    ctx.arc(cx, cy, radius * 2.75, 0, TAU);
     ctx.fill();
+
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(63,70,96,.5)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius + 10, 0, TAU);
+    ctx.stroke();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = stability > 0.55
+      ? `rgba(101,243,223,${0.58 + stability * 0.32})`
+      : stability > 0.28
+        ? `rgba(255,186,98,${0.65 + stability * 0.3})`
+        : 'rgba(255,109,159,.94)';
+    ctx.beginPath();
+    ctx.arc(cx, cy, radius + 10, -Math.PI / 2, -Math.PI / 2 + TAU * stability);
+    ctx.stroke();
 
     ctx.lineWidth = 7;
     ctx.strokeStyle = 'rgba(63,70,96,.42)';
@@ -229,11 +399,18 @@ export class Renderer {
     ctx.arc(cx, cy, radius, 0, TAU);
     ctx.stroke();
 
-    ctx.lineCap = 'round';
     ctx.strokeStyle = `rgba(${Math.round(101 + tension * 100)}, ${Math.round(243 - tension * 80)}, ${Math.round(223 - tension * 10)}, .94)`;
     ctx.beginPath();
     ctx.arc(cx, cy, radius, -Math.PI / 2, -Math.PI / 2 + TAU * tension);
     ctx.stroke();
+
+    if (danger > 0.5) {
+      ctx.strokeStyle = `rgba(255,109,159,${(danger - 0.5) * 1.2})`;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius + 17 + Math.sin(state.elapsedMs * 0.012) * 2, 0, TAU);
+      ctx.stroke();
+    }
 
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -276,11 +453,11 @@ export class Renderer {
         case 'resolve': {
           for (let ring = 0; ring < 3; ring += 1) {
             const local = clamp01(p + ring * 0.08);
-            const radius = baseRadius + (1 - local) * (138 + ring * 22) * visual.strength;
+            const ringRadius = baseRadius + (1 - local) * (138 + ring * 22) * visual.strength;
             ctx.strokeStyle = intentColor('resolve', alpha * (1 - ring * 0.2));
             ctx.lineWidth = 1.3 + visual.strength * 1.5;
             ctx.beginPath();
-            ctx.arc(cx, cy, radius, 0, TAU);
+            ctx.arc(cx, cy, ringRadius, 0, TAU);
             ctx.stroke();
           }
           ctx.strokeStyle = intentColor('resolve', alpha);
@@ -296,12 +473,12 @@ export class Renderer {
         case 'delay': {
           ctx.setLineDash([8, 10]);
           for (let ring = 0; ring < 3; ring += 1) {
-            const radius = baseRadius + 24 + ring * 26 + p * 12;
+            const ringRadius = baseRadius + 24 + ring * 26 + p * 12;
             const start = -Math.PI * 0.9 + p * 0.35 + ring * 0.24;
             ctx.strokeStyle = intentColor('delay', alpha * (1 - ring * 0.17));
             ctx.lineWidth = 1.4 + visual.strength;
             ctx.beginPath();
-            ctx.arc(cx, cy, radius, start, start + Math.PI * 1.35);
+            ctx.arc(cx, cy, ringRadius, start, start + Math.PI * 1.35);
             ctx.stroke();
           }
           ctx.setLineDash([]);
