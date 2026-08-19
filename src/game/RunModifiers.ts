@@ -44,11 +44,30 @@ export function modifierDefinition(id: ModifierId): ModifierDefinition {
   return definition;
 }
 
+function seededIndex(seed: number, salt: number, length: number): number {
+  if (length <= 0) return 0;
+  const mixed = Math.imul((seed ^ (seed >>> 16) ^ salt) >>> 0, 0x45d9f3b) >>> 0;
+  return mixed % length;
+}
+
+export function chooseModifierOptions(
+  active: readonly ModifierId[],
+  seed: number,
+  count = 3,
+): ModifierId[] {
+  const pool = MODIFIERS.map((item) => item.id).filter((id) => !active.includes(id));
+  const result: ModifierId[] = [];
+  const wanted = Math.min(Math.max(0, count), pool.length);
+  for (let i = 0; i < wanted; i += 1) {
+    const index = seededIndex(seed, i * 0x9e3779b9, pool.length);
+    const [picked] = pool.splice(index, 1);
+    if (picked) result.push(picked);
+  }
+  return result;
+}
+
 export function chooseModifier(active: readonly ModifierId[], seed: number): ModifierId | null {
-  const available = MODIFIERS.filter((item) => !active.includes(item.id));
-  if (available.length === 0) return null;
-  const hash = Math.abs(Math.imul(seed ^ (seed >>> 16), 0x45d9f3b));
-  return available[hash % available.length]?.id ?? null;
+  return chooseModifierOptions(active, seed, 1)[0] ?? null;
 }
 
 export function calculateModifierBonus(
