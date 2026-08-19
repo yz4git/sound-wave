@@ -98,7 +98,7 @@ function syncHud(): void {
   const phraseBar = (state.bar % 8) + 1;
   phraseEl.textContent = `PHRASE ${state.phrase} · BAR ${phraseBar}/8`;
   const goalPercent = Math.round(phraseGoalProgress(state.phraseGoal) * 100);
-  objectiveEl.textContent = `${state.phraseGoal.name} · ${state.phraseGoal.progress}/${state.phraseGoal.target} · ${goalPercent}%`;
+  objectiveEl.textContent = `${state.phraseGoal.name} · ${state.phraseGoal.description} · ${state.phraseGoal.progress}/${state.phraseGoal.target} · ${goalPercent}%`;
   const modifierTag = state.activeModifiers.length > 0 ? `  ·  MOD ×${state.activeModifiers.length}` : '';
   chordEl.textContent = `${state.music.chord.label}  ·  ${state.challenge.polyrhythm === 1 ? 'STRAIGHT' : `${state.challenge.polyrhythm}:4 POLY`}${modifierTag}`;
 
@@ -146,15 +146,43 @@ function pulseMetronome(): void {
   if (active) {
     sound.playPercussion(downbeat ? 'kick' : 'tick', accent);
     if (downbeat) sound.playBass(state.music.chord.root, accent);
-    renderer.impact(0.22 + accent * 0.34);
+    sound.playEnergyPulse(state.music.chord.root, state.flow, state.music.tension, accent);
+    if (state.flow >= 0.82 && downbeat) sound.playPercussion('accent', accent * 0.45);
+    renderer.impact(0.22 + accent * 0.34 + Math.max(0, state.flow - 0.58) * 0.22);
   }
+}
+
+function processTransportTransition(oldBar: number, oldPhrase: number): void {
+  if (state.bar !== oldBar) {
+    profile = updateProfile(profile, state.skill, state.score, state.maxCombo);
+    saveProfile(profile);
+    sound.setTempo(state.bpm);
+    sound.playChord(state.music.chord, state.music.tension);
+  }
+  if (state.phrase !== oldPhrase && state.lastPhraseResult) {
+    phraseTimer = 2.8;
+    if (state.lastPhraseResult.completed) {
+      sound.playDrop(state.music.chord.root);
+      renderer.impact(1);
+      if (navigator.vibrate) navigator.vibrate([16, 25, 28]);
+    } else {
+      sound.playPercussion('miss', 0.55);
+    }
+  }
+}
+
+function advanceTransport(deltaMs: number): void {
+  const oldBar = state.bar;
+  const oldPhrase = state.phrase;
+  state = advanceGame(state, deltaMs);
+  processTransportTransition(oldBar, oldPhrase);
 }
 
 function syncStateToInputTime(): void {
   if (!state.running || state.pendingModifierChoices.length > 0) return;
   const now = performance.now();
   const deltaMs = Math.min(60, Math.max(0, now - lastFrame));
-  if (deltaMs > 0) state = advanceGame(state, deltaMs);
+  if (deltaMs > 0) advanceTransport(deltaMs);
   lastFrame = now;
 }
 
@@ -277,25 +305,7 @@ function frame(now: number): void {
   const deltaMs = Math.min(100, Math.max(0, now - lastFrame));
   lastFrame = now;
   if (state.running) {
-    const oldBar = state.bar;
-    const oldPhrase = state.phrase;
-    state = advanceGame(state, deltaMs);
-    if (state.bar !== oldBar) {
-      profile = updateProfile(profile, state.skill, state.score, state.maxCombo);
-      saveProfile(profile);
-      sound.setTempo(state.bpm);
-      sound.playChord(state.music.chord, state.music.tension);
-    }
-    if (state.phrase !== oldPhrase && state.lastPhraseResult) {
-      phraseTimer = 2.8;
-      if (state.lastPhraseResult.completed) {
-        sound.playDrop(state.music.chord.root);
-        renderer.impact(1);
-        if (navigator.vibrate) navigator.vibrate([16, 25, 28]);
-      } else {
-        sound.playPercussion('miss', 0.55);
-      }
-    }
+    advanceTransport(deltaMs);
     pulseMetronome();
   }
   flashTimer = Math.max(0, flashTimer - deltaMs / 1000);
