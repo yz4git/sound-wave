@@ -1,12 +1,14 @@
 # SOUND WAVE
 
-A touch-first generative rhythm game where **music theory is the game system**, not just a source of note charts.
+A touch-first generative rhythm game where **music theory is the game system**, not just a source of note charts — now paired with **JAM LAB**, a touch performance playground built from the same sound-first identity.
 
 Instead of replaying a fixed score, the player shapes musical tension, groove and harmony while controlling visible **PRESSURE WAVES** moving toward a central core. The same four musical intents — RESOLVE / DELAY / DIVERGE / INTENSIFY — are simultaneously musical decisions and real-time game actions.
 
 ## Playable now
 
-The current `main` is an interactive game loop built for landscape iPhone Safari and desktop browsers:
+The current `main` contains two top-level experiences built for landscape iPhone Safari and desktop browsers:
+
+### WAVE GAME
 
 - tap to unlock Web Audio and start a run
 - read a generated circular rhythm field instead of a fixed chart
@@ -26,9 +28,26 @@ The current `main` is an interactive game loop built for landscape iPhone Safari
 - clearing a phrase awards score, Flow, STABILITY recovery and a musical drop
 - generated challenges can introduce syncopation and 3:4 / 5:4 polyrhythm as the player improves
 - higher Flow adds musical layers and stronger accents so the arrangement itself becomes a reward
-- PWA manifest, offline service worker, safe-area layout and portrait rotation guard are included
 
-## Core loop
+### JAM LAB
+
+JAM LAB is a separate performance mode, not a replacement for the game. Switching into it freezes the current WAVE GAME run and suspends the game audio; switching back resumes the same run.
+
+- **DRUM MACHINE** — 16-step sequencer with KICK / SNARE / HI-HAT / CLAP
+- each sequencer cell cycles **OFF → HIT → ACCENT → OFF**
+- 60–180 BPM control, 0–35% SWING, clear and deterministic shuffle tools
+- a usable starter groove is present immediately
+- the sequencer pattern, tempo and swing persist locally
+- **FINGER DRUM** — eight low-latency multi-touch pads: KICK / SNARE / HI-HAT / CLAP / LOW TOM / HIGH TOM / BASS / STAB
+- **SAMPLER** — eight pads that load `audio/*` files from the device and play them with low-latency Web Audio
+- sampler assignments are stored in IndexedDB on the device when available
+- the drum machine may continue playing while the player switches to FINGER DRUM or SAMPLER, so live pads and user samples can be layered over the sequenced beat
+- keyboard support: Q/W/E/R + A/S/D/F for finger drums, 1–8 for sampler, Space for drum-machine transport
+- all Jam modes share a touch-first landscape layout with no external audio assets required
+
+PWA manifest, offline service worker, safe-area layout and portrait rotation guard are included.
+
+## WAVE GAME core loop
 
 The intended moment-to-moment loop is:
 
@@ -40,7 +59,7 @@ The intended moment-to-moment loop is:
 
 This keeps Sound Wave distinct from a normal note-hitting rhythm game: the player is not clearing a fixed chart, but continuously shaping the music into a controllable risk curve.
 
-## Controls
+## WAVE GAME controls
 
 | Action | Musical effect | Pressure effect |
 | --- | --- | --- |
@@ -79,20 +98,25 @@ The target experience is a repeating curve of **prediction → risk → surprise
 7. **Adaptive flow** — density, syncopation and polyrhythm evolve from player performance.
 8. **Roguelike harmony builds** — player-chosen mutations reward different musical strategies.
 9. **Phrase goals** — eight-bar objectives teach and test the pressure-control loop.
-10. **Touch-first** — designed for iPhone Safari landscape, Web Audio and Canvas rendering.
+10. **Performance freedom** — JAM LAB lets the same product work as an instrument when the player wants to create rather than survive.
+11. **Touch-first** — designed for iPhone Safari landscape, Web Audio and Canvas rendering.
 
 ## Architecture
 
 - `src/core/music.ts` — scales, chords, harmonic function, tension, resolution and voice-leading
 - `src/core/rhythm.ts` — adaptive rhythm generation, timing windows and polyrhythm
-- `src/audio/SoundEngine.ts` — asset-free Web Audio synthesis, intent voices, Flow layers and drops
+- `src/audio/SoundEngine.ts` — WAVE GAME Web Audio synthesis, intent voices, Flow layers and drops
 - `src/game/PressureSystem.ts` — deterministic three-lane pressure waves, STABILITY, breaches and four-intent pressure interaction
 - `src/game/GameEngine.ts` — run state, scoring, pressure integration, phrases, transport and input judgement
 - `src/game/RunModifiers.ts` — theory-based roguelike bonuses and deterministic mutation choices
 - `src/game/Profile.ts` — validated local persistence
 - `src/ui/Renderer.ts` — Canvas rhythm orbit, three-lane pressure field, core danger and intent feedback
-- `src/main.ts` — only browser runtime entrypoint; touch/keyboard input, HUD, collapse/restart, audio lifecycle and PWA runtime
-- `src/styles.css` — only application stylesheet, imported from `src/main.ts`
+- `src/jam/JamMachine.ts` — pure 16-step sequencer state, tempo/swing, persistence shape and pattern operations
+- `src/jam/JamAudio.ts` — low-latency synthetic drum/pad voices and user sample playback
+- `src/jam/JamLab.ts` — Jam UI controller, audio scheduler, multi-touch pads, IndexedDB sample persistence and mode switching inside JAM LAB
+- `src/jam/jam.css` — Jam-specific touch layout and performance feedback
+- `src/main.ts` — browser runtime entrypoint; WAVE GAME lifecycle plus top-level WAVE GAME / JAM LAB switching
+- `src/styles.css` — main WAVE GAME stylesheet imported from `src/main.ts`
 
 ## Development
 
@@ -109,7 +133,7 @@ npm run validate:prod
 Production is **Vite-only**. Source files are never deployed as the runnable application.
 
 ```text
-src/main.ts + src/**/*.ts + src/styles.css
+src/main.ts + src/**/*.ts + src/**/*.css
                 ↓
             Vite build
                 ↓
@@ -126,8 +150,10 @@ Rules:
 - Production must never serve `/src/main.ts` directly.
 - The old root `app.js` / root `styles.css` fallback runtime must not return.
 - `npm run validate:prod` verifies Vite bundles, PWA files and absence of fallback-runtime references.
-- service-worker navigation stays network-first while hashed Vite assets are cache-first; the current cache generation is `sound-wave-v7-pressure`.
+- service-worker navigation stays network-first while hashed Vite assets are cache-first; the current cache generation is `sound-wave-v8-jam-lab`.
 
 ## Next high-value phases
 
-The next priority is **live iPhone playtesting and balance tuning of the new pressure loop**: wave travel time, breach damage, STABILITY recovery, INTENSIFY risk/reward and RESOLVE payoff. After that, the strongest additions are pressure-specific mutation synergies, distinct pressure archetypes, phrase bosses, deeper harmonic/modal routes and richer procedural arrangement changes without losing touch responsiveness.
+For WAVE GAME, the next priority is live iPhone balance tuning of wave travel time, breach damage, STABILITY recovery, INTENSIFY risk/reward and RESOLVE payoff.
+
+For JAM LAB, the strongest next additions are pattern banks, per-track mute/solo, sampler trim/start/end controls, microphone recording, quantized live recording from finger pads into the sequencer and exporting a performance as audio — without sacrificing low touch latency.
