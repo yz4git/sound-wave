@@ -12,13 +12,15 @@
     <title>SOUND WAVE</title>
   </head>
   <body>
-    <main id="app" data-app-mode="game">
+    <main id="app" data-app-mode="title">
       <canvas id="game" aria-label="Sound Wave generative rhythm pressure field"></canvas>
 
       <nav id="mode-switch" aria-label="Sound Wave mode">
-        <button type="button" data-app-mode-button="game" class="active">WAVE GAME</button>
+        <button type="button" data-app-mode-button="title">TITLE</button>
+        <button type="button" data-app-mode-button="game">WAVE GAME</button>
         <button type="button" data-app-mode-button="jam">JAM LAB</button>
         <button type="button" data-app-mode-button="rhythm">RHYTHM PLAY</button>
+        <button type="button" data-app-mode-button="compose">AUTO COMPOSE</button>
       </nav>
 
       <section id="hud" aria-live="polite">
@@ -121,6 +123,7 @@
       </section>
 
       <section id="rhythm-play" aria-hidden="true"></section>
+      <section id="auto-compose" aria-hidden="true"></section>
 
       <section id="mutation" class="mutation-screen hidden" aria-hidden="true" aria-label="Choose a run mutation">
         <div class="mutation-card">
@@ -129,11 +132,18 @@
           <div id="mutation-options"></div>
         </div>
       </section>
-      <button id="start" class="start-screen">
-        <span class="start-kicker">GENERATIVE MUSIC GAME + PERFORMANCE LAB + QUICK RHYTHM GAMES</span>
-        <strong>TAP TO ENTER<br />SOUND WAVE</strong>
-        <small>Survive the Wave, make your own beat, or jump into a ten-second rhythm minigame.</small>
-      </button>
+
+      <section id="start" class="start-screen" aria-label="Choose a Sound Wave mode">
+        <span class="start-kicker">GENERATIVE MUSIC · PERFORMANCE · RHYTHM · LOCAL COMPOSITION</span>
+        <strong>SOUND WAVE</strong>
+        <small>Choose how you want to play with rhythm and harmony.</small>
+        <div class="title-mode-grid">
+          <button type="button" class="title-mode-card wave" data-title-mode="game"><i>◎</i><b>WAVE GAME</b><span>Shape tension. Control pressure. Survive the phrase.</span></button>
+          <button type="button" class="title-mode-card jam" data-title-mode="jam"><i>▦</i><b>JAM LAB</b><span>Drum machine, finger drums and your own samples.</span></button>
+          <button type="button" class="title-mode-card rhythm" data-title-mode="rhythm"><i>●</i><b>RHYTHM PLAY</b><span>Short one/two-input rhythm minigames.</span></button>
+          <button type="button" class="title-mode-card compose" data-title-mode="compose"><i>♪</i><b>AUTO COMPOSE</b><span>Generate complete music locally from theory rules.</span></button>
+        </div>
+      </section>
       <div id="rotate" role="status">ROTATE TO LANDSCAPE</div>
     </main>
     <script type="module" src="/src/main.ts"></script>
