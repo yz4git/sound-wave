@@ -54,6 +54,15 @@ describe('intentional play pressure', () => {
     expect(state.flow).toBeLessThan(flowAfterFirst);
   });
 
+  it('reduces otherwise identical hit value while overplay is high', () => {
+    const cleanBase = startGame(createGameState(55));
+    const clean = handleIntent(cleanBase, 'intensify');
+    const pressured = handleIntent({ ...cleanBase, overplay: 0.9 }, 'intensify');
+    expect(clean.lastInput?.judgement).toBe('perfect');
+    expect(pressured.lastInput?.judgement).toBe('perfect');
+    expect(pressured.lastInput?.scoreDelta ?? 0).toBeLessThan(clean.lastInput?.scoreDelta ?? 0);
+  });
+
   it('tracks phrase progress from deliberate musical actions', () => {
     let state = startGame(createGameState(9));
     state = {
