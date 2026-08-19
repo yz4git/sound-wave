@@ -52,7 +52,8 @@ function keepForVocal(note: CompositionNote, random: () => number): boolean {
 
 export function generateVocalLine(composition: AutoComposition, seed = composition.settings.seed ^ 0x51f15e): VocalEvent[] {
   const random = randomSource(seed >>> 0);
-  const phrase = PHRASES[Math.floor(random() * PHRASES.length)] ?? PHRASES[0];
+  const fallbackPhrase = PHRASES[0]!;
+  const phrase = PHRASES[Math.floor(random() * PHRASES.length)] ?? fallbackPhrase;
   const vocal: VocalEvent[] = [];
   let syllableIndex = 0;
 
