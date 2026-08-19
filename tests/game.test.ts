@@ -78,6 +78,43 @@ describe('intentional play pressure', () => {
     state = handleIntent(state, 'intensify');
     expect(state.phraseGoal.progress).toBe(1);
   });
+
+  it('only lets a successful rhythm hit manipulate the pressure field', () => {
+    let state = startGame(createGameState(144));
+    const initialWave = [...state.pressure.waves].sort((a, b) => a.etaMs - b.etaMs)[0];
+    expect(initialWave).toBeDefined();
+
+    state = handleIntent(state, 'intensify');
+    const changedWave = state.pressure.waves.find((wave) => wave.id === initialWave?.id);
+    expect(changedWave?.amplified).toBe(true);
+
+    const pressureAfterHit = state.pressure;
+    state = handleIntent(state, 'intensify');
+    expect(state.lastInput?.judgement).toBe('echo');
+    expect(state.pressure).toEqual(pressureAfterHit);
+  });
+
+  it('ends the run when a pressure breach drains stability to zero', () => {
+    let state = startGame(createGameState(211));
+    const target = state.pressure.waves[0];
+    expect(target).toBeDefined();
+    if (!target) return;
+
+    state = {
+      ...state,
+      pressure: {
+        ...state.pressure,
+        stability: 0.01,
+        waves: [{ ...target, etaMs: 1, pressure: 1.45 }],
+      },
+    };
+    state = advanceGame(state, 32);
+
+    expect(state.pressure.stability).toBe(0);
+    expect(state.collapsed).toBe(true);
+    expect(state.running).toBe(false);
+    expect(state.combo).toBe(0);
+  });
 });
 
 describe('run structure', () => {
