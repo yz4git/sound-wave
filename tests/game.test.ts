@@ -122,6 +122,14 @@ describe('run structure', () => {
     let state = startGame(createGameState(123));
     let guard = 0;
     while (state.bar < 4 && guard < 100) {
+      state = {
+        ...state,
+        pressure: {
+          ...state.pressure,
+          waves: [],
+          stability: 1,
+        },
+      };
       state = advanceGame(state, 250);
       guard += 1;
     }
