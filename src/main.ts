@@ -136,6 +136,17 @@ function recommendedIntents(): readonly PlayerIntent[] {
       if (state.music.tension >= 0.72) return ['resolve'];
       if (state.music.tension <= 0.3 && danger < 0.48) return ['intensify'];
       return ['diverge'];
+    case 'core-stability':
+      if (state.pressure.stability < 0.75 || danger >= 0.48) {
+        return state.music.tension >= 0.62 ? ['resolve'] : ['delay', 'diverge'];
+      }
+      return danger < 0.28 ? ['intensify'] : ['resolve'];
+    case 'risk-release':
+      if (priority?.amplified) {
+        return state.music.tension >= 0.62 ? ['resolve'] : ['delay'];
+      }
+      if (danger >= 0.52) return ['delay', 'diverge'];
+      return ['intensify'];
   }
 }
 
