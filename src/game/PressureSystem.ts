@@ -166,7 +166,7 @@ export function advancePressure(
     const etaMs = wave.etaMs - safeDelta * tensionRush * speed;
     if (etaMs <= 0) {
       breachedIds.push(wave.id);
-      damage += (0.055 + wave.pressure * 0.085) * (1 + clamp01(tension) * 0.25);
+      damage += (0.02 + wave.pressure * 0.045) * (1 + clamp01(tension) * 0.25);
     } else {
       surviving.push({ ...wave, etaMs });
     }
@@ -180,7 +180,7 @@ export function advancePressure(
     };
   }
 
-  const appliedDamage = clamp(damage, 0, 0.48);
+  const appliedDamage = clamp(damage, 0, 0.32);
   return {
     pressure: {
       ...pressure,
