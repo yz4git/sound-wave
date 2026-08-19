@@ -63,6 +63,7 @@ export interface PhraseResult {
 
 export interface GameState {
   running: boolean;
+  collapsed: boolean;
   elapsedMs: number;
   phaseMs: number;
   bpm: number;
@@ -215,6 +216,7 @@ export function createGameState(
   const pressure = spawnPressureForBar(createPressureState(), challenge, 112, seed);
   return {
     running: false,
+    collapsed: false,
     elapsedMs: 0,
     phaseMs: 0,
     bpm: 112,
@@ -243,6 +245,7 @@ export function createGameState(
 }
 
 export function startGame(state: GameState): GameState {
+  if (state.collapsed) return state;
   return { ...state, running: true };
 }
 
@@ -303,11 +306,14 @@ function nextBar(state: GameState): GameState {
 }
 
 export function advanceGame(state: GameState, deltaMs: number): GameState {
-  if (!state.running || state.pendingModifierChoices.length > 0) return state;
+  if (!state.running || state.collapsed || state.pendingModifierChoices.length > 0) return state;
   const safeDelta = Math.max(0, Math.min(250, deltaMs));
   const pressureAdvance = advancePressure(state.pressure, safeDelta, state.music.tension);
+  const collapsed = pressureAdvance.pressure.stability <= 0;
   let next: GameState = {
     ...state,
+    running: collapsed ? false : state.running,
+    collapsed,
     elapsedMs: state.elapsedMs + safeDelta,
     phaseMs: state.phaseMs + safeDelta,
     pressure: pressureAdvance.pressure,
@@ -316,10 +322,11 @@ export function advanceGame(state: GameState, deltaMs: number): GameState {
     next = {
       ...next,
       combo: 0,
-      flow: clamp01(next.flow - 0.08 - pressureAdvance.damage * 0.45),
+      flow: collapsed ? 0 : clamp01(next.flow - 0.08 - pressureAdvance.damage * 0.45),
       overplay: clamp01(next.overplay + 0.08),
     };
   }
+  if (collapsed) return next;
 
   let guard = 0;
   while (next.phaseMs >= barDurationMs(next.bpm) && guard < 4) {
@@ -332,7 +339,7 @@ export function advanceGame(state: GameState, deltaMs: number): GameState {
 }
 
 export function handleIntent(state: GameState, intent: PlayerIntent): GameState {
-  if (!state.running || state.pendingModifierChoices.length > 0) return state;
+  if (!state.running || state.collapsed || state.pendingModifierChoices.length > 0) return state;
 
   const phase = phaseInBar(state);
   const nearest = nearestActiveStep(state.challenge, phase);
