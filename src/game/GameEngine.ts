@@ -23,6 +23,13 @@ import {
   modifierDefinition,
   type ModifierId,
 } from './RunModifiers';
+import {
+  advancePressure,
+  applyPressureIntent,
+  createPressureState,
+  spawnPressureForBar,
+  type PressureState,
+} from './PressureSystem';
 
 export type InputJudgement = 'perfect' | 'good' | 'reframed' | 'miss' | 'echo';
 export type PhraseGoalId = 'peak-release' | 'hold-flow' | 'offbeat-control' | 'rising-pressure';
@@ -65,6 +72,7 @@ export interface GameState {
   maxCombo: number;
   flow: number;
   overplay: number;
+  pressure: PressureState;
   music: MusicState;
   skill: SkillModel;
   challenge: RhythmChallenge;
@@ -204,6 +212,7 @@ export function createGameState(
 ): GameState {
   const skill = initialSkill;
   const challenge = generateRhythmChallenge(skill, seed);
+  const pressure = spawnPressureForBar(createPressureState(), challenge, 112, seed);
   return {
     running: false,
     elapsedMs: 0,
@@ -215,6 +224,7 @@ export function createGameState(
     maxCombo: 0,
     flow: 0.5,
     overplay: 0,
+    pressure,
     music: createInitialMusicState(tonality),
     skill,
     challenge,
@@ -265,6 +275,10 @@ function nextBar(state: GameState): GameState {
   const pendingModifierChoices = upcomingBar > 0 && upcomingBar % 4 === 0
     ? chooseModifierOptions(state.activeModifiers, nextSeed, 3)
     : [];
+  let pressure = spawnPressureForBar(state.pressure, challenge, bpm, nextSeed);
+  if (phraseFinished && phraseCompleted) {
+    pressure = { ...pressure, stability: clamp01(pressure.stability + 0.08) };
+  }
 
   return {
     ...state,
@@ -273,6 +287,7 @@ function nextBar(state: GameState): GameState {
     score: state.score + phraseBonus,
     flow: phraseFinished && phraseCompleted ? clamp01(state.flow + 0.08) : state.flow,
     overplay: Math.max(0, state.overplay - 0.08),
+    pressure,
     skill: updatedSkill,
     previousChallenge: state.challenge,
     challenge,
@@ -290,11 +305,22 @@ function nextBar(state: GameState): GameState {
 export function advanceGame(state: GameState, deltaMs: number): GameState {
   if (!state.running || state.pendingModifierChoices.length > 0) return state;
   const safeDelta = Math.max(0, Math.min(250, deltaMs));
+  const pressureAdvance = advancePressure(state.pressure, safeDelta, state.music.tension);
   let next: GameState = {
     ...state,
     elapsedMs: state.elapsedMs + safeDelta,
     phaseMs: state.phaseMs + safeDelta,
+    pressure: pressureAdvance.pressure,
   };
+  if (pressureAdvance.breached > 0) {
+    next = {
+      ...next,
+      combo: 0,
+      flow: clamp01(next.flow - 0.08 - pressureAdvance.damage * 0.45),
+      overplay: clamp01(next.overplay + 0.08),
+    };
+  }
+
   let guard = 0;
   while (next.phaseMs >= barDurationMs(next.bpm) && guard < 4) {
     const duration = barDurationMs(next.bpm);
@@ -370,9 +396,13 @@ export function handleIntent(state: GameState, intent: PlayerIntent): GameState 
     polyrhythm: state.challenge.polyrhythm,
   });
   const intentionality = Math.max(0.25, 1 - state.overplay * 0.82);
-  const scoreDelta = hit
+  const pressureResult = hit
+    ? applyPressureIntent(state.pressure, intent, state.music.tension, control)
+    : { pressure: state.pressure, scoreBonus: 0, affected: 0 };
+  const baseScore = hit
     ? Math.round(120 * musicality * comboMultiplier * modifierBonus.scoreMultiplier * intentionality)
     : 0;
+  const scoreDelta = baseScore + pressureResult.scoreBonus;
   const sample: HitSample = {
     errorMs,
     hit,
@@ -415,6 +445,7 @@ export function handleIntent(state: GameState, intent: PlayerIntent): GameState 
     maxCombo: Math.max(state.maxCombo, combo),
     flow: nextFlow,
     overplay: nextOverplay,
+    pressure: pressureResult.pressure,
     phraseGoal,
     samplesThisBar: [...state.samplesThisBar, sample],
     consumedSteps: hit ? [...state.consumedSteps, index] : state.consumedSteps,
