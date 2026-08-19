@@ -1,4 +1,4 @@
-const CACHE = 'sound-wave-v10-auto-compose';
+const CACHE = 'sound-wave-v11-local-vocal';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', (event) => {
