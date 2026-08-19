@@ -28,7 +28,14 @@ export interface RhythmClock {
   subdivisionsPerBeat: number;
 }
 
+export interface TimingWindows {
+  perfectMs: number;
+  goodMs: number;
+  reframeMs: number;
+}
+
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
+const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
 function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
@@ -69,9 +76,29 @@ export function stepDurationMs(clock: RhythmClock): number {
   return 60000 / clock.bpm / clock.subdivisionsPerBeat;
 }
 
+export function timingWindows(stepMs: number): TimingWindows {
+  return {
+    perfectMs: clamp(stepMs * 0.24, 28, 42),
+    goodMs: clamp(stepMs * 0.62, 68, 95),
+    reframeMs: clamp(stepMs * 0.95, 110, 145),
+  };
+}
+
 export function judgeTiming(errorMs: number, stepMs: number): number {
-  const normalized = Math.abs(errorMs) / Math.max(1, stepMs * 0.55);
-  return clamp01(1 - normalized);
+  const error = Math.abs(errorMs);
+  const windows = timingWindows(stepMs);
+  if (error <= windows.perfectMs) {
+    return 1 - (error / windows.perfectMs) * 0.15;
+  }
+  if (error <= windows.goodMs) {
+    const t = (error - windows.perfectMs) / Math.max(1, windows.goodMs - windows.perfectMs);
+    return 0.84 - t * 0.43;
+  }
+  if (error <= windows.reframeMs) {
+    const t = (error - windows.goodMs) / Math.max(1, windows.reframeMs - windows.goodMs);
+    return 0.35 - t * 0.2;
+  }
+  return 0;
 }
 
 export function updateSkill(skill: SkillModel, samples: readonly HitSample[]): SkillModel {
