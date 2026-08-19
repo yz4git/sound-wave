@@ -239,6 +239,34 @@ export class SoundEngine {
     oscillator.stop(now + duration + 0.04);
   }
 
+  playEnergyPulse(
+    pitch: PitchClass,
+    flow: number,
+    tension: number,
+    accent = 0.7,
+    when = this.currentTime,
+  ): void {
+    if (!this.context || !this.musicBus || flow < 0.58) return;
+    const now = Math.max(this.context.currentTime, when);
+    const oscillator = this.context.createOscillator();
+    const filter = this.context.createBiquadFilter();
+    const gain = this.context.createGain();
+    const lift = flow >= 0.82 ? 12 : 7;
+    oscillator.type = tension >= 0.7 ? 'sawtooth' : 'sine';
+    oscillator.frequency.value = midiToHz(midiForPitchClass(pitch, 4) + lift);
+    filter.type = 'lowpass';
+    filter.frequency.value = 1200 + flow * 3000 + tension * 1200;
+    filter.Q.value = 0.6 + tension * 1.5;
+    const level = (0.018 + (flow - 0.58) * 0.11) * clamp(accent, 0.25, 1);
+    gain.gain.setValueAtTime(Math.max(0.0001, level), now);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.1 + flow * 0.08);
+    oscillator.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.musicBus);
+    oscillator.start(now);
+    oscillator.stop(now + 0.22);
+  }
+
   playDrop(pitch: PitchClass, when = this.currentTime): void {
     if (!this.context || !this.musicBus || !this.percussionBus) return;
     const now = Math.max(this.context.currentTime, when);
