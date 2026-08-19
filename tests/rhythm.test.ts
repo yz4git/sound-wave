@@ -6,6 +6,7 @@ import {
   judgeTiming,
   nearestActiveStep,
   targetDifficultyFor,
+  timingWindows,
   updateSkill,
 } from '../src/core/rhythm';
 
@@ -35,9 +36,14 @@ describe('adaptive rhythm engine', () => {
     expect(after.syncopation).toBeGreaterThan(before.syncopation);
   });
 
-  it('grades timing continuously instead of binary perfect/miss', () => {
-    expect(judgeTiming(0, 125)).toBe(1);
-    expect(judgeTiming(30, 125)).toBeGreaterThan(judgeTiming(60, 125));
+  it('uses touch-friendly perfect/good/reframe windows', () => {
+    const windows = timingWindows(134);
+    expect(windows.perfectMs).toBeGreaterThanOrEqual(30);
+    expect(windows.goodMs).toBeGreaterThanOrEqual(80);
+    expect(windows.reframeMs).toBeGreaterThanOrEqual(120);
+    expect(judgeTiming(0, 134)).toBe(1);
+    expect(judgeTiming(30, 134)).toBeGreaterThan(judgeTiming(70, 134));
+    expect(judgeTiming(140, 134)).toBe(0);
   });
 
   it('finds the nearest active rhythm target across bar wrap', () => {
