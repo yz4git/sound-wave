@@ -30,8 +30,10 @@ const phraseEl = required<HTMLElement>('#phrase');
 const objectiveEl = required<HTMLElement>('#objective');
 const chordEl = required<HTMLElement>('#chord');
 const judgementEl = required<HTMLElement>('#judgement');
+const controlsEl = required<HTMLElement>('#controls');
 const intentFeedbackEl = required<HTMLElement>('#intent-feedback');
 const intentFeedbackActionEl = required<HTMLElement>('#intent-feedback-action');
+const intentFeedbackPrimaryEl = required<HTMLElement>('#intent-feedback-primary');
 const intentFeedbackShiftEl = required<HTMLElement>('#intent-feedback-shift');
 const mutationEl = required<HTMLElement>('#mutation');
 const mutationOptionsEl = required<HTMLElement>('#mutation-options');
@@ -42,6 +44,7 @@ const sound = new SoundEngine({ tempo: 112 });
 let profile = loadProfile();
 let state = createGameState(Date.now(), { tonic: 0, mode: 'minor' }, profile.skill);
 let lastFrame = performance.now();
+let lastIntentAtMs = performance.now();
 let previousStep = -1;
 let flashTimer = 0;
 let previousBar = -1;
@@ -57,6 +60,7 @@ function chooseMutation(id: ModifierId): void {
   state = selectModifier(state, id);
   unlockTimer = 2.4;
   lastFrame = performance.now();
+  lastIntentAtMs = lastFrame;
   sound.playIntentAccent('diverge', state.music.chord.root, 0.95);
   sound.playPercussion('accent', 0.95);
   renderer.impact(0.95);
@@ -111,8 +115,19 @@ function recommendedIntents(): readonly PlayerIntent[] {
   }
 }
 
+function shouldShowGuidance(): boolean {
+  const idleMs = performance.now() - lastIntentAtMs;
+  if (state.phrase <= 1) return true;
+  if (state.phrase === 2) {
+    return idleMs >= 1800 || state.flow < 0.48 || state.overplay >= 0.32;
+  }
+  return idleMs >= 4200 && (state.flow < 0.58 || state.combo === 0 || state.overplay >= 0.24);
+}
+
 function syncIntentGuidance(): void {
-  const recommended = recommendedIntents();
+  const showGuidance = shouldShowGuidance();
+  const recommended = showGuidance ? recommendedIntents() : [];
+  controlsEl.classList.toggle('learned', state.phrase >= 3);
   for (const button of intentButtons) {
     const intent = button.dataset.intent as PlayerIntent | undefined;
     button.classList.toggle('suggested', Boolean(intent && recommended.includes(intent)));
@@ -137,7 +152,9 @@ function syncHud(): void {
   const phraseBar = (state.bar % 8) + 1;
   phraseEl.textContent = `PHRASE ${state.phrase} · BAR ${phraseBar}/8`;
   const goalPercent = Math.round(phraseGoalProgress(state.phraseGoal) * 100);
-  objectiveEl.textContent = `${state.phraseGoal.name} · ${state.phraseGoal.description} · ${state.phraseGoal.progress}/${state.phraseGoal.target} · ${goalPercent}%`;
+  objectiveEl.textContent = state.phrase <= 2
+    ? `${state.phraseGoal.name} · ${state.phraseGoal.description} · ${state.phraseGoal.progress}/${state.phraseGoal.target} · ${goalPercent}%`
+    : `${state.phraseGoal.name} · ${state.phraseGoal.progress}/${state.phraseGoal.target} · ${goalPercent}%`;
   const modifierTag = state.activeModifiers.length > 0 ? `  ·  MOD ×${state.activeModifiers.length}` : '';
   chordEl.textContent = `${state.music.chord.label}  ·  ${state.challenge.polyrhythm === 1 ? 'STRAIGHT' : `${state.challenge.polyrhythm}:4 POLY`}${modifierTag}`;
 
@@ -204,6 +221,7 @@ function processTransportTransition(oldBar: number, oldPhrase: number): void {
     phraseTimer = 2.8;
     if (state.lastPhraseResult.completed) {
       sound.playDrop(state.music.chord.root);
+      renderer.celebratePhrase(state.flow);
       renderer.impact(1);
       if (navigator.vibrate) navigator.vibrate([16, 25, 28]);
     } else {
@@ -231,11 +249,19 @@ function showIntentResult(intent: PlayerIntent, beforeTension: number, beforeCho
   const afterTension = state.music.tension;
   const beforePercent = Math.round(beforeTension * 100);
   const afterPercent = Math.round(afterTension * 100);
+  const delta = afterPercent - beforePercent;
+  const deltaLabel = Math.abs(delta) < 2
+    ? `TENSION HOLD · ${afterPercent}%`
+    : `TENSION ${delta > 0 ? '▲' : '▼'}${Math.abs(delta)} · ${afterPercent}%`;
+
   intentFeedbackActionEl.textContent = intent.toUpperCase();
-  intentFeedbackShiftEl.textContent = `TENSION ${beforePercent} → ${afterPercent} · ${beforeChord} → ${state.music.chord.label}`;
+  intentFeedbackPrimaryEl.textContent = deltaLabel;
+  intentFeedbackShiftEl.textContent = beforeChord === state.music.chord.label
+    ? `HARMONY HELD · ${state.music.chord.label}`
+    : `${beforeChord} → ${state.music.chord.label}`;
   intentFeedbackEl.className = `intent-feedback visible ${intent}`;
   intentFeedbackEl.setAttribute('aria-hidden', 'false');
-  intentFeedbackTimer = 1.05;
+  intentFeedbackTimer = 0.78;
   renderer.showIntent(intent, beforeTension, afterTension, strength);
 }
 
@@ -252,6 +278,7 @@ function applyIntent(intent: PlayerIntent, button?: HTMLButtonElement): void {
   state = handleIntent(state, intent);
   const result = state.lastInput;
   if (!result) return;
+  lastIntentAtMs = performance.now();
 
   if (beforeChord !== state.music.chord.label) {
     sound.playChord(state.music.chord, state.music.tension);
@@ -285,6 +312,7 @@ function begin(): void {
   startButton.setAttribute('aria-hidden', 'true');
   startButton.disabled = true;
   lastFrame = performance.now();
+  lastIntentAtMs = lastFrame;
   syncHud();
 
   void sound.unlock()
@@ -353,6 +381,7 @@ document.addEventListener('visibilitychange', () => {
   else {
     sound.resume();
     lastFrame = performance.now();
+    lastIntentAtMs = lastFrame;
   }
 });
 document.addEventListener('touchmove', (event) => event.preventDefault(), { passive: false });
