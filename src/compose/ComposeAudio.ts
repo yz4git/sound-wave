@@ -156,6 +156,34 @@ export class ComposeAudio {
     osc.stop(start + duration + 0.025);
   }
 
+  private playConsonantAttack(syllable: string, velocity: number, when: number): void {
+    if (!this.context || !this.vocalBus || !this.noise) return;
+    const initial = syllable.charAt(0).toLowerCase();
+    const frequency = initial === 'm' ? 650
+      : initial === 'n' ? 1050
+        : initial === 'l' ? 1750
+          : initial === 'r' ? 2300
+            : initial === 'y' ? 3100
+              : 0;
+    if (frequency === 0) return;
+
+    const source = this.context.createBufferSource();
+    const filter = this.context.createBiquadFilter();
+    const gain = this.context.createGain();
+    source.buffer = this.noise;
+    filter.type = 'bandpass';
+    filter.frequency.value = frequency;
+    filter.Q.value = initial === 'm' || initial === 'n' ? 2.2 : 1.1;
+    gain.gain.setValueAtTime(0.0001, when);
+    gain.gain.exponentialRampToValueAtTime(0.012 * clamp(velocity, 0.3, 1), when + 0.006);
+    gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.038);
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.vocalBus);
+    source.start(when);
+    source.stop(when + 0.045);
+  }
+
   playVocal(event: VocalEvent, style: VocalStyle, duration: number, when: number): void {
     if (!this.context || !this.vocalBus) return;
     const start = Math.max(this.context.currentTime, when);
@@ -168,6 +196,7 @@ export class ComposeAudio {
     const styleShift = style === 'bright' ? 1.08 : style === 'airy' ? 1.02 : 0.95;
     const level = style === 'airy' ? 0.055 : style === 'bright' ? 0.07 : 0.064;
 
+    this.playConsonantAttack(event.syllable, event.velocity, start);
     carrier.type = style === 'bright' ? 'sawtooth' : 'triangle';
     carrier.frequency.setValueAtTime(fundamental, start);
     carrierGain.gain.value = 0.7;
