@@ -1,5 +1,7 @@
 import './styles.css';
+import './title.css';
 import { SoundEngine } from './audio/SoundEngine';
+import { AutoComposeMode } from './compose/AutoComposeEntry';
 import type { PlayerIntent } from './core/music';
 import {
   advanceGame,
@@ -17,7 +19,7 @@ import { RhythmPlay } from './rhythm/RhythmPlayEntry';
 import { Renderer } from './ui/Renderer';
 import { loadProfile, saveProfile, updateProfile } from './game/Profile';
 
-type AppMode = 'game' | 'jam' | 'rhythm';
+type AppMode = 'title' | 'game' | 'jam' | 'rhythm' | 'compose';
 
 function required<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
@@ -27,10 +29,10 @@ function required<T extends Element>(selector: string): T {
 
 const appEl = required<HTMLElement>('#app');
 const canvas = required<HTMLCanvasElement>('#game');
-const startButton = required<HTMLButtonElement>('#start');
+const startScreen = required<HTMLElement>('#start');
 const startKickerEl = required<HTMLElement>('#start .start-kicker');
-const startTitleEl = required<HTMLElement>('#start strong');
-const startHelpEl = required<HTMLElement>('#start small');
+const startTitleEl = required<HTMLElement>('#start > strong');
+const startHelpEl = required<HTMLElement>('#start > small');
 const scoreEl = required<HTMLElement>('#score');
 const comboEl = required<HTMLElement>('#combo');
 const flowEl = required<HTMLElement>('#flow');
@@ -50,14 +52,17 @@ const mutationEl = required<HTMLElement>('#mutation');
 const mutationOptionsEl = required<HTMLElement>('#mutation-options');
 const jamRoot = required<HTMLElement>('#jam-lab');
 const rhythmRoot = required<HTMLElement>('#rhythm-play');
+const composeRoot = required<HTMLElement>('#auto-compose');
 const appModeButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-app-mode-button]'));
+const titleModeButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-title-mode]'));
 const intentButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-intent]'));
 
 const renderer = new Renderer(canvas);
 const sound = new SoundEngine({ tempo: 112 });
 const jamLab = new JamLab(jamRoot);
 const rhythmPlay = new RhythmPlay(rhythmRoot);
-let appMode: AppMode = 'game';
+const autoCompose = new AutoComposeMode(composeRoot);
+let appMode: AppMode = 'title';
 let profile = loadProfile();
 let state = createGameState(Date.now(), { tonic: 0, mode: 'minor' }, profile.skill);
 let lastFrame = performance.now();
@@ -74,16 +79,50 @@ let startRequested = false;
 let collapseShown = false;
 let audioUnavailable = false;
 
+function resetTitleCopy(): void {
+  startKickerEl.textContent = 'GENERATIVE MUSIC · PERFORMANCE · RHYTHM · LOCAL COMPOSITION';
+  startTitleEl.textContent = 'SOUND WAVE';
+  startHelpEl.textContent = 'Choose how you want to play with rhythm and harmony.';
+  startScreen.classList.remove('collapse');
+}
+
+function showTitleScreen(): void {
+  startScreen.classList.remove('hidden');
+  startScreen.setAttribute('aria-hidden', 'false');
+  if (!state.collapsed) resetTitleCopy();
+}
+
+function hideTitleScreen(): void {
+  startScreen.classList.add('hidden');
+  startScreen.setAttribute('aria-hidden', 'true');
+}
+
 function setAppMode(mode: AppMode): void {
-  if (appMode === mode) return;
+  if (appMode === mode) {
+    if (mode === 'title') showTitleScreen();
+    return;
+  }
+
   appMode = mode;
   appEl.dataset.appMode = mode;
   for (const button of appModeButtons) {
     button.classList.toggle('active', button.dataset.appModeButton === mode);
   }
 
+  if (mode === 'title') {
+    jamLab.deactivate();
+    rhythmPlay.deactivate();
+    autoCompose.deactivate();
+    sound.suspend();
+    showTitleScreen();
+    return;
+  }
+
+  hideTitleScreen();
+
   if (mode === 'jam') {
     rhythmPlay.deactivate();
+    autoCompose.deactivate();
     sound.suspend();
     void jamLab.activate().catch((error: unknown) => {
       console.warn('Jam Lab audio could not start.', error);
@@ -93,6 +132,7 @@ function setAppMode(mode: AppMode): void {
 
   if (mode === 'rhythm') {
     jamLab.deactivate();
+    autoCompose.deactivate();
     sound.suspend();
     void rhythmPlay.activate().catch((error: unknown) => {
       console.warn('Rhythm Play audio could not start.', error);
@@ -100,8 +140,19 @@ function setAppMode(mode: AppMode): void {
     return;
   }
 
+  if (mode === 'compose') {
+    jamLab.deactivate();
+    rhythmPlay.deactivate();
+    sound.suspend();
+    void autoCompose.activate().catch((error: unknown) => {
+      console.warn('Auto Compose audio could not start.', error);
+    });
+    return;
+  }
+
   jamLab.deactivate();
   rhythmPlay.deactivate();
+  autoCompose.deactivate();
   sound.resume();
   lastFrame = performance.now();
   lastIntentAtMs = lastFrame;
@@ -110,11 +161,30 @@ function setAppMode(mode: AppMode): void {
   renderer.resize();
 }
 
+function enterWaveGame(): void {
+  setAppMode('game');
+  if (!state.running || state.collapsed) begin();
+}
+
+function selectMode(mode: AppMode): void {
+  if (mode === 'game') enterWaveGame();
+  else setAppMode(mode);
+}
+
 for (const button of appModeButtons) {
   button.addEventListener('pointerdown', (event) => {
     event.preventDefault();
     const mode = button.dataset.appModeButton as AppMode | undefined;
-    if (mode) setAppMode(mode);
+    if (mode) selectMode(mode);
+  }, { passive: false });
+  button.addEventListener('contextmenu', (event) => event.preventDefault());
+}
+
+for (const button of titleModeButtons) {
+  button.addEventListener('pointerdown', (event) => {
+    event.preventDefault();
+    const mode = button.dataset.titleMode as AppMode | undefined;
+    if (mode) selectMode(mode);
   }, { passive: false });
   button.addEventListener('contextmenu', (event) => event.preventDefault());
 }
@@ -477,6 +547,7 @@ function prepareFreshRun(): void {
   pressureAlertTimer = 0;
   renderedMutationKey = '';
   collapseShown = false;
+  startRequested = false;
   lastPressureEventToken = pressureEventToken(state.pressure.lastEvent);
 }
 
@@ -484,15 +555,13 @@ function begin(): void {
   if (state.running || startRequested) return;
   if (state.collapsed) prepareFreshRun();
   startRequested = true;
+  resetTitleCopy();
+  hideTitleScreen();
 
   profile = { ...profile, sessions: profile.sessions + 1 };
   saveProfile(profile);
   state = startGame(state);
   lastPressureEventToken = pressureEventToken(state.pressure.lastEvent);
-  startButton.classList.remove('collapse');
-  startButton.classList.add('hidden');
-  startButton.setAttribute('aria-hidden', 'true');
-  startButton.disabled = true;
   lastFrame = performance.now();
   lastIntentAtMs = lastFrame;
   syncHud();
@@ -516,26 +585,15 @@ function showCollapseOverlay(): void {
   startRequested = false;
   profile = updateProfile(profile, state.skill, state.score, state.maxCombo);
   saveProfile(profile);
-  startKickerEl.textContent = 'STABILITY LOST · RUN COMPLETE';
-  startTitleEl.innerHTML = 'CORE<br />COLLAPSED';
-  startHelpEl.textContent = `SCORE ${state.score.toLocaleString()} · PHRASE ${state.phrase} · TAP TO RESTART`;
-  startButton.classList.add('collapse');
-  startButton.classList.remove('hidden');
-  startButton.setAttribute('aria-hidden', 'false');
-  startButton.disabled = false;
   sound.playPercussion('miss', 1);
   renderer.impact(1);
   if (navigator.vibrate) navigator.vibrate([28, 38, 42]);
+  setAppMode('title');
+  startKickerEl.textContent = 'STABILITY LOST · RUN COMPLETE';
+  startTitleEl.textContent = 'CORE COLLAPSED';
+  startHelpEl.textContent = `SCORE ${state.score.toLocaleString()} · PHRASE ${state.phrase} · choose WAVE GAME to restart or another mode to cool down.`;
+  startScreen.classList.add('collapse');
 }
-
-function handleStartGesture(event: Event): void {
-  event.preventDefault();
-  setAppMode('game');
-  begin();
-}
-
-startButton.addEventListener('pointerdown', handleStartGesture, { passive: false });
-startButton.addEventListener('click', handleStartGesture, { passive: false });
 
 for (const button of intentButtons) {
   button.addEventListener('pointerdown', (event: PointerEvent) => {
@@ -561,7 +619,7 @@ window.addEventListener('keydown', (event) => {
   if (appMode !== 'game') return;
   if (state.collapsed && (event.key === 'Enter' || event.key === ' ')) {
     event.preventDefault();
-    begin();
+    enterWaveGame();
     return;
   }
   if (state.pendingModifierChoices.length > 0) {
@@ -592,14 +650,17 @@ document.addEventListener('visibilitychange', () => {
     sound.suspend();
     jamLab.suspendAudio();
     rhythmPlay.suspendAudio();
+    autoCompose.suspendAudio();
   } else if (appMode === 'game') {
     sound.resume();
     lastFrame = performance.now();
     lastIntentAtMs = lastFrame;
   } else if (appMode === 'jam') {
     jamLab.resumeAudio();
-  } else {
+  } else if (appMode === 'rhythm') {
     rhythmPlay.resumeAudio();
+  } else if (appMode === 'compose') {
+    autoCompose.resumeAudio();
   }
 });
 document.addEventListener('touchmove', (event) => event.preventDefault(), { passive: false });
@@ -624,6 +685,7 @@ function frame(now: number): void {
   requestAnimationFrame(frame);
 }
 
+showTitleScreen();
 syncHud();
 requestAnimationFrame(frame);
 
