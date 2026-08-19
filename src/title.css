@@ -85,10 +85,13 @@
 .title-mode-card:active { transform: translateY(3px) scale(.98); border-color: rgba(var(--card-rgb), .85); box-shadow: inset 0 0 30px rgba(var(--card-rgb), .12), 0 0 24px rgba(var(--card-rgb), .12); }
 
 #app:not([data-app-mode="title"]) #mode-switch {
-  grid-template-columns: repeat(5, auto);
-  max-width: calc(100vw - 28px - env(safe-area-inset-left) - env(safe-area-inset-right));
+  left: auto;
+  right: max(14px, env(safe-area-inset-right));
+  grid-template-columns: auto;
 }
+#app:not([data-app-mode="title"]) #mode-switch button:not([data-app-mode-button="title"]) { display: none; }
 #mode-switch button[data-app-mode-button="title"] { color: #a68cff; }
+#app[data-app-mode="compose"] .compose-header { padding-right: 68px; }
 
 @media (max-width: 820px), (max-height: 440px) {
   #start.start-screen { justify-content: center; gap: 6px; }
@@ -101,4 +104,5 @@
   .title-mode-card span { font-size: 6px; }
   #app:not([data-app-mode="title"]) #mode-switch { top: max(42px, calc(env(safe-area-inset-top) + 34px)); }
   #app:not([data-app-mode="title"]) #mode-switch button { padding: 5px 6px; font-size: 6px; }
+  #app[data-app-mode="compose"] .compose-header { padding-right: 52px; }
 }
