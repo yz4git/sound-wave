@@ -30,6 +30,9 @@ const phraseEl = required<HTMLElement>('#phrase');
 const objectiveEl = required<HTMLElement>('#objective');
 const chordEl = required<HTMLElement>('#chord');
 const judgementEl = required<HTMLElement>('#judgement');
+const intentFeedbackEl = required<HTMLElement>('#intent-feedback');
+const intentFeedbackActionEl = required<HTMLElement>('#intent-feedback-action');
+const intentFeedbackShiftEl = required<HTMLElement>('#intent-feedback-shift');
 const mutationEl = required<HTMLElement>('#mutation');
 const mutationOptionsEl = required<HTMLElement>('#mutation-options');
 const intentButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-intent]'));
@@ -44,6 +47,7 @@ let flashTimer = 0;
 let previousBar = -1;
 let unlockTimer = 0;
 let phraseTimer = 0;
+let intentFeedbackTimer = 0;
 let renderedMutationKey = '';
 let startRequested = false;
 let audioUnavailable = false;
@@ -90,6 +94,41 @@ function syncMutationOverlay(): void {
   }
 }
 
+function recommendedIntents(): readonly PlayerIntent[] {
+  switch (state.phraseGoal.id) {
+    case 'peak-release':
+      return state.music.tension >= 0.65 ? ['resolve'] : ['intensify'];
+    case 'rising-pressure':
+      return ['intensify'];
+    case 'hold-flow':
+      if (state.music.tension >= 0.72) return ['resolve', 'delay'];
+      if (state.music.tension <= 0.3) return ['intensify'];
+      return ['diverge'];
+    case 'offbeat-control':
+      if (state.music.tension >= 0.72) return ['resolve'];
+      if (state.music.tension <= 0.3) return ['intensify'];
+      return ['diverge'];
+  }
+}
+
+function syncIntentGuidance(): void {
+  const recommended = recommendedIntents();
+  for (const button of intentButtons) {
+    const intent = button.dataset.intent as PlayerIntent | undefined;
+    button.classList.toggle('suggested', Boolean(intent && recommended.includes(intent)));
+  }
+}
+
+function syncIntentFeedback(): void {
+  if (intentFeedbackTimer > 0) {
+    intentFeedbackEl.classList.add('visible');
+    intentFeedbackEl.setAttribute('aria-hidden', 'false');
+  } else {
+    intentFeedbackEl.classList.remove('visible');
+    intentFeedbackEl.setAttribute('aria-hidden', 'true');
+  }
+}
+
 function syncHud(): void {
   scoreEl.textContent = state.score.toLocaleString();
   comboEl.textContent = String(state.combo);
@@ -128,6 +167,8 @@ function syncHud(): void {
         : 'READ THE PULSE — SHAPE THE NEXT STATE';
     judgementEl.classList.remove('flash');
   }
+  syncIntentFeedback();
+  syncIntentGuidance();
   syncMutationOverlay();
 }
 
@@ -186,6 +227,18 @@ function syncStateToInputTime(): void {
   lastFrame = now;
 }
 
+function showIntentResult(intent: PlayerIntent, beforeTension: number, beforeChord: string, strength: number): void {
+  const afterTension = state.music.tension;
+  const beforePercent = Math.round(beforeTension * 100);
+  const afterPercent = Math.round(afterTension * 100);
+  intentFeedbackActionEl.textContent = intent.toUpperCase();
+  intentFeedbackShiftEl.textContent = `TENSION ${beforePercent} → ${afterPercent} · ${beforeChord} → ${state.music.chord.label}`;
+  intentFeedbackEl.className = `intent-feedback visible ${intent}`;
+  intentFeedbackEl.setAttribute('aria-hidden', 'false');
+  intentFeedbackTimer = 1.05;
+  renderer.showIntent(intent, beforeTension, afterTension, strength);
+}
+
 function applyIntent(intent: PlayerIntent, button?: HTMLButtonElement): void {
   if (!state.running || state.pendingModifierChoices.length > 0) return;
   syncStateToInputTime();
@@ -195,6 +248,7 @@ function applyIntent(intent: PlayerIntent, button?: HTMLButtonElement): void {
   }
 
   const beforeChord = state.music.chord.label;
+  const beforeTension = state.music.tension;
   state = handleIntent(state, intent);
   const result = state.lastInput;
   if (!result) return;
@@ -205,7 +259,9 @@ function applyIntent(intent: PlayerIntent, button?: HTMLButtonElement): void {
   sound.playIntentAccent(intent, state.music.chord.root, result.flow);
   const feedbackVoice = result.judgement === 'miss' ? 'miss' : result.judgement === 'echo' ? 'tick' : 'hit';
   sound.playPercussion(feedbackVoice, Math.max(0.3, result.flow));
+  const visualStrength = result.judgement === 'miss' ? 0.28 : result.judgement === 'echo' ? 0.22 : result.flow;
   renderer.impact(result.judgement === 'miss' ? 0.18 : result.judgement === 'echo' ? 0.12 : result.flow);
+  showIntentResult(intent, beforeTension, beforeChord, visualStrength);
   flashTimer = 0.55;
 
   if (navigator.vibrate && result.judgement !== 'miss' && result.judgement !== 'echo') {
@@ -311,6 +367,7 @@ function frame(now: number): void {
   flashTimer = Math.max(0, flashTimer - deltaMs / 1000);
   unlockTimer = Math.max(0, unlockTimer - deltaMs / 1000);
   phraseTimer = Math.max(0, phraseTimer - deltaMs / 1000);
+  intentFeedbackTimer = Math.max(0, intentFeedbackTimer - deltaMs / 1000);
   renderer.render(state, deltaMs / 1000);
   syncHud();
   requestAnimationFrame(frame);
