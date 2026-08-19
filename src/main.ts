@@ -23,6 +23,9 @@ function required<T extends Element>(selector: string): T {
 
 const canvas = required<HTMLCanvasElement>('#game');
 const startButton = required<HTMLButtonElement>('#start');
+const startKickerEl = required<HTMLElement>('#start .start-kicker');
+const startTitleEl = required<HTMLElement>('#start strong');
+const startHelpEl = required<HTMLElement>('#start small');
 const scoreEl = required<HTMLElement>('#score');
 const comboEl = required<HTMLElement>('#combo');
 const flowEl = required<HTMLElement>('#flow');
@@ -57,6 +60,7 @@ let intentFeedbackTimer = 0;
 let pressureAlertTimer = 0;
 let renderedMutationKey = '';
 let startRequested = false;
+let collapseShown = false;
 let audioUnavailable = false;
 
 function pressureEventToken(event: PressureEvent | null): string {
@@ -147,7 +151,7 @@ function shouldShowGuidance(): boolean {
 }
 
 function syncIntentGuidance(): void {
-  const showGuidance = shouldShowGuidance();
+  const showGuidance = !state.collapsed && shouldShowGuidance();
   const recommended = showGuidance ? recommendedIntents() : [];
   controlsEl.classList.toggle('learned', state.phrase >= 3);
   for (const button of intentButtons) {
@@ -157,7 +161,7 @@ function syncIntentGuidance(): void {
 }
 
 function syncIntentFeedback(): void {
-  if (intentFeedbackTimer > 0) {
+  if (intentFeedbackTimer > 0 && !state.collapsed) {
     intentFeedbackEl.classList.add('visible');
     intentFeedbackEl.setAttribute('aria-hidden', 'false');
   } else {
@@ -181,10 +185,12 @@ function syncPressureHud(): void {
       : danger >= 0.28
         ? 'BUILDING'
         : 'CORE SAFE';
-  pressureStatusEl.textContent = waveCount > 0
-    ? `PRESSURE · ${waveCount} WAVE${waveCount === 1 ? '' : 'S'} INBOUND · ${dangerLabel}`
-    : 'PRESSURE · FIELD CLEAR · CORE SAFE';
-  pressureStatusEl.className = danger >= 0.78 ? 'critical' : danger >= 0.55 ? 'danger' : danger >= 0.28 ? 'building' : '';
+  pressureStatusEl.textContent = state.collapsed
+    ? 'PRESSURE · CORE COLLAPSED'
+    : waveCount > 0
+      ? `PRESSURE · ${waveCount} WAVE${waveCount === 1 ? '' : 'S'} INBOUND · ${dangerLabel}`
+      : 'PRESSURE · FIELD CLEAR · CORE SAFE';
+  pressureStatusEl.className = state.collapsed || danger >= 0.78 ? 'critical' : danger >= 0.55 ? 'danger' : danger >= 0.28 ? 'building' : '';
 }
 
 function syncHud(): void {
@@ -202,7 +208,11 @@ function syncHud(): void {
   const modifierTag = state.activeModifiers.length > 0 ? `  ·  MOD ×${state.activeModifiers.length}` : '';
   chordEl.textContent = `${state.music.chord.label}  ·  ${state.challenge.polyrhythm === 1 ? 'STRAIGHT' : `${state.challenge.polyrhythm}:4 POLY`}${modifierTag}`;
 
-  if (pressureAlertTimer > 0 && state.pressure.lastEvent?.type === 'breach') {
+  if (state.collapsed) {
+    judgementEl.textContent = 'CORE COLLAPSED — RUN OVER';
+    judgementEl.classList.add('danger');
+    judgementEl.classList.remove('flash');
+  } else if (pressureAlertTimer > 0 && state.pressure.lastEvent?.type === 'breach') {
     const lost = Math.abs(Math.round(state.pressure.lastEvent.stabilityDelta * 100));
     judgementEl.textContent = `${state.pressure.lastEvent.message} — STABILITY -${lost}%`;
     judgementEl.classList.add('danger');
@@ -247,7 +257,7 @@ function syncHud(): void {
 }
 
 function pulseMetronome(): void {
-  if (state.pendingModifierChoices.length > 0) return;
+  if (state.pendingModifierChoices.length > 0 || state.collapsed) return;
   const count = state.challenge.steps.length;
   const phase = phaseInBar(state);
   const stepIndex = Math.floor(phase * count) % count;
@@ -310,7 +320,7 @@ function advanceTransport(deltaMs: number): void {
 }
 
 function syncStateToInputTime(): void {
-  if (!state.running || state.pendingModifierChoices.length > 0) return;
+  if (!state.running || state.collapsed || state.pendingModifierChoices.length > 0) return;
   const now = performance.now();
   const deltaMs = Math.min(60, Math.max(0, now - lastFrame));
   if (deltaMs > 0) advanceTransport(deltaMs);
@@ -353,9 +363,9 @@ function showIntentResult(intent: PlayerIntent, beforeTension: number, beforeCho
 }
 
 function applyIntent(intent: PlayerIntent, button?: HTMLButtonElement): void {
-  if (!state.running || state.pendingModifierChoices.length > 0) return;
+  if (!state.running || state.collapsed || state.pendingModifierChoices.length > 0) return;
   syncStateToInputTime();
-  if (state.pendingModifierChoices.length > 0) {
+  if (state.pendingModifierChoices.length > 0 || state.collapsed) {
     syncHud();
     return;
   }
@@ -389,14 +399,30 @@ function applyIntent(intent: PlayerIntent, button?: HTMLButtonElement): void {
   syncHud();
 }
 
+function prepareFreshRun(): void {
+  state = createGameState(Date.now(), { tonic: 0, mode: 'minor' }, profile.skill);
+  previousStep = -1;
+  previousBar = -1;
+  flashTimer = 0;
+  unlockTimer = 0;
+  phraseTimer = 0;
+  intentFeedbackTimer = 0;
+  pressureAlertTimer = 0;
+  renderedMutationKey = '';
+  collapseShown = false;
+  lastPressureEventToken = pressureEventToken(state.pressure.lastEvent);
+}
+
 function begin(): void {
-  if (startRequested || state.running) return;
+  if (state.running || startRequested) return;
+  if (state.collapsed) prepareFreshRun();
   startRequested = true;
 
   profile = { ...profile, sessions: profile.sessions + 1 };
   saveProfile(profile);
   state = startGame(state);
   lastPressureEventToken = pressureEventToken(state.pressure.lastEvent);
+  startButton.classList.remove('collapse');
   startButton.classList.add('hidden');
   startButton.setAttribute('aria-hidden', 'true');
   startButton.disabled = true;
@@ -415,6 +441,24 @@ function begin(): void {
       console.warn('Sound Wave audio could not start; continuing silently.', error);
       syncHud();
     });
+}
+
+function showCollapseOverlay(): void {
+  if (!state.collapsed || collapseShown) return;
+  collapseShown = true;
+  startRequested = false;
+  profile = updateProfile(profile, state.skill, state.score, state.maxCombo);
+  saveProfile(profile);
+  startKickerEl.textContent = 'STABILITY LOST · RUN COMPLETE';
+  startTitleEl.innerHTML = 'CORE<br />COLLAPSED';
+  startHelpEl.textContent = `SCORE ${state.score.toLocaleString()} · PHRASE ${state.phrase} · TAP TO RESTART`;
+  startButton.classList.add('collapse');
+  startButton.classList.remove('hidden');
+  startButton.setAttribute('aria-hidden', 'false');
+  startButton.disabled = false;
+  sound.playPercussion('miss', 1);
+  renderer.impact(1);
+  if (navigator.vibrate) navigator.vibrate([28, 38, 42]);
 }
 
 function handleStartGesture(event: Event): void {
@@ -446,6 +490,11 @@ const keyMap: Record<string, PlayerIntent> = {
 };
 
 window.addEventListener('keydown', (event) => {
+  if (state.collapsed && (event.key === 'Enter' || event.key === ' ')) {
+    event.preventDefault();
+    begin();
+    return;
+  }
   if (state.pendingModifierChoices.length > 0) {
     const index = Number.parseInt(event.key, 10) - 1;
     const choice = Number.isInteger(index) ? state.pendingModifierChoices[index] : undefined;
@@ -482,6 +531,7 @@ function frame(now: number): void {
     advanceTransport(deltaMs);
     pulseMetronome();
   }
+  if (state.collapsed) showCollapseOverlay();
   flashTimer = Math.max(0, flashTimer - deltaMs / 1000);
   unlockTimer = Math.max(0, unlockTimer - deltaMs / 1000);
   phraseTimer = Math.max(0, phraseTimer - deltaMs / 1000);
