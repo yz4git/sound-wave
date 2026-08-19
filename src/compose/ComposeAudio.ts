@@ -1,5 +1,6 @@
 import type { PitchClass } from '../core/music';
 import type { AutoComposition } from './AutoComposer';
+import type { VocalEvent, VocalStyle, VocalVowel } from './VocalGenerator';
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
@@ -11,10 +12,19 @@ function midiForPitchClass(pitch: PitchClass, octave: number): number {
   return 12 * (octave + 1) + pitch;
 }
 
+const FORMANTS: Record<VocalVowel, readonly [number, number, number]> = {
+  a: [800, 1150, 2900],
+  e: [530, 1850, 2500],
+  i: [270, 2290, 3010],
+  o: [570, 840, 2410],
+  u: [300, 870, 2240],
+};
+
 export class ComposeAudio {
   private context: AudioContext | null = null;
   private master: GainNode | null = null;
   private musicBus: GainNode | null = null;
+  private vocalBus: GainNode | null = null;
   private drumBus: GainNode | null = null;
   private compressor: DynamicsCompressorNode | null = null;
   private noise: AudioBuffer | null = null;
@@ -32,16 +42,19 @@ export class ComposeAudio {
       this.context = new AudioContext({ latencyHint: 'interactive' });
       this.master = this.context.createGain();
       this.musicBus = this.context.createGain();
+      this.vocalBus = this.context.createGain();
       this.drumBus = this.context.createGain();
       this.compressor = this.context.createDynamicsCompressor();
       this.master.gain.value = 0.72;
-      this.musicBus.gain.value = 0.72;
-      this.drumBus.gain.value = 0.78;
+      this.musicBus.gain.value = 0.68;
+      this.vocalBus.gain.value = 0.58;
+      this.drumBus.gain.value = 0.76;
       this.compressor.threshold.value = -12;
       this.compressor.ratio.value = 4;
       this.compressor.attack.value = 0.004;
       this.compressor.release.value = 0.18;
       this.musicBus.connect(this.master);
+      this.vocalBus.connect(this.master);
       this.drumBus.connect(this.master);
       this.master.connect(this.compressor);
       this.compressor.connect(this.context.destination);
@@ -143,6 +156,70 @@ export class ComposeAudio {
     osc.stop(start + duration + 0.025);
   }
 
+  playVocal(event: VocalEvent, style: VocalStyle, duration: number, when: number): void {
+    if (!this.context || !this.vocalBus) return;
+    const start = Math.max(this.context.currentTime, when);
+    const end = start + Math.max(0.09, duration);
+    const carrier = this.context.createOscillator();
+    const carrierGain = this.context.createGain();
+    const vibrato = this.context.createOscillator();
+    const vibratoDepth = this.context.createGain();
+    const fundamental = midiToHz(midiForPitchClass(event.pitch, event.octave));
+    const styleShift = style === 'bright' ? 1.08 : style === 'airy' ? 1.02 : 0.95;
+    const level = style === 'airy' ? 0.055 : style === 'bright' ? 0.07 : 0.064;
+
+    carrier.type = style === 'bright' ? 'sawtooth' : 'triangle';
+    carrier.frequency.setValueAtTime(fundamental, start);
+    carrierGain.gain.value = 0.7;
+    vibrato.type = 'sine';
+    vibrato.frequency.value = style === 'airy' ? 5.1 : 5.6;
+    vibratoDepth.gain.value = style === 'bright' ? 10 : 7;
+    vibrato.connect(vibratoDepth);
+    vibratoDepth.connect(carrier.detune);
+    carrier.connect(carrierGain);
+
+    const formants = FORMANTS[event.vowel];
+    formants.forEach((frequency, index) => {
+      const filter = this.context!.createBiquadFilter();
+      const formantGain = this.context!.createGain();
+      const envelope = this.context!.createGain();
+      filter.type = 'bandpass';
+      filter.frequency.value = frequency * styleShift;
+      filter.Q.value = style === 'bright' ? 8 : 6.5;
+      formantGain.gain.value = [1, 0.62, 0.34][index] ?? 0.25;
+      envelope.gain.setValueAtTime(0.0001, start);
+      envelope.gain.exponentialRampToValueAtTime(level * clamp(event.velocity, 0.3, 1), start + 0.025);
+      envelope.gain.setValueAtTime(level * clamp(event.velocity, 0.3, 1), Math.max(start + 0.03, end - 0.06));
+      envelope.gain.exponentialRampToValueAtTime(0.0001, end);
+      carrierGain.connect(filter);
+      filter.connect(formantGain);
+      formantGain.connect(envelope);
+      envelope.connect(this.vocalBus!);
+    });
+
+    if (this.noise && style === 'airy') {
+      const breath = this.context.createBufferSource();
+      const highpass = this.context.createBiquadFilter();
+      const breathGain = this.context.createGain();
+      breath.buffer = this.noise;
+      highpass.type = 'highpass';
+      highpass.frequency.value = 3600;
+      breathGain.gain.setValueAtTime(0.0001, start);
+      breathGain.gain.exponentialRampToValueAtTime(0.018 * event.velocity, start + 0.03);
+      breathGain.gain.exponentialRampToValueAtTime(0.0001, Math.min(end, start + 0.45));
+      breath.connect(highpass);
+      highpass.connect(breathGain);
+      breathGain.connect(this.vocalBus);
+      breath.start(start);
+      breath.stop(Math.min(end + 0.02, start + 0.49));
+    }
+
+    carrier.start(start);
+    vibrato.start(start);
+    carrier.stop(end + 0.03);
+    vibrato.stop(end + 0.03);
+  }
+
   playDrum(voice: 'kick' | 'snare' | 'hat' | 'clap', velocity: number, when: number): void {
     if (!this.context || !this.drumBus) return;
     const start = Math.max(this.context.currentTime, when);
@@ -191,7 +268,13 @@ export class ComposeAudio {
     }
   }
 
-  scheduleStep(composition: AutoComposition, step: number, when: number): void {
+  scheduleStep(
+    composition: AutoComposition,
+    step: number,
+    when: number,
+    vocalLine: readonly VocalEvent[] = [],
+    vocalStyle: VocalStyle = 'warm',
+  ): void {
     const stepSeconds = 60 / composition.settings.bpm / 4;
     const bar = Math.floor(step / 16);
     const localStep = step % 16;
@@ -212,6 +295,11 @@ export class ComposeAudio {
     for (const note of composition.melody) {
       if (note.step === step) {
         this.playMelody(note.pitch, note.octave, stepSeconds * note.durationSteps * 0.88, note.velocity, when);
+      }
+    }
+    for (const vocal of vocalLine) {
+      if (vocal.step === step) {
+        this.playVocal(vocal, vocalStyle, stepSeconds * vocal.durationSteps * 0.92, when);
       }
     }
   }
