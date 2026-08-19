@@ -1,0 +1,134 @@
+#auto-compose {
+  position: absolute;
+  z-index: 8;
+  inset: 0;
+  display: none;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: clamp(8px, 1.4vh, 14px);
+  padding:
+    max(10px, env(safe-area-inset-top))
+    max(14px, env(safe-area-inset-right))
+    max(10px, env(safe-area-inset-bottom))
+    max(14px, env(safe-area-inset-left));
+  background:
+    radial-gradient(circle at 75% 20%, rgba(166, 140, 255, .13), transparent 32%),
+    radial-gradient(circle at 24% 74%, rgba(101, 243, 223, .1), transparent 34%),
+    linear-gradient(150deg, #080b15, #0b0917 58%, #071018);
+  overflow: hidden;
+}
+#auto-compose.active { display: grid; }
+
+.compose-header {
+  min-height: 72px;
+  display: flex;
+  align-items: flex-end;
+  gap: 18px;
+}
+.compose-header > div:first-child { margin-right: auto; }
+.compose-kicker { color: #65f3df; font-size: 8px; font-weight: 850; letter-spacing: .22em; }
+.compose-header h1 { margin: 3px 0 0; font-size: clamp(24px, 3.6vw, 42px); line-height: .9; letter-spacing: -.04em; }
+.compose-header p { margin: 6px 0 0; color: #808aa6; font-size: clamp(8px, .95vw, 11px); }
+.compose-transport { display: flex; gap: 6px; }
+.compose-transport button {
+  appearance: none;
+  min-height: 38px;
+  border: 1px solid rgba(131,145,193,.24);
+  border-radius: 11px;
+  padding: 0 13px;
+  background: rgba(18,23,38,.88);
+  color: #cfd6eb;
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: .1em;
+}
+#compose-play { color: #65f3df; border-color: rgba(101,243,223,.38); }
+#compose-play.playing { color: #ff7ca9; border-color: rgba(255,109,159,.48); }
+
+.compose-controls {
+  display: grid;
+  grid-template-columns: .65fr .85fr 1fr 1fr;
+  gap: 7px;
+}
+.compose-controls label {
+  min-width: 0;
+  min-height: 42px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(129,143,191,.14);
+  border-radius: 10px;
+  padding: 0 9px;
+  background: rgba(14,18,31,.68);
+}
+.compose-controls span { color: #9aa5bf; font-size: 8px; font-weight: 850; letter-spacing: .1em; white-space: nowrap; }
+.compose-controls select {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  background: #151a2a;
+  color: #eef2ff;
+  border-radius: 7px;
+  padding: 7px;
+  font-size: 9px;
+  font-weight: 800;
+}
+.compose-controls input { width: 100%; accent-color: #65f3df; }
+
+.compose-stage {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto 5px auto minmax(72px, 1fr) auto;
+  gap: 8px;
+  border: 1px solid rgba(133,147,195,.13);
+  border-radius: 18px;
+  padding: clamp(10px, 1.5vw, 16px);
+  background: rgba(8,11,21,.62);
+  overflow: hidden;
+}
+.compose-now { display: grid; grid-template-columns: auto auto 1fr; align-items: baseline; gap: 12px; }
+.compose-now span { color: #a68cff; font-size: 8px; font-weight: 850; letter-spacing: .16em; }
+.compose-now strong { color: #fff; font-size: clamp(15px, 2vw, 23px); letter-spacing: .05em; }
+.compose-now small { justify-self: end; color: #6f7994; font-size: 7px; font-weight: 750; letter-spacing: .11em; }
+.compose-progress { height: 5px; border-radius: 999px; background: rgba(124,139,188,.12); overflow: hidden; }
+.compose-progress i { display: block; width: 0; height: 100%; background: linear-gradient(90deg, #65f3df, #a68cff, #ff6d9f); box-shadow: 0 0 12px rgba(166,140,255,.35); }
+.compose-chords { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 5px; }
+.compose-chord-cell {
+  min-width: 0;
+  min-height: 58px;
+  display: grid;
+  place-content: center;
+  gap: 2px;
+  text-align: center;
+  border: 1px solid rgba(128,143,190,.14);
+  border-radius: 10px;
+  background: rgba(23,28,46,.72);
+  transition: transform 80ms ease, border-color 80ms ease, background 80ms ease;
+}
+.compose-chord-cell span, .compose-chord-cell em { color: #6f7994; font-size: 6px; font-style: normal; font-weight: 800; letter-spacing: .12em; }
+.compose-chord-cell b { color: #e8ecfb; font-size: clamp(8px, 1vw, 11px); line-height: 1.05; }
+.compose-chord-cell.active { transform: translateY(-2px); border-color: rgba(101,243,223,.72); background: rgba(32,72,72,.5); box-shadow: 0 0 18px rgba(101,243,223,.1); }
+
+.compose-roll-wrap { min-height: 0; position: relative; border: 1px solid rgba(128,143,190,.1); border-radius: 12px; background: linear-gradient(rgba(255,255,255,.015) 1px, transparent 1px), rgba(7,10,18,.72); background-size: 100% 25%; overflow: hidden; }
+.compose-roll-label { position: absolute; z-index: 2; top: 7px; left: 9px; color: #68738f; font-size: 7px; font-weight: 850; letter-spacing: .15em; }
+.compose-roll { position: absolute; inset: 0; }
+.compose-roll::after { content: ''; position: absolute; inset: 0; background: repeating-linear-gradient(90deg, transparent 0, transparent calc(12.5% - 1px), rgba(137,151,201,.08) calc(12.5% - 1px), rgba(137,151,201,.08) 12.5%); pointer-events: none; }
+.compose-note { position: absolute; min-width: 4px; height: 5px; border-radius: 999px; background: rgba(166,140,255,.68); box-shadow: 0 0 7px rgba(166,140,255,.18); transition: transform 55ms ease, background 55ms ease, box-shadow 55ms ease; }
+.compose-note.active { transform: scaleY(1.8); background: #65f3df; box-shadow: 0 0 12px rgba(101,243,223,.65); }
+.compose-explain { display: flex; align-items: center; gap: 10px; min-height: 28px; }
+.compose-explain b { color: #65f3df; font-size: 7px; letter-spacing: .14em; }
+.compose-explain span { color: #737e99; font-size: 7px; letter-spacing: .04em; }
+
+@media (max-width: 800px), (max-height: 440px) {
+  .compose-header { min-height: 54px; align-items: center; }
+  .compose-header p { display: none; }
+  .compose-header h1 { font-size: 22px; }
+  .compose-transport button { min-height: 32px; padding: 0 8px; font-size: 7px; }
+  .compose-controls label { min-height: 34px; padding: 0 6px; gap: 5px; }
+  .compose-controls span, .compose-controls select { font-size: 7px; }
+  .compose-stage { padding: 8px; border-radius: 13px; }
+  .compose-now small { display: none; }
+  .compose-chord-cell { min-height: 44px; border-radius: 7px; }
+  .compose-chord-cell span, .compose-chord-cell em { font-size: 5px; }
+  .compose-explain span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+}
