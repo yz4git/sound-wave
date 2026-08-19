@@ -22,6 +22,8 @@
         <div class="metric"><span>BPM</span><b id="bpm">112</b></div>
       </section>
       <section id="status">
+        <div id="phrase">PHRASE 1 · BAR 1/8</div>
+        <div id="objective">OBJECTIVE · READ THE CURRENT</div>
         <div id="chord">C · tonic</div>
         <div id="judgement">PREDICT → SHAPE → RESOLVE</div>
       </section>
@@ -30,6 +32,13 @@
         <button data-intent="delay"><b>DELAY</b><span>hold the edge</span></button>
         <button data-intent="diverge"><b>DIVERGE</b><span>break expectation</span></button>
         <button data-intent="intensify"><b>INTENSIFY</b><span>raise tension</span></button>
+      </section>
+      <section id="mutation" class="mutation-screen hidden" aria-hidden="true" aria-label="Choose a run mutation">
+        <div class="mutation-card">
+          <span class="mutation-kicker">CHOOSE MUTATION</span>
+          <strong>RESHAPE THE RUN</strong>
+          <div id="mutation-options"></div>
+        </div>
       </section>
       <button id="start" class="start-screen">
         <span class="start-kicker">GENERATIVE MUSIC GAME · VITE PRODUCTION</span>
