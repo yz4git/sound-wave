@@ -1,4 +1,4 @@
-const CACHE = 'sound-wave-v6-gameplay';
+const CACHE = 'sound-wave-v7-pressure';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', (event) => {
