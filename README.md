@@ -2,7 +2,7 @@
 
 A touch-first generative music game and performance playground where **music theory is the system**, not just a source of fixed note charts.
 
-The title screen now exposes four first-class experiences: **WAVE GAME / JAM LAB / RHYTHM PLAY / AUTO COMPOSE**. Leaving any experience returns to TITLE, so mode selection stays simple on iPhone landscape.
+The title screen exposes four first-class experiences: **WAVE GAME / JAM LAB / RHYTHM PLAY / AUTO COMPOSE**. Leaving any experience returns to TITLE, so mode selection stays simple on iPhone landscape.
 
 ## Playable now
 
@@ -38,7 +38,7 @@ Short, instantly understandable 10–20 second rhythm minigames:
 
 ### AUTO COMPOSE
 
-AUTO COMPOSE creates an eight-bar piece **entirely on-device**. It does not call a cloud model or remote generation API.
+AUTO COMPOSE creates an eight-bar piece **entirely on-device**. It does not call a cloud model, remote generation API or remote voice service.
 
 Controls:
 
@@ -46,7 +46,9 @@ Controls:
 - choose MAJOR / MINOR / DORIAN / PHRYGIAN / MIXOLYDIAN
 - set 60–180 BPM
 - set melodic/rhythmic DENSITY
-- REGENERATE changes the local seed and immediately creates new material
+- toggle locally synthesized VOCAL ON/OFF
+- choose WARM / BRIGHT / AIRY vocal timbre
+- REGENERATE changes the local seed and immediately creates new music and a new vocal phrase
 - PLAY / STOP uses Web Audio lookahead scheduling
 
 Generated layers:
@@ -56,9 +58,12 @@ Generated layers:
 - **Melody** — strong beats prefer chord tones; weaker subdivisions use nearby scale tones
 - **Bass** — follows generated chord roots and reinforces phrase structure
 - **Drums** — locally generated kick/snare/hat/clap pattern follows meter and density
+- **Vocal** — selected melody notes become deterministic syllable events such as LA / NA / RI / YO; `a/e/i/o/u` vowels are synthesized with formant filters, harmonics, light vibrato and optional breath noise
 - the final bar always returns to tonic so the eight-bar phrase has a clear resolution
 
-The UI displays the generated chord progression, current harmonic function, melody piano-roll-style events and live playback position. Settings are persisted locally when browser storage is available.
+The vocal system is deliberately lightweight and local: it is a stylized singing synthesizer, not a downloaded neural voice model and not voice cloning. The UI shows vocal-note markers and the syllable currently being sung. Vocal settings persist locally when browser storage is available.
+
+The UI also displays the generated chord progression, current harmonic function, melody piano-roll-style events and live playback position.
 
 ## WAVE GAME core loop
 
@@ -75,7 +80,7 @@ The UI displays the generated chord progression, current harmonic function, melo
 3. **Pressure as music** — WAVE GAME turns harmonic tension into the threat.
 4. **Performance freedom** — JAM LAB works as an instrument.
 5. **Immediate rhythm fun** — RHYTHM PLAY uses tiny input vocabularies and short sessions.
-6. **Local generation** — AUTO COMPOSE is deterministic/seeded TypeScript + Web Audio, with no server dependency.
+6. **Local generation** — AUTO COMPOSE is deterministic/seeded TypeScript + Web Audio, including local formant vocal synthesis, with no server dependency.
 7. **Touch-first** — designed for landscape iPhone Safari, safe areas and low-latency Web Audio.
 
 ## Architecture
@@ -91,8 +96,10 @@ The UI displays the generated chord progression, current harmonic function, melo
 - `src/rhythm/RhythmPlayEngine.ts` — pure minigame timelines, judgement, scoring and ranks
 - `src/rhythm/RhythmPlay.ts` — Rhythm Play browser controller
 - `src/compose/AutoComposer.ts` — deterministic theory-based harmony, melody and rhythm generator
-- `src/compose/ComposeAudio.ts` — dedicated chord/bass/melody/drum Web Audio engine
-- `src/compose/AutoComposeMode.ts` — Auto Compose controls, visualization and lookahead transport
+- `src/compose/VocalGenerator.ts` — deterministic melody-to-syllable vocal event generator
+- `src/compose/ComposeAudio.ts` — chord/bass/melody/drum engine plus local formant singing synthesis
+- `src/compose/AutoComposeMode.ts` — Auto Compose controls, vocal controls, visualization and lookahead transport
+- `src/compose/compose-vocal.css` — vocal controls, syllable status and vocal-note visualization
 - `src/title.css` — four-mode title selection and in-mode TITLE return control
 - `src/main.ts` — single browser runtime entrypoint and title/mode lifecycle
 
@@ -128,4 +135,4 @@ Rules:
 - the deleted root `app.js` / root `styles.css` fallback runtime must not return
 - `npm run validate:prod` verifies the production artifact
 - service-worker navigation is network-first while hashed Vite assets are cache-first
-- current cache generation: `sound-wave-v10-auto-compose`
+- current cache generation: `sound-wave-v11-local-vocal`
