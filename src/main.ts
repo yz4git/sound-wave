@@ -11,6 +11,7 @@ import {
   startGame,
 } from './game/GameEngine';
 import { modifierDefinition, type ModifierId } from './game/RunModifiers';
+import { pressureDanger, type PressureEvent } from './game/PressureSystem';
 import { Renderer } from './ui/Renderer';
 import { loadProfile, saveProfile, updateProfile } from './game/Profile';
 
@@ -25,9 +26,11 @@ const startButton = required<HTMLButtonElement>('#start');
 const scoreEl = required<HTMLElement>('#score');
 const comboEl = required<HTMLElement>('#combo');
 const flowEl = required<HTMLElement>('#flow');
+const stabilityEl = required<HTMLElement>('#stability');
 const bpmEl = required<HTMLElement>('#bpm');
 const phraseEl = required<HTMLElement>('#phrase');
 const objectiveEl = required<HTMLElement>('#objective');
+const pressureStatusEl = required<HTMLElement>('#pressure-status');
 const chordEl = required<HTMLElement>('#chord');
 const judgementEl = required<HTMLElement>('#judgement');
 const controlsEl = required<HTMLElement>('#controls');
@@ -51,9 +54,17 @@ let previousBar = -1;
 let unlockTimer = 0;
 let phraseTimer = 0;
 let intentFeedbackTimer = 0;
+let pressureAlertTimer = 0;
 let renderedMutationKey = '';
 let startRequested = false;
 let audioUnavailable = false;
+
+function pressureEventToken(event: PressureEvent | null): string {
+  if (!event) return '';
+  return `${event.type}:${event.waveIds.join(',')}:${event.message}:${event.scoreBonus}:${Math.round(event.stabilityDelta * 1000)}`;
+}
+
+let lastPressureEventToken = pressureEventToken(state.pressure.lastEvent);
 
 function chooseMutation(id: ModifierId): void {
   if (!state.pendingModifierChoices.includes(id)) return;
@@ -99,24 +110,35 @@ function syncMutationOverlay(): void {
 }
 
 function recommendedIntents(): readonly PlayerIntent[] {
+  const danger = pressureDanger(state.pressure);
+  const priority = [...state.pressure.waves].sort((a, b) => a.etaMs - b.etaMs)[0];
+
+  if (priority && (danger >= 0.72 || state.pressure.stability <= 0.38)) {
+    if (state.music.tension >= 0.62) return ['resolve'];
+    return priority.amplified ? ['delay', 'diverge'] : ['delay'];
+  }
+  if (priority?.amplified && danger >= 0.46) return ['resolve', 'delay'];
+
   switch (state.phraseGoal.id) {
     case 'peak-release':
       return state.music.tension >= 0.65 ? ['resolve'] : ['intensify'];
     case 'rising-pressure':
-      return ['intensify'];
+      return danger < 0.52 ? ['intensify'] : ['delay', 'diverge'];
     case 'hold-flow':
       if (state.music.tension >= 0.72) return ['resolve', 'delay'];
-      if (state.music.tension <= 0.3) return ['intensify'];
+      if (state.music.tension <= 0.3 && danger < 0.48) return ['intensify'];
       return ['diverge'];
     case 'offbeat-control':
       if (state.music.tension >= 0.72) return ['resolve'];
-      if (state.music.tension <= 0.3) return ['intensify'];
+      if (state.music.tension <= 0.3 && danger < 0.48) return ['intensify'];
       return ['diverge'];
   }
 }
 
 function shouldShowGuidance(): boolean {
   const idleMs = performance.now() - lastIntentAtMs;
+  const danger = pressureDanger(state.pressure);
+  if (danger >= 0.72 || state.pressure.stability <= 0.35) return true;
   if (state.phrase <= 1) return true;
   if (state.phrase === 2) {
     return idleMs >= 1800 || state.flow < 0.48 || state.overplay >= 0.32;
@@ -144,11 +166,33 @@ function syncIntentFeedback(): void {
   }
 }
 
+function syncPressureHud(): void {
+  const stability = state.pressure.stability;
+  const danger = pressureDanger(state.pressure);
+  const waveCount = state.pressure.waves.length;
+  stabilityEl.textContent = `${Math.round(stability * 100)}%`;
+  stabilityEl.classList.toggle('warning', stability < 0.55 && stability >= 0.3);
+  stabilityEl.classList.toggle('critical', stability < 0.3);
+
+  const dangerLabel = danger >= 0.78
+    ? 'CORE CRITICAL'
+    : danger >= 0.55
+      ? 'DANGER'
+      : danger >= 0.28
+        ? 'BUILDING'
+        : 'CORE SAFE';
+  pressureStatusEl.textContent = waveCount > 0
+    ? `PRESSURE · ${waveCount} WAVE${waveCount === 1 ? '' : 'S'} INBOUND · ${dangerLabel}`
+    : 'PRESSURE · FIELD CLEAR · CORE SAFE';
+  pressureStatusEl.className = danger >= 0.78 ? 'critical' : danger >= 0.55 ? 'danger' : danger >= 0.28 ? 'building' : '';
+}
+
 function syncHud(): void {
   scoreEl.textContent = state.score.toLocaleString();
   comboEl.textContent = String(state.combo);
   flowEl.textContent = `${Math.round(state.flow * 100)}%`;
   bpmEl.textContent = String(Math.round(state.bpm));
+  syncPressureHud();
   const phraseBar = (state.bar % 8) + 1;
   phraseEl.textContent = `PHRASE ${state.phrase} · BAR ${phraseBar}/8`;
   const goalPercent = Math.round(phraseGoalProgress(state.phraseGoal) * 100);
@@ -158,31 +202,44 @@ function syncHud(): void {
   const modifierTag = state.activeModifiers.length > 0 ? `  ·  MOD ×${state.activeModifiers.length}` : '';
   chordEl.textContent = `${state.music.chord.label}  ·  ${state.challenge.polyrhythm === 1 ? 'STRAIGHT' : `${state.challenge.polyrhythm}:4 POLY`}${modifierTag}`;
 
-  if (phraseTimer > 0 && state.lastPhraseResult) {
+  if (pressureAlertTimer > 0 && state.pressure.lastEvent?.type === 'breach') {
+    const lost = Math.abs(Math.round(state.pressure.lastEvent.stabilityDelta * 100));
+    judgementEl.textContent = `${state.pressure.lastEvent.message} — STABILITY -${lost}%`;
+    judgementEl.classList.add('danger');
+    judgementEl.classList.remove('flash');
+  } else if (phraseTimer > 0 && state.lastPhraseResult) {
     const result = state.lastPhraseResult;
     judgementEl.textContent = result.completed
       ? `PHRASE CLEAR — ${result.name}  +${result.bonus}`
       : `PHRASE MISSED — ${result.name}`;
     judgementEl.classList.toggle('flash', result.completed);
+    judgementEl.classList.remove('danger');
   } else if (state.lastUnlock && unlockTimer > 0) {
     judgementEl.textContent = `MUTATION ACQUIRED — ${state.lastUnlock}`;
     judgementEl.classList.add('flash');
+    judgementEl.classList.remove('danger');
   } else if (state.lastInput && flashTimer > 0) {
     judgementEl.textContent = `${state.lastInput.message}  +${state.lastInput.scoreDelta}`;
     judgementEl.classList.add('flash');
+    judgementEl.classList.remove('danger');
   } else if (audioUnavailable) {
     judgementEl.textContent = 'AUDIO UNAVAILABLE — GAMEPLAY CONTINUES';
-    judgementEl.classList.remove('flash');
+    judgementEl.classList.remove('flash', 'danger');
   } else if (state.overplay >= 0.55) {
     judgementEl.textContent = 'OVERPLAY — LEAVE SPACE BETWEEN TARGETS';
-    judgementEl.classList.remove('flash');
+    judgementEl.classList.remove('flash', 'danger');
   } else {
-    judgementEl.textContent = state.music.tension > 0.68
-      ? 'TENSION HIGH — RESOLVE, DELAY OR BREAK IT'
-      : state.music.tension < 0.32
-        ? 'SPACE OPEN — BUILD TENSION'
-        : 'READ THE PULSE — SHAPE THE NEXT STATE';
-    judgementEl.classList.remove('flash');
+    const danger = pressureDanger(state.pressure);
+    judgementEl.textContent = danger >= 0.72
+      ? state.music.tension >= 0.62
+        ? 'CORE PRESSURE — RESOLVE THE BUILDUP'
+        : 'CORE PRESSURE — DELAY OR REROUTE'
+      : state.music.tension > 0.68
+        ? 'TENSION HIGH — CASH OUT OR HOLD THE EDGE'
+        : state.music.tension < 0.32
+          ? 'SPACE OPEN — BUILD RISK FOR MORE REWARD'
+          : 'READ THE PULSE — SHAPE THE PRESSURE';
+    judgementEl.classList.remove('flash', 'danger');
   }
   syncIntentFeedback();
   syncIntentGuidance();
@@ -210,6 +267,20 @@ function pulseMetronome(): void {
   }
 }
 
+function processPressureFeedback(): void {
+  const event = state.pressure.lastEvent;
+  const token = pressureEventToken(event);
+  if (!event || token === lastPressureEventToken) return;
+  lastPressureEventToken = token;
+
+  if (event.type === 'breach') {
+    pressureAlertTimer = 1.15;
+    sound.playPercussion('miss', 1);
+    renderer.impact(0.82);
+    if (navigator.vibrate) navigator.vibrate([18, 22, 18]);
+  }
+}
+
 function processTransportTransition(oldBar: number, oldPhrase: number): void {
   if (state.bar !== oldBar) {
     profile = updateProfile(profile, state.skill, state.score, state.maxCombo);
@@ -234,6 +305,7 @@ function advanceTransport(deltaMs: number): void {
   const oldBar = state.bar;
   const oldPhrase = state.phrase;
   state = advanceGame(state, deltaMs);
+  processPressureFeedback();
   processTransportTransition(oldBar, oldPhrase);
 }
 
@@ -245,6 +317,16 @@ function syncStateToInputTime(): void {
   lastFrame = now;
 }
 
+function pressureEventMatchesIntent(event: PressureEvent | null, intent: PlayerIntent): boolean {
+  if (!event) return false;
+  return (
+    (intent === 'resolve' && event.type === 'resolve') ||
+    (intent === 'delay' && event.type === 'delay') ||
+    (intent === 'diverge' && event.type === 'diverge') ||
+    (intent === 'intensify' && event.type === 'intensify')
+  );
+}
+
 function showIntentResult(intent: PlayerIntent, beforeTension: number, beforeChord: string, strength: number): void {
   const afterTension = state.music.tension;
   const beforePercent = Math.round(beforeTension * 100);
@@ -253,15 +335,20 @@ function showIntentResult(intent: PlayerIntent, beforeTension: number, beforeCho
   const deltaLabel = Math.abs(delta) < 2
     ? `TENSION HOLD · ${afterPercent}%`
     : `TENSION ${delta > 0 ? '▲' : '▼'}${Math.abs(delta)} · ${afterPercent}%`;
+  const harmonyLabel = beforeChord === state.music.chord.label
+    ? `HARMONY HELD · ${state.music.chord.label}`
+    : `${beforeChord} → ${state.music.chord.label}`;
+  const pressureEvent = state.pressure.lastEvent;
+  const pressureLabel = pressureEventMatchesIntent(pressureEvent, intent)
+    ? `${pressureEvent?.message ?? ''}${(pressureEvent?.scoreBonus ?? 0) > 0 ? ` +${pressureEvent?.scoreBonus}` : ''}`
+    : '';
 
   intentFeedbackActionEl.textContent = intent.toUpperCase();
   intentFeedbackPrimaryEl.textContent = deltaLabel;
-  intentFeedbackShiftEl.textContent = beforeChord === state.music.chord.label
-    ? `HARMONY HELD · ${state.music.chord.label}`
-    : `${beforeChord} → ${state.music.chord.label}`;
+  intentFeedbackShiftEl.textContent = pressureLabel ? `${pressureLabel} · ${harmonyLabel}` : harmonyLabel;
   intentFeedbackEl.className = `intent-feedback visible ${intent}`;
   intentFeedbackEl.setAttribute('aria-hidden', 'false');
-  intentFeedbackTimer = 0.78;
+  intentFeedbackTimer = 0.82;
   renderer.showIntent(intent, beforeTension, afterTension, strength);
 }
 
@@ -276,6 +363,7 @@ function applyIntent(intent: PlayerIntent, button?: HTMLButtonElement): void {
   const beforeChord = state.music.chord.label;
   const beforeTension = state.music.tension;
   state = handleIntent(state, intent);
+  processPressureFeedback();
   const result = state.lastInput;
   if (!result) return;
   lastIntentAtMs = performance.now();
@@ -308,6 +396,7 @@ function begin(): void {
   profile = { ...profile, sessions: profile.sessions + 1 };
   saveProfile(profile);
   state = startGame(state);
+  lastPressureEventToken = pressureEventToken(state.pressure.lastEvent);
   startButton.classList.add('hidden');
   startButton.setAttribute('aria-hidden', 'true');
   startButton.disabled = true;
@@ -397,6 +486,7 @@ function frame(now: number): void {
   unlockTimer = Math.max(0, unlockTimer - deltaMs / 1000);
   phraseTimer = Math.max(0, phraseTimer - deltaMs / 1000);
   intentFeedbackTimer = Math.max(0, intentFeedbackTimer - deltaMs / 1000);
+  pressureAlertTimer = Math.max(0, pressureAlertTimer - deltaMs / 1000);
   renderer.render(state, deltaMs / 1000);
   syncHud();
   requestAnimationFrame(frame);
