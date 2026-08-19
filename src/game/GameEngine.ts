@@ -11,14 +11,21 @@ import {
   judgeTiming,
   nearestActiveStep,
   stepDurationMs,
+  timingWindows,
   updateSkill,
   type HitSample,
   type RhythmChallenge,
   type SkillModel,
 } from '../core/rhythm';
-import { calculateModifierBonus, chooseModifier, modifierDefinition, type ModifierId } from './RunModifiers';
+import {
+  calculateModifierBonus,
+  chooseModifierOptions,
+  modifierDefinition,
+  type ModifierId,
+} from './RunModifiers';
 
 export type InputJudgement = 'perfect' | 'good' | 'reframed' | 'miss' | 'echo';
+export type PhraseGoalId = 'peak-release' | 'hold-flow' | 'offbeat-control' | 'rising-pressure';
 
 export interface InputResult {
   judgement: InputJudgement;
@@ -32,6 +39,21 @@ export interface InputResult {
   message: string;
 }
 
+export interface PhraseGoal {
+  id: PhraseGoalId;
+  name: string;
+  description: string;
+  progress: number;
+  target: number;
+}
+
+export interface PhraseResult {
+  phrase: number;
+  completed: boolean;
+  name: string;
+  bonus: number;
+}
+
 export interface GameState {
   running: boolean;
   elapsedMs: number;
@@ -42,6 +64,7 @@ export interface GameState {
   combo: number;
   maxCombo: number;
   flow: number;
+  overplay: number;
   music: MusicState;
   skill: SkillModel;
   challenge: RhythmChallenge;
@@ -50,11 +73,43 @@ export interface GameState {
   lastInput: InputResult | null;
   seed: number;
   activeModifiers: ModifierId[];
+  pendingModifierChoices: ModifierId[];
   lastUnlock: string | null;
   consumedSteps: number[];
+  phrase: number;
+  phraseGoal: PhraseGoal;
+  lastPhraseResult: PhraseResult | null;
 }
 
+const PHRASE_BARS = 8;
 const clamp01 = (value: number): number => Math.max(0, Math.min(1, value));
+
+const PHRASE_GOALS: readonly Omit<PhraseGoal, 'progress'>[] = [
+  {
+    id: 'peak-release',
+    name: 'RELEASE THE PEAK',
+    description: 'Resolve twice while TENSION is 65 or higher.',
+    target: 2,
+  },
+  {
+    id: 'hold-flow',
+    name: 'HOLD THE CURRENT',
+    description: 'Finish four bars with FLOW at 68% or higher.',
+    target: 4,
+  },
+  {
+    id: 'offbeat-control',
+    name: 'OWN THE OFFBEAT',
+    description: 'Land six syncopated rhythm targets.',
+    target: 6,
+  },
+  {
+    id: 'rising-pressure',
+    name: 'BUILD THE WAVE',
+    description: 'Land five INTENSIFY actions before tension peaks.',
+    target: 5,
+  },
+] as const;
 
 export function barDurationMs(bpm: number): number {
   return (60000 / bpm) * 4;
@@ -100,6 +155,48 @@ function surpriseFor(challenge: RhythmChallenge, previous: RhythmChallenge | nul
   return clamp01(0.28 + structuralChange * 0.65 + challenge.complexity * 0.16);
 }
 
+function createPhraseGoal(seed: number, phrase: number): PhraseGoal {
+  const mixed = Math.imul((seed ^ Math.imul(phrase, 0x9e3779b9)) >>> 0, 0x45d9f3b) >>> 0;
+  const definition = PHRASE_GOALS[mixed % PHRASE_GOALS.length] ?? PHRASE_GOALS[0];
+  if (!definition) throw new Error('Phrase goal definitions are missing');
+  return { ...definition, progress: 0 };
+}
+
+function addPhraseProgress(goal: PhraseGoal, amount: number): PhraseGoal {
+  if (amount <= 0 || goal.progress >= goal.target) return goal;
+  return { ...goal, progress: Math.min(goal.target, goal.progress + amount) };
+}
+
+function updatePhraseGoalForInput(
+  goal: PhraseGoal,
+  state: GameState,
+  intent: PlayerIntent,
+  judgement: InputJudgement,
+  syncopated: boolean,
+): PhraseGoal {
+  const hit = judgement !== 'miss' && judgement !== 'echo';
+  if (!hit) return goal;
+  switch (goal.id) {
+    case 'peak-release':
+      return intent === 'resolve' && state.music.tension >= 0.65 ? addPhraseProgress(goal, 1) : goal;
+    case 'offbeat-control':
+      return syncopated ? addPhraseProgress(goal, 1) : goal;
+    case 'rising-pressure':
+      return intent === 'intensify' && state.music.tension < 0.72 ? addPhraseProgress(goal, 1) : goal;
+    case 'hold-flow':
+      return goal;
+  }
+}
+
+function updatePhraseGoalForBar(goal: PhraseGoal, state: GameState): PhraseGoal {
+  if (goal.id !== 'hold-flow') return goal;
+  return state.flow >= 0.68 ? addPhraseProgress(goal, 1) : goal;
+}
+
+export function phraseGoalProgress(goal: PhraseGoal): number {
+  return clamp01(goal.progress / Math.max(1, goal.target));
+}
+
 export function createGameState(
   seed = Date.now(),
   tonality: Tonality = { tonic: 0, mode: 'minor' },
@@ -117,6 +214,7 @@ export function createGameState(
     combo: 0,
     maxCombo: 0,
     flow: 0.5,
+    overplay: 0,
     music: createInitialMusicState(tonality),
     skill,
     challenge,
@@ -125,13 +223,27 @@ export function createGameState(
     lastInput: null,
     seed,
     activeModifiers: [],
+    pendingModifierChoices: [],
     lastUnlock: null,
     consumedSteps: [],
+    phrase: 1,
+    phraseGoal: createPhraseGoal(seed, 1),
+    lastPhraseResult: null,
   };
 }
 
 export function startGame(state: GameState): GameState {
   return { ...state, running: true };
+}
+
+export function selectModifier(state: GameState, id: ModifierId): GameState {
+  if (!state.pendingModifierChoices.includes(id) || state.activeModifiers.includes(id)) return state;
+  return {
+    ...state,
+    activeModifiers: [...state.activeModifiers, id],
+    pendingModifierChoices: [],
+    lastUnlock: modifierDefinition(id).name,
+  };
 }
 
 function nextBar(state: GameState): GameState {
@@ -141,28 +253,42 @@ function nextBar(state: GameState): GameState {
   const tempoLift = updatedSkill.stability > 0.7 && state.bar > 3 ? 0.35 : 0;
   const bpm = Math.min(156, state.bpm + tempoLift);
   const upcomingBar = state.bar + 1;
-  const unlockId = upcomingBar > 0 && upcomingBar % 4 === 0
-    ? chooseModifier(state.activeModifiers, nextSeed)
-    : null;
-  const activeModifiers = unlockId ? [...state.activeModifiers, unlockId] : state.activeModifiers;
-  const lastUnlock = unlockId ? modifierDefinition(unlockId).name : null;
+  const progressedGoal = updatePhraseGoalForBar(state.phraseGoal, state);
+  const phraseFinished = upcomingBar % PHRASE_BARS === 0;
+  const phraseCompleted = progressedGoal.progress >= progressedGoal.target;
+  const phraseBonus = phraseFinished && phraseCompleted ? 700 + state.phrase * 150 : 0;
+  const nextPhrase = phraseFinished ? state.phrase + 1 : state.phrase;
+  const phraseGoal = phraseFinished ? createPhraseGoal(nextSeed, nextPhrase) : progressedGoal;
+  const lastPhraseResult = phraseFinished
+    ? { phrase: state.phrase, completed: phraseCompleted, name: progressedGoal.name, bonus: phraseBonus }
+    : state.lastPhraseResult;
+  const pendingModifierChoices = upcomingBar > 0 && upcomingBar % 4 === 0
+    ? chooseModifierOptions(state.activeModifiers, nextSeed, 3)
+    : [];
+
   return {
     ...state,
     bpm,
-    bar: state.bar + 1,
+    bar: upcomingBar,
+    score: state.score + phraseBonus,
+    flow: phraseFinished && phraseCompleted ? clamp01(state.flow + 0.08) : state.flow,
+    overplay: Math.max(0, state.overplay - 0.08),
     skill: updatedSkill,
     previousChallenge: state.challenge,
     challenge,
     samplesThisBar: [],
     seed: nextSeed,
-    activeModifiers,
-    lastUnlock,
+    pendingModifierChoices,
+    lastUnlock: null,
     consumedSteps: [],
+    phrase: nextPhrase,
+    phraseGoal,
+    lastPhraseResult,
   };
 }
 
 export function advanceGame(state: GameState, deltaMs: number): GameState {
-  if (!state.running) return state;
+  if (!state.running || state.pendingModifierChoices.length > 0) return state;
   const safeDelta = Math.max(0, Math.min(250, deltaMs));
   let next: GameState = {
     ...state,
@@ -174,12 +300,13 @@ export function advanceGame(state: GameState, deltaMs: number): GameState {
     const duration = barDurationMs(next.bpm);
     next = nextBar({ ...next, phaseMs: next.phaseMs - duration });
     guard += 1;
+    if (next.pendingModifierChoices.length > 0) break;
   }
   return next;
 }
 
 export function handleIntent(state: GameState, intent: PlayerIntent): GameState {
-  if (!state.running) return state;
+  if (!state.running || state.pendingModifierChoices.length > 0) return state;
 
   const phase = phaseInBar(state);
   const nearest = nearestActiveStep(state.challenge, phase);
@@ -190,10 +317,19 @@ export function handleIntent(state: GameState, intent: PlayerIntent): GameState 
   });
   const errorMs = nearest.distanceInSteps * stepMs;
   const timing = judgeTiming(errorMs, stepMs);
+  const windows = timingWindows(stepMs);
   const coherence = coherenceForIntent(state.music, intent);
   const nextMusic = applyHarmonicIntent(state.music, intent);
 
-  if (state.consumedSteps.includes(nearest.index)) {
+  let judgement: InputJudgement;
+  if (errorMs <= windows.perfectMs) judgement = 'perfect';
+  else if (errorMs <= windows.goodMs) judgement = 'good';
+  else if (errorMs <= windows.reframeMs) judgement = 'reframed';
+  else judgement = 'miss';
+
+  const targetAlreadyConsumed = state.consumedSteps.includes(nearest.index);
+  if (judgement !== 'miss' && targetAlreadyConsumed) {
+    const nextOverplay = clamp01(state.overplay + 0.16);
     const result: InputResult = {
       judgement: 'echo',
       intent,
@@ -203,32 +339,29 @@ export function handleIntent(state: GameState, intent: PlayerIntent): GameState 
       flow: state.flow,
       scoreDelta: 0,
       targetIndex: nearest.index,
-      message: 'ECHO',
+      message: nextOverplay >= 0.55 ? 'OVERPLAY' : 'ECHO',
     };
-    return { ...state, music: nextMusic, lastInput: result };
+    return {
+      ...state,
+      music: nextMusic,
+      flow: clamp01(state.flow - 0.035 - nextOverplay * 0.025),
+      overplay: nextOverplay,
+      lastInput: result,
+    };
   }
 
-  const reframed = timing <= 0.36 && nearest.distanceInSteps <= 1.05;
-  const hit = timing > 0.36 || reframed;
+  const hit = judgement !== 'miss';
   const surprise = surpriseFor(state.challenge, state.previousChallenge);
   const resolution = intent === 'resolve'
     ? Math.max(nextMusic.resolution, 0.24)
     : clamp01(0.38 + nextMusic.tension * 0.42);
-  const control = reframed ? timing * 0.72 + 0.18 : timing;
+  const control = judgement === 'reframed' ? timing * 0.72 + 0.18 : timing;
   const flow = flowValue(control, coherence, surprise, resolution);
-
-  let judgement: InputJudgement;
-  if (timing >= 0.82) judgement = 'perfect';
-  else if (timing > 0.36) judgement = 'good';
-  else if (reframed) judgement = 'reframed';
-  else judgement = 'miss';
-
   const combo = hit ? state.combo + 1 : 0;
   const comboMultiplier = 1 + Math.min(combo, 24) * 0.035;
   const musicality = coherence * 0.42 + flow * 0.34 + timing * 0.24;
   const index = nearest.index;
   const syncopated = index % state.challenge.subdivisions !== 0;
-  const polyrhythmic = state.challenge.polyrhythm !== 1;
   const modifierBonus = calculateModifierBonus(state.activeModifiers, {
     intent,
     judgement,
@@ -236,14 +369,15 @@ export function handleIntent(state: GameState, intent: PlayerIntent): GameState 
     syncopated,
     polyrhythm: state.challenge.polyrhythm,
   });
+  const intentionality = Math.max(0.25, 1 - state.overplay * 0.82);
   const scoreDelta = hit
-    ? Math.round(120 * musicality * comboMultiplier * modifierBonus.scoreMultiplier)
+    ? Math.round(120 * musicality * comboMultiplier * modifierBonus.scoreMultiplier * intentionality)
     : 0;
   const sample: HitSample = {
     errorMs,
     hit,
     syncopated,
-    polyrhythmic,
+    polyrhythmic: state.challenge.polyrhythm !== 1,
   };
 
   const message = judgement === 'perfect'
@@ -265,6 +399,13 @@ export function handleIntent(state: GameState, intent: PlayerIntent): GameState 
     targetIndex: index,
     message,
   };
+  const nextOverplay = hit
+    ? Math.max(0, state.overplay - (judgement === 'perfect' ? 0.12 : judgement === 'good' ? 0.08 : 0.04))
+    : clamp01(state.overplay + 0.24);
+  const nextFlow = hit
+    ? clamp01(state.flow * 0.72 + flow * 0.28 + modifierBonus.flowBonus - state.overplay * 0.05)
+    : clamp01(state.flow * 0.9 - 0.045 - nextOverplay * 0.035);
+  const phraseGoal = updatePhraseGoalForInput(state.phraseGoal, state, intent, judgement, syncopated);
 
   return {
     ...state,
@@ -272,7 +413,9 @@ export function handleIntent(state: GameState, intent: PlayerIntent): GameState 
     score: state.score + scoreDelta,
     combo,
     maxCombo: Math.max(state.maxCombo, combo),
-    flow: clamp01(state.flow * 0.72 + flow * 0.28 + modifierBonus.flowBonus),
+    flow: nextFlow,
+    overplay: nextOverplay,
+    phraseGoal,
     samplesThisBar: [...state.samplesThisBar, sample],
     consumedSteps: hit ? [...state.consumedSteps, index] : state.consumedSteps,
     lastInput: result,
