@@ -1,3 +1,4 @@
+import type { PlayerIntent } from '../core/music';
 import { aggregateSkill } from '../core/rhythm';
 import { phaseInBar, type GameState } from '../game/GameEngine';
 
@@ -8,8 +9,26 @@ interface Pulse {
   strength: number;
 }
 
+interface IntentVisual {
+  intent: PlayerIntent;
+  age: number;
+  strength: number;
+  fromTension: number;
+  toTension: number;
+}
+
 const TAU = Math.PI * 2;
 const clamp01 = (v: number): number => Math.max(0, Math.min(1, v));
+
+function intentColor(intent: PlayerIntent, alpha: number): string {
+  const a = clamp01(alpha);
+  switch (intent) {
+    case 'resolve': return `rgba(101,243,223,${a})`;
+    case 'delay': return `rgba(166,140,255,${a})`;
+    case 'diverge': return `rgba(255,186,98,${a})`;
+    case 'intensify': return `rgba(255,109,159,${a})`;
+  }
+}
 
 export class Renderer {
   private readonly canvas: HTMLCanvasElement;
@@ -18,6 +37,7 @@ export class Renderer {
   private height = 0;
   private dpr = 1;
   private pulses: Pulse[] = [];
+  private intentVisuals: IntentVisual[] = [];
 
   constructor(canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d', { alpha: true });
@@ -47,6 +67,17 @@ export class Renderer {
     if (this.pulses.length > 10) this.pulses.shift();
   }
 
+  showIntent(intent: PlayerIntent, fromTension: number, toTension: number, strength: number): void {
+    this.intentVisuals.push({
+      intent,
+      age: 0,
+      strength: clamp01(0.35 + strength * 0.65),
+      fromTension: clamp01(fromTension),
+      toTension: clamp01(toTension),
+    });
+    if (this.intentVisuals.length > 6) this.intentVisuals.shift();
+  }
+
   render(state: GameState, deltaSeconds: number): void {
     const ctx = this.ctx;
     const w = this.width;
@@ -57,6 +88,7 @@ export class Renderer {
     this.drawWaveField(state);
     this.drawRhythmOrbit(state);
     this.drawCore(state);
+    this.drawIntentEffects(deltaSeconds);
     this.drawPulses(deltaSeconds);
   }
 
@@ -88,7 +120,6 @@ export class Renderer {
     const ctx = this.ctx;
     const w = this.width;
     const h = this.height;
-    const cx = w * 0.5;
     const cy = h * 0.48;
     const amplitude = 12 + state.music.tension * 34;
     const phase = phaseInBar(state) * TAU * 4;
@@ -204,6 +235,125 @@ export class Renderer {
     ctx.fillStyle = 'rgba(101,243,223,.8)';
     ctx.fillRect(cx - barW / 2, skillY, barW * skill, 2);
     ctx.restore();
+  }
+
+  private drawIntentEffects(deltaSeconds: number): void {
+    const ctx = this.ctx;
+    const cx = this.width * 0.5;
+    const cy = this.height * 0.48;
+    const baseRadius = Math.max(46, Math.min(this.width, this.height) * 0.1);
+
+    this.intentVisuals = this.intentVisuals.filter((visual) => {
+      visual.age += deltaSeconds;
+      const duration = visual.intent === 'delay' ? 0.95 : 0.7;
+      if (visual.age > duration) return false;
+      const p = clamp01(visual.age / duration);
+      const alpha = (1 - p) * (0.36 + visual.strength * 0.5);
+
+      ctx.save();
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.shadowColor = intentColor(visual.intent, 0.9);
+      ctx.shadowBlur = 12 + visual.strength * 14;
+
+      switch (visual.intent) {
+        case 'resolve': {
+          for (let ring = 0; ring < 3; ring += 1) {
+            const local = clamp01(p + ring * 0.08);
+            const radius = baseRadius + (1 - local) * (150 + ring * 26) * visual.strength;
+            ctx.strokeStyle = intentColor('resolve', alpha * (1 - ring * 0.18));
+            ctx.lineWidth = 1.4 + visual.strength * 1.8;
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius, 0, TAU);
+            ctx.stroke();
+          }
+          ctx.strokeStyle = intentColor('resolve', alpha);
+          ctx.lineWidth = 2.2;
+          for (let side = -1; side <= 1; side += 2) {
+            ctx.beginPath();
+            ctx.moveTo(cx + side * (115 - p * 65), cy - 48 + p * 34);
+            ctx.lineTo(cx + side * (baseRadius * 0.55), cy);
+            ctx.stroke();
+          }
+          break;
+        }
+        case 'delay': {
+          ctx.setLineDash([9, 10]);
+          for (let ring = 0; ring < 4; ring += 1) {
+            const radius = baseRadius + 24 + ring * 24 + p * 16;
+            const start = -Math.PI * 0.9 + p * 0.45 + ring * 0.22;
+            ctx.strokeStyle = intentColor('delay', alpha * (1 - ring * 0.14));
+            ctx.lineWidth = 1.5 + visual.strength * 1.2;
+            ctx.beginPath();
+            ctx.arc(cx, cy, radius, start, start + Math.PI * 1.45);
+            ctx.stroke();
+          }
+          ctx.setLineDash([]);
+          break;
+        }
+        case 'diverge': {
+          const reach = 70 + p * 140 * visual.strength;
+          const splitY = cy - 8;
+          ctx.strokeStyle = intentColor('diverge', alpha);
+          ctx.lineWidth = 2 + visual.strength * 1.8;
+          ctx.beginPath();
+          ctx.moveTo(cx, cy + 22);
+          ctx.lineTo(cx, splitY);
+          ctx.lineTo(cx - reach, cy - 58 - p * 18);
+          ctx.moveTo(cx, splitY);
+          ctx.lineTo(cx + reach, cy + 46 + p * 12);
+          ctx.stroke();
+          for (let spark = 0; spark < 6; spark += 1) {
+            const direction = spark % 2 === 0 ? -1 : 1;
+            const ratio = 0.35 + (spark / 6) * 0.65;
+            const x = cx + direction * reach * ratio;
+            const y = splitY + direction * (44 + p * 20) * ratio;
+            ctx.fillStyle = intentColor('diverge', alpha * 0.8);
+            ctx.beginPath();
+            ctx.arc(x, y, 2 + visual.strength * 2, 0, TAU);
+            ctx.fill();
+          }
+          break;
+        }
+        case 'intensify': {
+          const spikeCount = 18;
+          const inner = baseRadius + 8 + p * 12;
+          const outerBoost = (42 + 115 * (1 - p)) * visual.strength;
+          ctx.strokeStyle = intentColor('intensify', alpha);
+          ctx.lineWidth = 1.5 + visual.strength * 1.5;
+          for (let i = 0; i < spikeCount; i += 1) {
+            const angle = (i / spikeCount) * TAU + p * 0.22;
+            const variation = i % 3 === 0 ? 1.28 : i % 2 === 0 ? 1 : 0.72;
+            ctx.beginPath();
+            ctx.moveTo(cx + Math.cos(angle) * inner, cy + Math.sin(angle) * inner);
+            ctx.lineTo(
+              cx + Math.cos(angle) * (inner + outerBoost * variation),
+              cy + Math.sin(angle) * (inner + outerBoost * variation),
+            );
+            ctx.stroke();
+          }
+          ctx.strokeStyle = intentColor('intensify', alpha * 0.72);
+          ctx.beginPath();
+          ctx.arc(cx, cy, inner + outerBoost * 0.48, 0, TAU);
+          ctx.stroke();
+          break;
+        }
+      }
+
+      const tensionDelta = visual.toTension - visual.fromTension;
+      if (Math.abs(tensionDelta) >= 0.02) {
+        ctx.shadowBlur = 0;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = intentColor(visual.intent, alpha * 0.95);
+        ctx.font = `700 ${Math.max(10, baseRadius * 0.18)}px ui-sans-serif, sans-serif`;
+        const arrow = tensionDelta > 0 ? '▲' : '▼';
+        ctx.fillText(`${arrow}${Math.abs(Math.round(tensionDelta * 100))}`, cx, cy - baseRadius * 1.55);
+      }
+
+      ctx.restore();
+      return true;
+    });
   }
 
   private drawPulses(deltaSeconds: number): void {
