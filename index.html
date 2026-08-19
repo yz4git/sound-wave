@@ -25,13 +25,33 @@
         <div id="phrase">PHRASE 1 · BAR 1/8</div>
         <div id="objective">OBJECTIVE · READ THE CURRENT</div>
         <div id="chord">C · tonic</div>
+        <div id="intent-feedback" class="intent-feedback" aria-hidden="true">
+          <b id="intent-feedback-action">INTENT</b>
+          <span id="intent-feedback-shift">TENSION</span>
+        </div>
         <div id="judgement">PREDICT → SHAPE → RESOLVE</div>
       </section>
       <section id="controls" aria-label="Harmonic controls">
-        <button data-intent="resolve"><b>RESOLVE</b><span>release tension</span></button>
-        <button data-intent="delay"><b>DELAY</b><span>hold the edge</span></button>
-        <button data-intent="diverge"><b>DIVERGE</b><span>break expectation</span></button>
-        <button data-intent="intensify"><b>INTENSIFY</b><span>raise tension</span></button>
+        <button data-intent="resolve" aria-label="Resolve: release tension and land on the tonic">
+          <span class="intent-glyph" aria-hidden="true"><i>↓</i><em>◎</em></span>
+          <span class="intent-copy"><b>RESOLVE</b><span>LAND / RELEASE</span></span>
+          <span class="intent-effect">TENSION ↓</span>
+        </button>
+        <button data-intent="delay" aria-label="Delay: hold tension and suspend the resolution">
+          <span class="intent-glyph" aria-hidden="true"><i>Ⅱ</i><em>〜</em></span>
+          <span class="intent-copy"><b>DELAY</b><span>HOLD / SUSTAIN</span></span>
+          <span class="intent-effect">TENSION →</span>
+        </button>
+        <button data-intent="diverge" aria-label="Diverge: split away from the expected harmonic path">
+          <span class="intent-glyph" aria-hidden="true"><i>Y</i><em>↗</em></span>
+          <span class="intent-copy"><b>DIVERGE</b><span>SPLIT / SURPRISE</span></span>
+          <span class="intent-effect">PATH ↗</span>
+        </button>
+        <button data-intent="intensify" aria-label="Intensify: raise tension and push toward the dominant">
+          <span class="intent-glyph" aria-hidden="true"><i>↑</i><em>✦</em></span>
+          <span class="intent-copy"><b>INTENSIFY</b><span>BUILD / DRIVE</span></span>
+          <span class="intent-effect">TENSION ↑</span>
+        </button>
       </section>
       <section id="mutation" class="mutation-screen hidden" aria-hidden="true" aria-label="Choose a run mutation">
         <div class="mutation-card">
