@@ -27,7 +27,8 @@
         <div id="chord">C · tonic</div>
         <div id="intent-feedback" class="intent-feedback" aria-hidden="true">
           <b id="intent-feedback-action">INTENT</b>
-          <span id="intent-feedback-shift">TENSION</span>
+          <strong id="intent-feedback-primary">TENSION</strong>
+          <span id="intent-feedback-shift">HARMONY</span>
         </div>
         <div id="judgement">PREDICT → SHAPE → RESOLVE</div>
       </section>
@@ -37,10 +38,10 @@
           <span class="intent-copy"><b>RESOLVE</b><span>LAND / RELEASE</span></span>
           <span class="intent-effect">TENSION ↓</span>
         </button>
-        <button data-intent="delay" aria-label="Delay: hold tension and suspend the resolution">
-          <span class="intent-glyph" aria-hidden="true"><i>Ⅱ</i><em>〜</em></span>
-          <span class="intent-copy"><b>DELAY</b><span>HOLD / SUSTAIN</span></span>
-          <span class="intent-effect">TENSION →</span>
+        <button data-intent="delay" aria-label="Delay: hold the current tension and postpone resolution">
+          <span class="intent-glyph" aria-hidden="true"><i>→|</i><em>≈</em></span>
+          <span class="intent-copy"><b>DELAY</b><span>HOLD / POSTPONE</span></span>
+          <span class="intent-effect">KEEP TENSION</span>
         </button>
         <button data-intent="diverge" aria-label="Diverge: split away from the expected harmonic path">
           <span class="intent-glyph" aria-hidden="true"><i>Y</i><em>↗</em></span>
