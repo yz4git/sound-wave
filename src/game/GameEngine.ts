@@ -32,7 +32,13 @@ import {
 } from './PressureSystem';
 
 export type InputJudgement = 'perfect' | 'good' | 'reframed' | 'miss' | 'echo';
-export type PhraseGoalId = 'peak-release' | 'hold-flow' | 'offbeat-control' | 'rising-pressure';
+export type PhraseGoalId =
+  | 'peak-release'
+  | 'hold-flow'
+  | 'offbeat-control'
+  | 'rising-pressure'
+  | 'core-stability'
+  | 'risk-release';
 
 export interface InputResult {
   judgement: InputJudgement;
@@ -118,6 +124,18 @@ const PHRASE_GOALS: readonly Omit<PhraseGoal, 'progress'>[] = [
     description: 'Land five INTENSIFY actions before tension peaks.',
     target: 5,
   },
+  {
+    id: 'core-stability',
+    name: 'HOLD THE CORE',
+    description: 'Finish four bars with STABILITY at 75% or higher.',
+    target: 4,
+  },
+  {
+    id: 'risk-release',
+    name: 'AMPLIFY → RELEASE',
+    description: 'Resolve two amplified waves before they reach the core.',
+    target: 2,
+  },
 ] as const;
 
 export function barDurationMs(bpm: number): number {
@@ -176,6 +194,15 @@ function addPhraseProgress(goal: PhraseGoal, amount: number): PhraseGoal {
   return { ...goal, progress: Math.min(goal.target, goal.progress + amount) };
 }
 
+function amplifiedWavesResolvedBy(state: GameState): number {
+  const count = state.music.tension >= 0.78 ? 3 : state.music.tension >= 0.62 ? 2 : 1;
+  return [...state.pressure.waves]
+    .sort((a, b) => a.etaMs - b.etaMs || b.pressure - a.pressure)
+    .slice(0, count)
+    .filter((wave) => wave.amplified)
+    .length;
+}
+
 function updatePhraseGoalForInput(
   goal: PhraseGoal,
   state: GameState,
@@ -192,14 +219,22 @@ function updatePhraseGoalForInput(
       return syncopated ? addPhraseProgress(goal, 1) : goal;
     case 'rising-pressure':
       return intent === 'intensify' && state.music.tension < 0.72 ? addPhraseProgress(goal, 1) : goal;
+    case 'risk-release':
+      return intent === 'resolve' ? addPhraseProgress(goal, amplifiedWavesResolvedBy(state)) : goal;
     case 'hold-flow':
+    case 'core-stability':
       return goal;
   }
 }
 
 function updatePhraseGoalForBar(goal: PhraseGoal, state: GameState): PhraseGoal {
-  if (goal.id !== 'hold-flow') return goal;
-  return state.flow >= 0.68 ? addPhraseProgress(goal, 1) : goal;
+  if (goal.id === 'hold-flow') {
+    return state.flow >= 0.68 ? addPhraseProgress(goal, 1) : goal;
+  }
+  if (goal.id === 'core-stability') {
+    return state.pressure.stability >= 0.75 ? addPhraseProgress(goal, 1) : goal;
+  }
+  return goal;
 }
 
 export function phraseGoalProgress(goal: PhraseGoal): number {
