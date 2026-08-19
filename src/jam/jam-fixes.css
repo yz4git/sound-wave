@@ -1,0 +1,20 @@
+#app[data-app-mode="jam"] #mode-switch {
+  top: max(8px, env(safe-area-inset-top));
+  left: auto;
+  right: max(14px, env(safe-area-inset-right));
+}
+
+#app[data-app-mode="jam"] .jam-header {
+  padding-right: clamp(150px, 20vw, 210px);
+}
+
+@media (max-width: 780px), (max-height: 440px) {
+  #app[data-app-mode="jam"] #mode-switch {
+    top: max(5px, env(safe-area-inset-top));
+    right: max(8px, env(safe-area-inset-right));
+  }
+
+  #app[data-app-mode="jam"] .jam-header {
+    padding-right: 132px;
+  }
+}
