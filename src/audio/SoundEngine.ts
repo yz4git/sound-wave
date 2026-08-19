@@ -1,4 +1,4 @@
-import type { ChordState, PitchClass } from '../core/music';
+import type { ChordState, PitchClass, PlayerIntent } from '../core/music';
 
 export interface SoundEngineOptions {
   masterGain?: number;
@@ -192,19 +192,67 @@ export class SoundEngine {
     oscillator.stop(now + 0.3);
   }
 
-  playIntentAccent(pitch: PitchClass, intensity: number, when = this.currentTime): void {
+  playIntentAccent(intent: PlayerIntent, pitch: PitchClass, intensity: number, when = this.currentTime): void {
     if (!this.context || !this.musicBus) return;
     const now = Math.max(this.context.currentTime, when);
     const oscillator = this.context.createOscillator();
     const gain = this.context.createGain();
-    oscillator.type = intensity > 0.7 ? 'sawtooth' : 'triangle';
-    oscillator.frequency.value = midiToHz(midiForPitchClass(pitch, 5));
+    const baseMidi = midiForPitchClass(pitch, 5);
+    const level = 0.055 + clamp(intensity, 0, 1) * 0.085;
+    let duration = 0.24;
+
     gain.gain.setValueAtTime(0.0001, now);
-    gain.gain.exponentialRampToValueAtTime(0.06 + intensity * 0.08, now + 0.008);
-    gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.22);
+    gain.gain.exponentialRampToValueAtTime(level, now + 0.008);
+
+    switch (intent) {
+      case 'resolve':
+        oscillator.type = 'triangle';
+        oscillator.frequency.setValueAtTime(midiToHz(baseMidi + 12), now);
+        oscillator.frequency.exponentialRampToValueAtTime(midiToHz(baseMidi), now + 0.16);
+        duration = 0.34;
+        break;
+      case 'delay':
+        oscillator.type = 'sine';
+        oscillator.frequency.setValueAtTime(midiToHz(baseMidi + 7), now);
+        oscillator.detune.setValueAtTime(-9, now);
+        oscillator.detune.linearRampToValueAtTime(9, now + 0.32);
+        duration = 0.46;
+        break;
+      case 'diverge':
+        oscillator.type = 'triangle';
+        oscillator.frequency.setValueAtTime(midiToHz(baseMidi + 3), now);
+        oscillator.frequency.exponentialRampToValueAtTime(midiToHz(baseMidi + 8), now + 0.11);
+        duration = 0.3;
+        break;
+      case 'intensify':
+        oscillator.type = 'sawtooth';
+        oscillator.frequency.setValueAtTime(midiToHz(baseMidi), now);
+        oscillator.frequency.exponentialRampToValueAtTime(midiToHz(baseMidi + 12), now + 0.13);
+        duration = 0.27;
+        break;
+    }
+
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
     oscillator.connect(gain);
     gain.connect(this.musicBus);
     oscillator.start(now);
-    oscillator.stop(now + 0.25);
+    oscillator.stop(now + duration + 0.04);
+  }
+
+  playDrop(pitch: PitchClass, when = this.currentTime): void {
+    if (!this.context || !this.musicBus || !this.percussionBus) return;
+    const now = Math.max(this.context.currentTime, when);
+    const sub = this.context.createOscillator();
+    const subGain = this.context.createGain();
+    sub.type = 'sine';
+    sub.frequency.setValueAtTime(midiToHz(midiForPitchClass(pitch, 2)) * 1.6, now);
+    sub.frequency.exponentialRampToValueAtTime(midiToHz(midiForPitchClass(pitch, 1)), now + 0.28);
+    subGain.gain.setValueAtTime(0.24, now);
+    subGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.42);
+    sub.connect(subGain);
+    subGain.connect(this.musicBus);
+    sub.start(now);
+    sub.stop(now + 0.46);
+    this.playPercussion('accent', 1, now);
   }
 }
