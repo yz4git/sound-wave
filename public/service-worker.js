@@ -1,4 +1,4 @@
-const CACHE = 'sound-wave-v9-rhythm-play';
+const CACHE = 'sound-wave-v10-auto-compose';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', (event) => {
