@@ -13,10 +13,11 @@ import {
 import { modifierDefinition, type ModifierId } from './game/RunModifiers';
 import { pressureDanger, type PressureEvent } from './game/PressureSystem';
 import { JamLab } from './jam/JamLabEntry';
+import { RhythmPlay } from './rhythm/RhythmPlayEntry';
 import { Renderer } from './ui/Renderer';
 import { loadProfile, saveProfile, updateProfile } from './game/Profile';
 
-type AppMode = 'game' | 'jam';
+type AppMode = 'game' | 'jam' | 'rhythm';
 
 function required<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
@@ -48,12 +49,14 @@ const intentFeedbackShiftEl = required<HTMLElement>('#intent-feedback-shift');
 const mutationEl = required<HTMLElement>('#mutation');
 const mutationOptionsEl = required<HTMLElement>('#mutation-options');
 const jamRoot = required<HTMLElement>('#jam-lab');
+const rhythmRoot = required<HTMLElement>('#rhythm-play');
 const appModeButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-app-mode-button]'));
 const intentButtons = Array.from(document.querySelectorAll<HTMLButtonElement>('[data-intent]'));
 
 const renderer = new Renderer(canvas);
 const sound = new SoundEngine({ tempo: 112 });
 const jamLab = new JamLab(jamRoot);
+const rhythmPlay = new RhythmPlay(rhythmRoot);
 let appMode: AppMode = 'game';
 let profile = loadProfile();
 let state = createGameState(Date.now(), { tonic: 0, mode: 'minor' }, profile.skill);
@@ -80,19 +83,31 @@ function setAppMode(mode: AppMode): void {
   }
 
   if (mode === 'jam') {
+    rhythmPlay.deactivate();
     sound.suspend();
     void jamLab.activate().catch((error: unknown) => {
       console.warn('Jam Lab audio could not start.', error);
     });
-  } else {
-    jamLab.deactivate();
-    sound.resume();
-    lastFrame = performance.now();
-    lastIntentAtMs = lastFrame;
-    if (state.running && !state.collapsed) sound.playChord(state.music.chord, state.music.tension);
-    syncHud();
-    renderer.resize();
+    return;
   }
+
+  if (mode === 'rhythm') {
+    jamLab.deactivate();
+    sound.suspend();
+    void rhythmPlay.activate().catch((error: unknown) => {
+      console.warn('Rhythm Play audio could not start.', error);
+    });
+    return;
+  }
+
+  jamLab.deactivate();
+  rhythmPlay.deactivate();
+  sound.resume();
+  lastFrame = performance.now();
+  lastIntentAtMs = lastFrame;
+  if (state.running && !state.collapsed) sound.playChord(state.music.chord, state.music.tension);
+  syncHud();
+  renderer.resize();
 }
 
 for (const button of appModeButtons) {
@@ -576,12 +591,15 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     sound.suspend();
     jamLab.suspendAudio();
+    rhythmPlay.suspendAudio();
   } else if (appMode === 'game') {
     sound.resume();
     lastFrame = performance.now();
     lastIntentAtMs = lastFrame;
-  } else {
+  } else if (appMode === 'jam') {
     jamLab.resumeAudio();
+  } else {
+    rhythmPlay.resumeAudio();
   }
 });
 document.addEventListener('touchmove', (event) => event.preventDefault(), { passive: false });
