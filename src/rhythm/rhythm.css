@@ -1,0 +1,354 @@
+#rhythm-play {
+  position: absolute;
+  z-index: 8;
+  inset: 0;
+  display: none;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: clamp(8px, 1.4vh, 14px);
+  padding:
+    max(10px, env(safe-area-inset-top))
+    max(14px, env(safe-area-inset-right))
+    max(10px, env(safe-area-inset-bottom))
+    max(14px, env(safe-area-inset-left));
+  background:
+    radial-gradient(circle at 22% 18%, rgba(255, 208, 91, .13), transparent 28%),
+    radial-gradient(circle at 78% 68%, rgba(103, 215, 255, .12), transparent 34%),
+    linear-gradient(145deg, #0b0e19, #080a13 58%, #100b18);
+  overflow: hidden;
+}
+#rhythm-play.active { display: grid; }
+
+#app[data-app-mode="rhythm"] #game,
+#app[data-app-mode="rhythm"] #hud,
+#app[data-app-mode="rhythm"] #status,
+#app[data-app-mode="rhythm"] #controls,
+#app[data-app-mode="rhythm"] #mutation,
+#app[data-app-mode="rhythm"] #jam-lab { display: none !important; }
+#app[data-app-mode="rhythm"] #mode-switch { left: auto; right: max(14px, env(safe-area-inset-right)); }
+#mode-switch { grid-template-columns: repeat(3, auto) !important; }
+#mode-switch button[data-app-mode-button="rhythm"].active {
+  background: rgba(255, 208, 91, .13);
+  box-shadow: inset 0 0 0 1px rgba(255, 208, 91, .26);
+}
+
+.rhythm-header {
+  min-height: 70px;
+  display: flex;
+  align-items: flex-end;
+  gap: 18px;
+  padding: 2px 2px 0;
+}
+.rhythm-header > div:first-child { margin-right: auto; min-width: 240px; }
+.rhythm-kicker { color: #ffd05b; font-size: 8px; font-weight: 900; letter-spacing: .24em; }
+.rhythm-header h1 { margin: 2px 0 0; font-size: clamp(24px, 3.6vw, 40px); line-height: .9; letter-spacing: -.045em; }
+.rhythm-header p { margin: 6px 0 0; color: #858fa9; font-size: clamp(8px, .95vw, 11px); letter-spacing: .035em; }
+.rhythm-session-metric { min-width: 82px; display: grid; text-align: right; }
+.rhythm-session-metric span { color: #737e98; font-size: 7px; font-weight: 800; letter-spacing: .15em; }
+.rhythm-session-metric b { color: #fff; font-size: 22px; }
+
+.rhythm-menu {
+  display: none;
+  min-height: 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: clamp(8px, 1.5vw, 16px);
+  align-items: stretch;
+}
+.rhythm-menu.active { display: grid; }
+.rhythm-game-card {
+  --game-rgb: 255, 208, 91;
+  appearance: none;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid rgba(var(--game-rgb), .32);
+  border-radius: 22px;
+  padding: clamp(14px, 2.2vw, 24px);
+  background:
+    radial-gradient(circle at 50% 18%, rgba(var(--game-rgb), .18), transparent 40%),
+    linear-gradient(160deg, rgba(33,39,58,.94), rgba(10,13,23,.98));
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  text-align: left;
+  box-shadow: inset 0 1px rgba(255,255,255,.055), inset 0 -8px rgba(0,0,0,.12), 0 18px 46px rgba(0,0,0,.2);
+  transition: transform 70ms ease, border-color 100ms ease, box-shadow 100ms ease;
+}
+.rhythm-game-card.echo-pair { --game-rgb: 104, 220, 255; }
+.rhythm-game-card.hold-release { --game-rgb: 255, 119, 173; }
+.rhythm-game-card i { font-style: normal; color: rgb(var(--game-rgb)); font-size: clamp(32px, 5vw, 58px); line-height: .9; text-shadow: 0 0 24px rgba(var(--game-rgb), .2); }
+.rhythm-game-card > span { margin-top: auto; color: rgba(var(--game-rgb), .82); font-size: 8px; font-weight: 850; letter-spacing: .16em; }
+.rhythm-game-card b { margin-top: 5px; font-size: clamp(20px, 3vw, 34px); letter-spacing: -.035em; }
+.rhythm-game-card small { margin-top: 9px; color: #9aa4bd; font-size: clamp(9px, 1.1vw, 12px); line-height: 1.4; }
+.rhythm-game-card em { margin-top: 13px; color: #67728c; font-size: 7px; font-style: normal; font-weight: 800; letter-spacing: .13em; }
+.rhythm-game-card:active { transform: translateY(3px) scale(.985); border-color: rgba(var(--game-rgb), .86); box-shadow: inset 0 0 34px rgba(var(--game-rgb), .12); }
+
+.rhythm-stage {
+  display: none;
+  min-height: 0;
+  grid-template-rows: auto 4px minmax(0, 1fr);
+  gap: 7px;
+}
+.rhythm-stage.active { display: grid; }
+.rhythm-stage-top {
+  min-height: 52px;
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1fr) auto auto;
+  gap: 9px;
+  align-items: center;
+}
+#rhythm-back {
+  appearance: none;
+  height: 38px;
+  border: 1px solid rgba(134,147,190,.2);
+  border-radius: 10px;
+  padding: 0 10px;
+  background: rgba(19,23,38,.82);
+  color: #8792ac;
+  font-size: 8px;
+  font-weight: 850;
+  letter-spacing: .12em;
+}
+.rhythm-stage-copy { display: grid; gap: 1px; }
+.rhythm-stage-copy span { color: #ffd05b; font-size: 7px; font-weight: 850; letter-spacing: .17em; }
+.echo-pair .rhythm-stage-copy span { color: #68dcff; }
+.hold-release .rhythm-stage-copy span { color: #ff77ad; }
+.rhythm-stage-copy strong { font-size: clamp(16px, 2.4vw, 26px); line-height: .95; }
+.rhythm-stage-copy small { color: #8791aa; font-size: 8px; }
+.rhythm-score { min-width: 64px; display: grid; text-align: right; }
+.rhythm-score span { color: #69748e; font-size: 7px; font-weight: 850; letter-spacing: .13em; }
+.rhythm-score b { font-size: clamp(14px, 2vw, 21px); font-variant-numeric: tabular-nums; }
+.rhythm-progress { height: 4px; overflow: hidden; border-radius: 999px; background: rgba(119,132,174,.16); }
+.rhythm-progress i { display: block; width: 0; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #ffd05b, #ff77ad, #68dcff); box-shadow: 0 0 12px rgba(255,208,91,.2); transition: width 60ms linear; }
+
+.rhythm-playfield {
+  --rhythm-phase: 0;
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid rgba(137,151,196,.14);
+  border-radius: 20px;
+  background:
+    linear-gradient(rgba(255,255,255,.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.025) 1px, transparent 1px),
+    radial-gradient(circle at 50% 54%, rgba(255,208,91,.08), transparent 30%),
+    rgba(7,10,18,.67);
+  background-size: 34px 34px, 34px 34px, auto, auto;
+  box-shadow: inset 0 1px rgba(255,255,255,.025);
+}
+.rhythm-orbit {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  width: min(42vh, 230px);
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border: 1px solid rgba(255,208,91,.22);
+  border-radius: 50%;
+  box-shadow: inset 0 0 38px rgba(255,208,91,.04), 0 0 42px rgba(255,208,91,.04);
+}
+.rhythm-orbit::before {
+  content: '';
+  position: absolute;
+  inset: 20%;
+  border: 2px solid rgba(255,255,255,.16);
+  border-radius: 50%;
+}
+.rhythm-orbit i {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  margin: -9px;
+  border-radius: 50%;
+  background: #ffd05b;
+  box-shadow: 0 0 24px rgba(255,208,91,.75);
+  transform: rotate(calc(var(--rhythm-phase) * 360deg)) translateX(calc(min(21vh, 115px) - 10px));
+  transform-origin: center;
+}
+.rhythm-orbit span {
+  position: absolute;
+  inset: 42%;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 24px rgba(255,255,255,.55);
+}
+.rhythm-character {
+  position: absolute;
+  left: 50%;
+  top: 42%;
+  width: 72px;
+  height: 72px;
+  transform: translate(-50%, -50%) scale(calc(.88 + (1 - var(--rhythm-phase)) * .12));
+  display: grid;
+  place-items: center;
+  border-radius: 24px 24px 32px 32px;
+  background: linear-gradient(145deg, #fff8ce, #ffc95e);
+  color: #32260a;
+  box-shadow: inset 0 -8px rgba(159,94,0,.12), 0 14px 38px rgba(0,0,0,.24);
+}
+.rhythm-character span { font-size: 28px; font-weight: 900; }
+.echo-pair .rhythm-orbit, .echo-pair .rhythm-character,
+.hold-release .rhythm-orbit, .hold-release .rhythm-character { display: none; }
+
+.rhythm-feedback {
+  position: absolute;
+  left: 50%;
+  top: 10%;
+  transform: translateX(-50%);
+  color: #8690a8;
+  font-size: clamp(11px, 1.5vw, 16px);
+  font-weight: 900;
+  letter-spacing: .18em;
+  text-align: center;
+  text-shadow: 0 3px 14px #000;
+}
+.rhythm-feedback.perfect { color: #fff2a7; text-shadow: 0 0 18px rgba(255,208,91,.6); }
+.rhythm-feedback.good { color: #89ebff; }
+.rhythm-feedback.okay { color: #d4c5ff; }
+.rhythm-feedback.miss { color: #ff77ad; }
+.rhythm-actions {
+  position: absolute;
+  left: 50%;
+  bottom: clamp(10px, 2.2vh, 18px);
+  width: min(620px, 82%);
+  height: clamp(66px, 20vh, 118px);
+  transform: translateX(-50%);
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+.rhythm-big-button,
+.rhythm-side-button {
+  appearance: none;
+  min-height: 0;
+  border-radius: 18px;
+  border: 1px solid rgba(255,208,91,.52);
+  background: linear-gradient(180deg, rgba(84,68,26,.78), rgba(28,23,18,.94));
+  display: grid;
+  place-content: center;
+  gap: 3px;
+  box-shadow: inset 0 1px rgba(255,255,255,.08), inset 0 -7px rgba(0,0,0,.18), 0 12px 32px rgba(0,0,0,.2);
+  transition: transform 50ms ease, box-shadow 60ms ease, background 60ms ease;
+}
+.rhythm-big-button b, .rhythm-side-button b { font-size: clamp(20px, 3vw, 34px); letter-spacing: -.02em; }
+.rhythm-big-button span, .rhythm-side-button span { color: #d8c88c; font-size: 7px; font-weight: 850; letter-spacing: .18em; }
+.rhythm-big-button.pressed, .rhythm-big-button:active,
+.rhythm-side-button.pressed, .rhythm-side-button:active {
+  transform: translateY(4px) scale(.985);
+  box-shadow: inset 0 0 30px rgba(255,208,91,.2), 0 0 24px rgba(255,208,91,.12);
+}
+.echo-pair .rhythm-actions { grid-template-columns: 1fr 1fr; }
+.rhythm-side-button.left { border-color: rgba(104,220,255,.55); background: linear-gradient(180deg, rgba(30,76,91,.82), rgba(15,27,34,.96)); }
+.rhythm-side-button.right { border-color: rgba(255,119,173,.55); background: linear-gradient(180deg, rgba(91,31,59,.82), rgba(34,16,27,.96)); }
+.rhythm-side-button.left span { color: #8de8ff; }
+.rhythm-side-button.right span { color: #ff9bc1; }
+.hold-release .rhythm-big-button { border-color: rgba(255,119,173,.58); background: linear-gradient(180deg, rgba(88,31,59,.8), rgba(31,16,26,.96)); }
+.hold-release .rhythm-big-button span { color: #ff9bc1; }
+.rhythm-playfield.holding .hold-button { box-shadow: inset 0 0 42px rgba(255,119,173,.28), 0 0 30px rgba(255,119,173,.15); }
+
+.echo-display,
+.hold-display {
+  position: absolute;
+  left: 50%;
+  top: 43%;
+  width: min(620px, 76%);
+  height: min(30vh, 150px);
+  transform: translate(-50%, -50%);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  gap: clamp(20px, 7vw, 70px);
+}
+.echo-display.visible, .hold-display.visible { display: flex; }
+.echo-display span {
+  width: clamp(68px, 12vw, 118px);
+  height: clamp(68px, 12vw, 118px);
+  border: 2px solid rgba(104,220,255,.26);
+  border-radius: 28px;
+  display: grid;
+  place-items: center;
+  color: #68dcff;
+  font-size: clamp(28px, 5vw, 52px);
+  font-weight: 950;
+  background: rgba(22,43,55,.62);
+  transition: transform 70ms ease, background 70ms ease, box-shadow 70ms ease;
+}
+.echo-display span:last-child { color: #ff77ad; border-color: rgba(255,119,173,.28); background: rgba(57,22,40,.62); }
+.echo-display b { color: #9aa4bd; font-size: clamp(10px, 1.4vw, 14px); letter-spacing: .18em; }
+.echo-display.cue-left span:first-child { transform: scale(1.12); background: rgba(50,130,155,.7); box-shadow: 0 0 30px rgba(104,220,255,.25); }
+.echo-display.cue-right span:last-child { transform: scale(1.12); background: rgba(142,46,86,.7); box-shadow: 0 0 30px rgba(255,119,173,.25); }
+.hold-display { flex-direction: column; gap: 8px; }
+.hold-display span {
+  width: clamp(80px, 13vw, 130px);
+  height: clamp(80px, 13vw, 130px);
+  border-radius: 50%;
+  border: 8px solid rgba(255,119,173,.18);
+  box-shadow: inset 0 0 38px rgba(255,119,173,.08);
+  transition: transform 120ms ease, border-color 90ms ease, box-shadow 90ms ease;
+}
+.hold-display b { color: #a4adc2; font-size: 11px; letter-spacing: .2em; }
+.rhythm-playfield.holding .hold-display span { transform: scale(.78); border-color: rgba(255,119,173,.78); box-shadow: inset 0 0 42px rgba(255,119,173,.26), 0 0 30px rgba(255,119,173,.14); }
+.hold-display.release-soon span { transform: scale(1.15) !important; border-color: #fff; box-shadow: 0 0 38px rgba(255,255,255,.4); }
+.hold-display.release-soon b { color: #fff; }
+
+.rhythm-result {
+  position: absolute;
+  z-index: 5;
+  inset: 0;
+  display: none;
+  place-content: center;
+  justify-items: center;
+  text-align: center;
+  background: rgba(6,8,15,.82);
+  backdrop-filter: blur(13px);
+}
+.rhythm-result.visible { display: grid; }
+.rhythm-result > span { color: #ffd05b; font-size: 8px; font-weight: 900; letter-spacing: .24em; }
+.rhythm-result > strong { margin-top: 5px; font-size: clamp(38px, 7vw, 78px); line-height: .9; letter-spacing: -.05em; }
+.rhythm-result > p { margin: 10px 0 0; color: #9ba5bd; font-size: 10px; letter-spacing: .08em; }
+.rhythm-result > div { margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.rhythm-result button {
+  appearance: none;
+  min-width: 110px;
+  height: 42px;
+  border: 1px solid rgba(255,208,91,.32);
+  border-radius: 11px;
+  background: rgba(41,35,21,.88);
+  color: #e9dcaa;
+  font-size: 8px;
+  font-weight: 900;
+  letter-spacing: .13em;
+}
+.rhythm-result button:last-child { border-color: rgba(104,220,255,.34); background: rgba(20,38,47,.88); color: #9feaff; }
+
+@media (max-width: 780px), (max-height: 440px) {
+  #rhythm-play { padding-top: max(8px, env(safe-area-inset-top)); }
+  .rhythm-header { min-height: 54px; align-items: center; }
+  .rhythm-header > div:first-child { min-width: 150px; }
+  .rhythm-header p { display: none; }
+  .rhythm-header h1 { font-size: 21px; }
+  .rhythm-session-metric { display: none; }
+  .rhythm-game-card { border-radius: 14px; padding: 12px; }
+  .rhythm-game-card i { font-size: 30px; }
+  .rhythm-game-card > span, .rhythm-game-card em { font-size: 6px; }
+  .rhythm-game-card b { font-size: 18px; }
+  .rhythm-game-card small { font-size: 7px; }
+  .rhythm-stage-top { min-height: 42px; grid-template-columns: auto minmax(130px, 1fr) auto auto; gap: 5px; }
+  #rhythm-back { height: 32px; padding: 0 7px; font-size: 7px; }
+  .rhythm-stage-copy strong { font-size: 15px; }
+  .rhythm-stage-copy small { display: none; }
+  .rhythm-score { min-width: 50px; }
+  .rhythm-score b { font-size: 14px; }
+  .rhythm-playfield { border-radius: 13px; }
+  .rhythm-actions { height: 62px; bottom: 8px; width: 74%; }
+  .rhythm-big-button, .rhythm-side-button { border-radius: 12px; }
+  .rhythm-big-button b, .rhythm-side-button b { font-size: 18px; }
+  .rhythm-orbit { width: min(34vh, 150px); }
+  .rhythm-character { width: 54px; height: 54px; border-radius: 18px 18px 24px 24px; }
+  .rhythm-character span { font-size: 22px; }
+  .rhythm-feedback { top: 7%; font-size: 9px; }
+  .echo-display, .hold-display { top: 38%; height: 100px; }
+  .echo-display span { width: 66px; height: 66px; border-radius: 18px; font-size: 28px; }
+  .hold-display span { width: 70px; height: 70px; }
+}
