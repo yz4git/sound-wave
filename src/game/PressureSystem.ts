@@ -216,7 +216,13 @@ export function applyPressureIntent(
 ): PressureIntentResult {
   const ordered = priorityWaves(pressure.waves);
   const target = ordered[0];
-  if (!target) return { pressure, scoreBonus: 0, affected: 0 };
+  if (!target) {
+    return {
+      pressure: pressure.lastEvent ? { ...pressure, lastEvent: null } : pressure,
+      scoreBonus: 0,
+      affected: 0,
+    };
+  }
 
   const q = clamp01(quality);
   const targetId = target.id;
