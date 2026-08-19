@@ -13,17 +13,19 @@
   </head>
   <body>
     <main id="app">
-      <canvas id="game" aria-label="Sound Wave generative rhythm field"></canvas>
+      <canvas id="game" aria-label="Sound Wave generative rhythm pressure field"></canvas>
       <section id="hud" aria-live="polite">
         <div class="brand">SOUND <strong>WAVE</strong></div>
         <div class="metric"><span>SCORE</span><b id="score">0</b></div>
         <div class="metric"><span>COMBO</span><b id="combo">0</b></div>
         <div class="metric"><span>FLOW</span><b id="flow">50%</b></div>
+        <div class="metric stability-metric"><span>STABILITY</span><b id="stability">100%</b></div>
         <div class="metric"><span>BPM</span><b id="bpm">112</b></div>
       </section>
       <section id="status">
         <div id="phrase">PHRASE 1 · BAR 1/8</div>
         <div id="objective">OBJECTIVE · READ THE CURRENT</div>
+        <div id="pressure-status">PRESSURE · 0 WAVES · CORE SAFE</div>
         <div id="chord">C · tonic</div>
         <div id="intent-feedback" class="intent-feedback" aria-hidden="true">
           <b id="intent-feedback-action">INTENT</b>
@@ -33,25 +35,25 @@
         <div id="judgement">PREDICT → SHAPE → RESOLVE</div>
       </section>
       <section id="controls" aria-label="Harmonic controls">
-        <button data-intent="resolve" aria-label="Resolve: release tension and land on the tonic">
+        <button data-intent="resolve" aria-label="Resolve: release tension and clear incoming pressure waves">
           <span class="intent-glyph" aria-hidden="true"><i>↓</i><em>◎</em></span>
           <span class="intent-copy"><b>RESOLVE</b><span>LAND / RELEASE</span></span>
-          <span class="intent-effect">TENSION ↓</span>
+          <span class="intent-effect">CLEAR WAVES</span>
         </button>
-        <button data-intent="delay" aria-label="Delay: hold the current tension and postpone resolution">
+        <button data-intent="delay" aria-label="Delay: hold the current tension and buy time before the wave reaches the core">
           <span class="intent-glyph" aria-hidden="true"><i>→|</i><em>≈</em></span>
           <span class="intent-copy"><b>DELAY</b><span>HOLD / POSTPONE</span></span>
-          <span class="intent-effect">KEEP TENSION</span>
+          <span class="intent-effect">BUY TIME</span>
         </button>
-        <button data-intent="diverge" aria-label="Diverge: split away from the expected harmonic path">
+        <button data-intent="diverge" aria-label="Diverge: reroute the nearest pressure wave to another lane">
           <span class="intent-glyph" aria-hidden="true"><i>Y</i><em>↗</em></span>
           <span class="intent-copy"><b>DIVERGE</b><span>SPLIT / SURPRISE</span></span>
-          <span class="intent-effect">PATH ↗</span>
+          <span class="intent-effect">REROUTE</span>
         </button>
-        <button data-intent="intensify" aria-label="Intensify: raise tension and push toward the dominant">
+        <button data-intent="intensify" aria-label="Intensify: amplify a wave for more reward but make it reach the core faster">
           <span class="intent-glyph" aria-hidden="true"><i>↑</i><em>✦</em></span>
           <span class="intent-copy"><b>INTENSIFY</b><span>BUILD / DRIVE</span></span>
-          <span class="intent-effect">TENSION ↑</span>
+          <span class="intent-effect">RISK × REWARD</span>
         </button>
       </section>
       <section id="mutation" class="mutation-screen hidden" aria-hidden="true" aria-label="Choose a run mutation">
@@ -64,7 +66,7 @@
       <button id="start" class="start-screen">
         <span class="start-kicker">GENERATIVE MUSIC GAME · VITE PRODUCTION</span>
         <strong>TAP TO ENTER<br />THE WAVE</strong>
-        <small>No fixed chart. Shape the music on the pulse.</small>
+        <small>Shape the music. Control the pressure. Release before the core breaks.</small>
       </button>
       <div id="rotate" role="status">ROTATE TO LANDSCAPE</div>
     </main>
