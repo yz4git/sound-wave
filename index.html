@@ -12,8 +12,14 @@
     <title>SOUND WAVE</title>
   </head>
   <body>
-    <main id="app">
+    <main id="app" data-app-mode="game">
       <canvas id="game" aria-label="Sound Wave generative rhythm pressure field"></canvas>
+
+      <nav id="mode-switch" aria-label="Sound Wave mode">
+        <button type="button" data-app-mode-button="game" class="active">WAVE GAME</button>
+        <button type="button" data-app-mode-button="jam">JAM LAB</button>
+      </nav>
+
       <section id="hud" aria-live="polite">
         <div class="brand">SOUND <strong>WAVE</strong></div>
         <div class="metric"><span>SCORE</span><b id="score">0</b></div>
@@ -56,6 +62,63 @@
           <span class="intent-effect">RISK × REWARD</span>
         </button>
       </section>
+
+      <section id="jam-lab" aria-hidden="true">
+        <header class="jam-header">
+          <div>
+            <span class="jam-kicker">PERFORMANCE PLAYGROUND</span>
+            <h1>JAM LAB</h1>
+            <p>Build a beat, finger-drum it, or load your own sounds.</p>
+          </div>
+          <div class="jam-tabs" role="tablist" aria-label="Jam mode">
+            <button type="button" data-jam-mode="drum-machine" class="active">DRUM MACHINE</button>
+            <button type="button" data-jam-mode="finger-drum">FINGER DRUM</button>
+            <button type="button" data-jam-mode="sampler">SAMPLER</button>
+          </div>
+        </header>
+
+        <section class="jam-panel active" data-jam-panel="drum-machine" aria-hidden="false">
+          <div class="jam-transport">
+            <button type="button" id="jam-play">▶ PLAY</button>
+            <label class="jam-range"><span id="jam-bpm-value">112 BPM</span><input id="jam-bpm" type="range" min="60" max="180" value="112" /></label>
+            <label class="jam-range"><span id="jam-swing-value">SWING 8%</span><input id="jam-swing" type="range" min="0" max="35" value="8" /></label>
+            <button type="button" id="jam-random">SHUFFLE</button>
+            <button type="button" id="jam-clear">CLEAR</button>
+          </div>
+          <div class="seq-hint">TAP = HIT · TAP AGAIN = ACCENT · THIRD TAP = OFF</div>
+          <div id="jam-sequencer-grid" class="jam-sequencer" aria-label="16 step drum sequencer"></div>
+        </section>
+
+        <section class="jam-panel" data-jam-panel="finger-drum" aria-hidden="true">
+          <div class="pad-hint">MULTI-TOUCH READY · Q W E R / A S D F ON KEYBOARD</div>
+          <div class="finger-grid">
+            <button type="button" class="drum-pad kick" data-jam-voice="kick"><b>KICK</b><span>SUB</span></button>
+            <button type="button" class="drum-pad snare" data-jam-voice="snare"><b>SNARE</b><span>CRACK</span></button>
+            <button type="button" class="drum-pad hat" data-jam-voice="hat"><b>HI-HAT</b><span>TICK</span></button>
+            <button type="button" class="drum-pad clap" data-jam-voice="clap"><b>CLAP</b><span>WIDE</span></button>
+            <button type="button" class="drum-pad tom-low" data-jam-voice="tom-low"><b>LOW TOM</b><span>BODY</span></button>
+            <button type="button" class="drum-pad tom-high" data-jam-voice="tom-high"><b>HIGH TOM</b><span>SNAP</span></button>
+            <button type="button" class="drum-pad bass" data-jam-voice="bass"><b>BASS</b><span>DRIVE</span></button>
+            <button type="button" class="drum-pad stab" data-jam-voice="stab"><b>STAB</b><span>CHORD</span></button>
+          </div>
+        </section>
+
+        <section class="jam-panel" data-jam-panel="sampler" aria-hidden="true">
+          <div class="pad-hint">LOAD AUDIO FROM FILES · SAMPLES ARE SAVED ON THIS DEVICE · 1–8 ON KEYBOARD</div>
+          <input id="jam-sample-file" type="file" accept="audio/*" hidden />
+          <div class="sampler-grid">
+            <article class="sample-slot"><button type="button" class="sample-pad" data-sample-pad="0"><b>S1</b><span data-sample-name="0">EMPTY · LOAD AUDIO</span></button><div><button type="button" data-sample-load="0">LOAD</button><button type="button" data-sample-clear="0">×</button></div></article>
+            <article class="sample-slot"><button type="button" class="sample-pad" data-sample-pad="1"><b>S2</b><span data-sample-name="1">EMPTY · LOAD AUDIO</span></button><div><button type="button" data-sample-load="1">LOAD</button><button type="button" data-sample-clear="1">×</button></div></article>
+            <article class="sample-slot"><button type="button" class="sample-pad" data-sample-pad="2"><b>S3</b><span data-sample-name="2">EMPTY · LOAD AUDIO</span></button><div><button type="button" data-sample-load="2">LOAD</button><button type="button" data-sample-clear="2">×</button></div></article>
+            <article class="sample-slot"><button type="button" class="sample-pad" data-sample-pad="3"><b>S4</b><span data-sample-name="3">EMPTY · LOAD AUDIO</span></button><div><button type="button" data-sample-load="3">LOAD</button><button type="button" data-sample-clear="3">×</button></div></article>
+            <article class="sample-slot"><button type="button" class="sample-pad" data-sample-pad="4"><b>S5</b><span data-sample-name="4">EMPTY · LOAD AUDIO</span></button><div><button type="button" data-sample-load="4">LOAD</button><button type="button" data-sample-clear="4">×</button></div></article>
+            <article class="sample-slot"><button type="button" class="sample-pad" data-sample-pad="5"><b>S6</b><span data-sample-name="5">EMPTY · LOAD AUDIO</span></button><div><button type="button" data-sample-load="5">LOAD</button><button type="button" data-sample-clear="5">×</button></div></article>
+            <article class="sample-slot"><button type="button" class="sample-pad" data-sample-pad="6"><b>S7</b><span data-sample-name="6">EMPTY · LOAD AUDIO</span></button><div><button type="button" data-sample-load="6">LOAD</button><button type="button" data-sample-clear="6">×</button></div></article>
+            <article class="sample-slot"><button type="button" class="sample-pad" data-sample-pad="7"><b>S8</b><span data-sample-name="7">EMPTY · LOAD AUDIO</span></button><div><button type="button" data-sample-load="7">LOAD</button><button type="button" data-sample-clear="7">×</button></div></article>
+          </div>
+        </section>
+      </section>
+
       <section id="mutation" class="mutation-screen hidden" aria-hidden="true" aria-label="Choose a run mutation">
         <div class="mutation-card">
           <span class="mutation-kicker">CHOOSE MUTATION</span>
@@ -64,9 +127,9 @@
         </div>
       </section>
       <button id="start" class="start-screen">
-        <span class="start-kicker">GENERATIVE MUSIC GAME · VITE PRODUCTION</span>
-        <strong>TAP TO ENTER<br />THE WAVE</strong>
-        <small>Shape the music. Control the pressure. Release before the core breaks.</small>
+        <span class="start-kicker">GENERATIVE MUSIC GAME + PERFORMANCE LAB</span>
+        <strong>TAP TO ENTER<br />SOUND WAVE</strong>
+        <small>Play the pressure game or switch to Jam Lab and make your own rhythm.</small>
       </button>
       <div id="rotate" role="status">ROTATE TO LANDSCAPE</div>
     </main>
