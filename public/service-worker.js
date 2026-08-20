@@ -1,4 +1,4 @@
-const CACHE = 'sound-wave-v20-5-karaoke-score-phrasing';
+const CACHE = 'sound-wave-v20-6-dynamic-resonance-glottal';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon.svg', './vocal-worklet.js'];
 
 self.addEventListener('install', (event) => {
