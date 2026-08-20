@@ -64,8 +64,8 @@ export function generateVocalLine(composition: AutoComposition, seed = compositi
     if (!keepForVocal(note, random)) continue;
 
     const closeToPrevious = previousEvent !== null
-      && note.step - previousEvent.step <= Math.max(3, previousEvent.durationSteps + 1);
-    const continueMelisma = closeToPrevious && random() < 0.58;
+      && note.step - previousEvent.step <= Math.max(4, previousEvent.durationSteps + 1);
+    const continueMelisma = closeToPrevious && (random() < 0.58 || vocal.length % 5 === 3);
     let articulate = !continueMelisma;
 
     if (!activeToken || articulate) {
