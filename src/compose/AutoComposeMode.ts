@@ -54,6 +54,7 @@ export class AutoComposeMode {
     this.root.classList.add('active');
     this.root.setAttribute('aria-hidden', 'false');
     await this.audio.unlock();
+    this.updateVisual(this.visualStep);
   }
 
   deactivate(): void {
@@ -128,9 +129,9 @@ export class AutoComposeMode {
     this.root.innerHTML = `
       <header class="compose-header">
         <div>
-          <span class="compose-kicker">100% LOCAL · THEORY + VOCAL GENERATED</span>
+          <span class="compose-kicker">100% LOCAL · THEORY + CONTINUOUS VOCAL WORKLET</span>
           <h1>AUTO COMPOSE</h1>
-          <p>No cloud model. Harmony, melody, bass, rhythm and synthesized singing are generated on this device.</p>
+          <p>No cloud model. Harmony, melody, bass, rhythm and a continuous synthesized singer are generated on this device.</p>
         </div>
         <div class="compose-transport">
           <button type="button" id="compose-play">▶ PLAY</button>
@@ -151,7 +152,7 @@ export class AutoComposeMode {
           <strong id="compose-chord">C · TONIC</strong>
           <small id="compose-theory">TONIC → BUILD → DOMINANT → RESOLVE</small>
         </div>
-        <div class="compose-vocal-strip"><b>VOCAL</b><span id="compose-vocal-now">LOCAL FORMANT SINGER · READY</span></div>
+        <div class="compose-vocal-strip"><b>VOCAL</b><span id="compose-vocal-now">AUDIOWORKLET SINGER · INITIALIZING</span></div>
         <div class="compose-progress"><i id="compose-progress-fill"></i></div>
         <div id="compose-chords" class="compose-chords" aria-label="Generated chord progression"></div>
         <div class="compose-roll-wrap">
@@ -160,7 +161,7 @@ export class AutoComposeMode {
         </div>
         <div class="compose-explain">
           <b>WHY IT WORKS</b>
-          <span>Strong beats prefer chord tones · weak beats use scale tones · vocal syllables follow selected melody notes · formants shape local synthetic vowels.</span>
+          <span>Strong beats prefer chord tones · one continuous glottal stream keeps phase and vocal-tract state across notes · formants and pitch glide shape the phrase.</span>
         </div>
       </section>
     `;
@@ -195,6 +196,7 @@ export class AutoComposeMode {
     this.required<HTMLButtonElement>('#compose-vocal-toggle').addEventListener('pointerdown', (event) => {
       event.preventDefault();
       this.vocalEnabled = !this.vocalEnabled;
+      if (!this.vocalEnabled) this.audio.clearVocalStream();
       this.saveVocalSettings();
       this.syncVocalControl();
       this.updateVisual(this.visualStep);
@@ -202,6 +204,7 @@ export class AutoComposeMode {
 
     this.required<HTMLSelectElement>('#compose-vocal-style').addEventListener('change', (event) => {
       this.vocalStyle = (event.target as HTMLSelectElement).value as VocalStyle;
+      this.audio.clearVocalStream();
       this.saveVocalSettings();
       this.updateVisual(this.visualStep);
     });
@@ -293,6 +296,7 @@ export class AutoComposeMode {
   private async play(): Promise<void> {
     await this.audio.unlock();
     if (!this.active) return;
+    this.audio.clearVocalStream();
     this.playing = true;
     this.nextStep = 0;
     this.visualStep = 0;
@@ -306,6 +310,7 @@ export class AutoComposeMode {
     this.playing = false;
     if (this.schedulerId) window.clearInterval(this.schedulerId);
     this.schedulerId = 0;
+    this.audio.clearVocalStream();
     const playButton = this.root.querySelector<HTMLButtonElement>('#compose-play');
     if (playButton) {
       playButton.textContent = '▶ PLAY';
@@ -364,11 +369,16 @@ export class AutoComposeMode {
       vocal.classList.toggle('muted', !this.vocalEnabled);
     }
 
+    const vocalStatus = this.audio.vocalEngineStatus;
     const syllable = this.vocalEnabled && this.playing ? vocalSyllableAtStep(this.vocalLine, step) : '';
     this.required<HTMLElement>('#compose-vocal-now').textContent = !this.vocalEnabled
       ? 'OFF · INSTRUMENTAL ONLY'
-      : syllable
-        ? `${this.vocalStyle.toUpperCase()} · SINGING “${syllable.toUpperCase()}”`
-        : `${this.vocalStyle.toUpperCase()} · LOCAL FORMANT SINGER`;
+      : vocalStatus === 'unavailable'
+        ? 'AUDIOWORKLET UNAVAILABLE · INSTRUMENTAL FALLBACK'
+        : vocalStatus !== 'ready'
+          ? 'AUDIOWORKLET SINGER · INITIALIZING'
+          : syllable
+            ? `${this.vocalStyle.toUpperCase()} · STREAMING “${syllable.toUpperCase()}”`
+            : `${this.vocalStyle.toUpperCase()} · CONTINUOUS AUDIOWORKLET SINGER`;
   }
 }
