@@ -1,6 +1,7 @@
 import type { PitchClass } from '../core/music';
 import type { AutoComposition } from './AutoComposer';
 import { vocalActiveAtStep, type VocalEvent, type VocalStyle } from './VocalGenerator';
+import { buildVocalPhraseControls, neutralPhraseControl, type VocalPhraseControl } from './VocalPhraseModel';
 import {
   VocalWorkletBridge,
   vocalEventToWorklet,
@@ -26,6 +27,8 @@ export class ComposeAudio {
   private compressor: DynamicsCompressorNode | null = null;
   private noise: AudioBuffer | null = null;
   private readonly vocalWorklet = new VocalWorkletBridge();
+  private phraseControlLine: readonly VocalEvent[] | null = null;
+  private phraseControls: ReadonlyMap<number, VocalPhraseControl> = new Map<number, VocalPhraseControl>();
 
   get currentTime(): number {
     return this.context?.currentTime ?? 0;
@@ -113,6 +116,14 @@ export class ComposeAudio {
 
   clearVocalStream(): void {
     this.vocalWorklet.clear();
+  }
+
+  private phraseControlFor(line: readonly VocalEvent[], event: VocalEvent): VocalPhraseControl {
+    if (this.phraseControlLine !== line) {
+      this.phraseControlLine = line;
+      this.phraseControls = buildVocalPhraseControls(line);
+    }
+    return this.phraseControls.get(event.step) ?? neutralPhraseControl(event);
   }
 
   private scheduleVocalDucking(active: boolean, when: number): void {
@@ -295,7 +306,8 @@ export class ComposeAudio {
     }
     for (const vocal of vocalsAtStep) {
       const duration = stepSeconds * vocal.durationSteps * 0.98;
-      this.vocalWorklet.schedule(vocalEventToWorklet(vocal, vocalStyle, when, duration));
+      const phraseControl = this.phraseControlFor(vocalLine, vocal);
+      this.vocalWorklet.schedule(vocalEventToWorklet(vocal, vocalStyle, when, duration, phraseControl));
     }
   }
 }
