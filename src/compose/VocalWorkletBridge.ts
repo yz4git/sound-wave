@@ -3,6 +3,7 @@ import { phonemeTimingFor, type JapanesePhonemeTiming } from './JapanesePhoneme'
 import { karaokeSingingControlFor, type KaraokeSingingControl } from './KaraokeSinging';
 import { VOCAL_STYLE_MODELS, formantsFor, onsetFormantFrequency } from './VocalModel';
 import { neutralPhraseControl, type VocalPhraseControl } from './VocalPhraseModel';
+import { vocalResonanceControlFor, type VocalResonanceControl } from './VocalResonance';
 
 export type VocalWorkletStatus = 'idle' | 'loading' | 'ready' | 'unavailable';
 
@@ -18,6 +19,7 @@ export interface VocalWorkletEvent {
   phraseEnd: boolean;
   phoneme: JapanesePhonemeTiming;
   karaoke: KaraokeSingingControl;
+  resonance: VocalResonanceControl;
   phrase: {
     progressStart: number;
     progressEnd: number;
@@ -79,6 +81,7 @@ export function vocalEventToWorklet(
   const phoneme = phonemeTimingFor(event.syllable);
   const normalizedDuration = Math.max(0.11, duration);
   const karaoke = karaokeSingingControlFor(event, normalizedDuration, phraseControl);
+  const resonance = vocalResonanceControlFor(event, phraseControl);
 
   return {
     when,
@@ -92,6 +95,7 @@ export function vocalEventToWorklet(
     phraseEnd: event.phraseEnd,
     phoneme,
     karaoke,
+    resonance,
     phrase: {
       progressStart: phraseControl.progressStart,
       progressEnd: phraseControl.progressEnd,
