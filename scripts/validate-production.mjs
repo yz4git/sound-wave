@@ -67,5 +67,10 @@ for (const phonemeFeature of ['phonemeExcitation', 'coarticulationMix', 'nextHz'
     fail(`vocal AudioWorklet is missing Japanese phoneme/coarticulation feature: ${phonemeFeature}`);
   }
 }
+for (const scoringFeature of ['DEFAULT_KARAOKE', 'pitchStability', 'straightHoldRatio', 'vibratoGain', 'scoopCents', 'fallCents', 'dynamicGain']) {
+  if (!vocalWorklet.includes(scoringFeature)) {
+    fail(`vocal AudioWorklet is missing karaoke-score-inspired singing feature: ${scoringFeature}`);
+  }
+}
 
-console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact + Human Phrase Model + Japanese phoneme/coarticulation AudioWorklet`);
+console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact + Human Phrase Model + Japanese phoneme/coarticulation + karaoke-score phrasing AudioWorklet`);
