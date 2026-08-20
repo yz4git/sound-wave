@@ -21,6 +21,9 @@ describe('continuous vocal AudioWorklet bridge', () => {
     expect(mapped.phoneme.voicingDelaySeconds).toBeGreaterThanOrEqual(0);
     expect(mapped.karaoke.pitchStability).toBeGreaterThan(0.8);
     expect(mapped.karaoke.dynamicGain).toBeGreaterThanOrEqual(0.9);
+    expect(mapped.resonance.collisionGainFloor).toBeGreaterThan(0.7);
+    expect(mapped.resonance.collisionBandwidthBoost).toBeGreaterThan(0);
+    expect(mapped.resonance.vibratoResonanceDepth).toBeGreaterThan(0);
     expect(mapped.style.glottalOpenQuotient).toBeGreaterThan(0);
     expect(mapped.style.glottalOpenQuotient).toBeLessThan(1);
     expect(mapped.style.vibratoRateHz).toBeGreaterThanOrEqual(5);
@@ -56,6 +59,21 @@ describe('continuous vocal AudioWorklet bridge', () => {
     const mapped = vocalEventToWorklet(selected!, 'warm', 0.5, 0.45);
     expect(mapped.formants.every((band) => band.nextHz !== null)).toBe(true);
     expect(mapped.formants.some((band) => band.nextHz !== band.targetHz)).toBe(true);
+  });
+
+  it('maps nasal anti-formant control only for nasal events', () => {
+    const composition = generateComposition({ ...defaultComposeSettings(42), seed: 42, density: 1 });
+    const line = generateVocalLine(composition, 5);
+    const base = line[0];
+    expect(base).toBeDefined();
+
+    const plain = vocalEventToWorklet({ ...base!, syllable: 'ka' }, 'warm', 0, 0.4);
+    const nasal = vocalEventToWorklet({ ...base!, syllable: 'na' }, 'warm', 0, 0.4);
+    const moraic = vocalEventToWorklet({ ...base!, syllable: 'n' }, 'warm', 0, 0.4);
+
+    expect(plain.resonance.nasalZeroMix).toBe(0);
+    expect(nasal.resonance.nasalZeroMix).toBeGreaterThan(0);
+    expect(moraic.resonance.nasalZeroMix).toBeGreaterThan(nasal.resonance.nasalZeroMix);
   });
 
   it('maps requested Japanese obstruent timing into the worklet event', () => {
