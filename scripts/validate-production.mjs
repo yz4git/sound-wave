@@ -34,8 +34,16 @@ for (const name of assetRefs) {
   }
 }
 
-for (const required of ['service-worker.js', 'manifest.webmanifest', 'icon.svg']) {
+for (const required of ['service-worker.js', 'manifest.webmanifest', 'icon.svg', 'vocal-worklet.js']) {
   if (!existsSync(join(distDir, required))) fail(`dist/${required} is missing`);
 }
 
-console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact`);
+const vocalWorklet = readFileSync(join(distDir, 'vocal-worklet.js'), 'utf8');
+if (!vocalWorklet.includes("registerProcessor('sound-wave-vocal-processor'")) {
+  fail('dist/vocal-worklet.js does not register the Sound Wave vocal processor');
+}
+if (/createOscillator\s*\(/.test(vocalWorklet)) {
+  fail('vocal AudioWorklet must generate one continuous glottal stream without per-note OscillatorNode creation');
+}
+
+console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact + continuous vocal AudioWorklet`);
