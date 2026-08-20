@@ -13,6 +13,9 @@ export interface VocalEvent {
   syllable: string;
   vowel: VocalVowel;
   articulate: boolean;
+  phraseStart: boolean;
+  phraseEnd: boolean;
+  glideFromMidi: number | null;
 }
 
 const PHRASES: readonly (readonly { syllable: string; vowel: VocalVowel }[])[] = [
@@ -51,6 +54,10 @@ function keepForVocal(note: CompositionNote, random: () => number): boolean {
   return localStep % 2 === 0 && random() < 0.42;
 }
 
+function midiFor(pitch: PitchClass, octave: number): number {
+  return 12 * (octave + 1) + pitch;
+}
+
 export function generateVocalLine(composition: AutoComposition, seed = composition.settings.seed ^ 0x51f15e): VocalEvent[] {
   const random = randomSource(seed >>> 0);
   const fallbackPhrase = PHRASES[0]!;
@@ -63,10 +70,12 @@ export function generateVocalLine(composition: AutoComposition, seed = compositi
   for (const note of composition.melody) {
     if (!keepForVocal(note, random)) continue;
 
-    const closeToPrevious = previousEvent !== null
-      && note.step - previousEvent.step <= Math.max(4, previousEvent.durationSteps + 1);
+    const octave = Math.max(3, Math.min(5, note.octave));
+    const gap = previousEvent ? note.step - previousEvent.step : Number.POSITIVE_INFINITY;
+    const closeToPrevious = previousEvent !== null && gap <= Math.max(4, previousEvent.durationSteps + 1);
     const continueMelisma = closeToPrevious && (random() < 0.58 || vocal.length % 5 === 3);
-    let articulate = !continueMelisma;
+    const phraseStart = previousEvent === null || gap > 5;
+    let articulate = phraseStart || !continueMelisma;
 
     if (!activeToken || articulate) {
       activeToken = phrase[syllableIndex % phrase.length] ?? { syllable: 'ah', vowel: 'a' as const };
@@ -74,20 +83,29 @@ export function generateVocalLine(composition: AutoComposition, seed = compositi
       articulate = true;
     }
 
+    if (phraseStart && previousEvent) previousEvent.phraseEnd = true;
+
     const event: VocalEvent = {
       step: note.step,
       pitch: note.pitch,
-      octave: Math.max(3, Math.min(5, note.octave)),
+      octave,
       durationSteps: Math.max(1, Math.min(4, note.durationSteps + (random() > 0.7 ? 1 : 0))),
-      velocity: Math.max(0.38, Math.min(0.92, note.velocity * 0.9)),
+      velocity: Math.max(0.38, Math.min(0.92, note.velocity * (phraseStart ? 0.94 : 0.9))),
       syllable: articulate ? activeToken.syllable : activeToken.vowel,
       vowel: activeToken.vowel,
       articulate,
+      phraseStart,
+      phraseEnd: false,
+      glideFromMidi: !articulate && previousEvent
+        ? midiFor(previousEvent.pitch, previousEvent.octave)
+        : null,
     };
     vocal.push(event);
     previousEvent = event;
   }
 
+  const finalEvent = vocal[vocal.length - 1];
+  if (finalEvent) finalEvent.phraseEnd = true;
   return vocal;
 }
 
