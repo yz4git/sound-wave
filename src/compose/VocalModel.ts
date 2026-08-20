@@ -7,11 +7,15 @@ export interface FormantBand {
 }
 
 export interface VocalStyleModel {
-  harmonicSlope: number;
+  glottalOpenQuotient: number;
+  glottalSpeedQuotient: number;
+  spectralTilt: number;
   vibratoRateHz: number;
   vibratoDepthCents: number;
   vibratoDelaySeconds: number;
   intensityModDepth: number;
+  jitterCents: number;
+  shimmerDepth: number;
   formantShift: number;
   presenceFrequency: number;
   presenceGain: number;
@@ -19,6 +23,10 @@ export interface VocalStyleModel {
   attackSeconds: number;
   releaseSeconds: number;
   onsetPitchCents: number;
+  radiationFrequency: number;
+  radiationGainDb: number;
+  doubleDelaySeconds: number;
+  doubleLevel: number;
 }
 
 const VOWEL_FORMANTS: Record<VocalVowel, readonly [number, number, number, number, number]> = {
@@ -34,11 +42,15 @@ const FORMANT_GAINS = [1, 0.7, 0.42, 0.2, 0.11] as const;
 
 export const VOCAL_STYLE_MODELS: Record<VocalStyle, VocalStyleModel> = {
   warm: {
-    harmonicSlope: 1.42,
+    glottalOpenQuotient: 0.64,
+    glottalSpeedQuotient: 0.68,
+    spectralTilt: 1.18,
     vibratoRateHz: 5.45,
     vibratoDepthCents: 38,
     vibratoDelaySeconds: 0.12,
-    intensityModDepth: 0.075,
+    intensityModDepth: 0.065,
+    jitterCents: 1.8,
+    shimmerDepth: 0.018,
     formantShift: 0.96,
     presenceFrequency: 2920,
     presenceGain: 0.12,
@@ -46,13 +58,21 @@ export const VOCAL_STYLE_MODELS: Record<VocalStyle, VocalStyleModel> = {
     attackSeconds: 0.032,
     releaseSeconds: 0.085,
     onsetPitchCents: 16,
+    radiationFrequency: 1250,
+    radiationGainDb: 2.6,
+    doubleDelaySeconds: 0.012,
+    doubleLevel: 0.09,
   },
   bright: {
-    harmonicSlope: 1.14,
+    glottalOpenQuotient: 0.52,
+    glottalSpeedQuotient: 0.78,
+    spectralTilt: 0.98,
     vibratoRateHz: 5.85,
     vibratoDepthCents: 28,
     vibratoDelaySeconds: 0.1,
-    intensityModDepth: 0.06,
+    intensityModDepth: 0.052,
+    jitterCents: 1.2,
+    shimmerDepth: 0.013,
     formantShift: 1.055,
     presenceFrequency: 3050,
     presenceGain: 0.2,
@@ -60,13 +80,21 @@ export const VOCAL_STYLE_MODELS: Record<VocalStyle, VocalStyleModel> = {
     attackSeconds: 0.024,
     releaseSeconds: 0.07,
     onsetPitchCents: 12,
+    radiationFrequency: 1150,
+    radiationGainDb: 3.4,
+    doubleDelaySeconds: 0.009,
+    doubleLevel: 0.07,
   },
   airy: {
-    harmonicSlope: 1.68,
+    glottalOpenQuotient: 0.72,
+    glottalSpeedQuotient: 0.58,
+    spectralTilt: 1.42,
     vibratoRateHz: 5.15,
     vibratoDepthCents: 44,
     vibratoDelaySeconds: 0.15,
-    intensityModDepth: 0.09,
+    intensityModDepth: 0.078,
+    jitterCents: 2.4,
+    shimmerDepth: 0.027,
     formantShift: 1.015,
     presenceFrequency: 2850,
     presenceGain: 0.075,
@@ -74,6 +102,10 @@ export const VOCAL_STYLE_MODELS: Record<VocalStyle, VocalStyleModel> = {
     attackSeconds: 0.045,
     releaseSeconds: 0.12,
     onsetPitchCents: 22,
+    radiationFrequency: 1450,
+    radiationGainDb: 1.9,
+    doubleDelaySeconds: 0.016,
+    doubleLevel: 0.12,
   },
 };
 
@@ -87,12 +119,39 @@ export function formantsFor(vowel: VocalVowel, style: VocalStyle): FormantBand[]
   }));
 }
 
-export function harmonicSeries(style: VocalStyle, count = 32): Float32Array {
+function glottalFlowSample(phase: number, openQuotient: number, speedQuotient: number): number {
+  if (phase >= openQuotient) return 0;
+  const openingEnd = openQuotient * speedQuotient;
+  if (phase <= openingEnd) {
+    const normalized = phase / Math.max(0.0001, openingEnd);
+    return 0.5 - 0.5 * Math.cos(Math.PI * normalized);
+  }
+  const normalized = (phase - openingEnd) / Math.max(0.0001, openQuotient - openingEnd);
+  return Math.cos(normalized * Math.PI * 0.5) ** 2;
+}
+
+export function glottalHarmonicSeries(style: VocalStyle, count = 48): Float32Array {
   const model = VOCAL_STYLE_MODELS[style];
+  const sampleCount = 512;
+  const flow = new Float32Array(sampleCount);
+  for (let index = 0; index < sampleCount; index += 1) {
+    flow[index] = glottalFlowSample(index / sampleCount, model.glottalOpenQuotient, model.glottalSpeedQuotient);
+  }
+
   const harmonics = new Float32Array(Math.max(2, count + 1));
   for (let harmonic = 1; harmonic < harmonics.length; harmonic += 1) {
-    const openPulseShape = harmonic === 2 ? 1.12 : harmonic % 2 === 1 ? 1 : 0.92;
-    harmonics[harmonic] = openPulseShape / harmonic ** model.harmonicSlope;
+    let imaginary = 0;
+    for (let index = 0; index < sampleCount; index += 1) {
+      imaginary += flow[index]! * Math.sin(2 * Math.PI * harmonic * index / sampleCount);
+    }
+    const normalized = Math.abs(imaginary) / sampleCount;
+    harmonics[harmonic] = normalized / harmonic ** model.spectralTilt;
+  }
+
+  let peak = 0;
+  for (let harmonic = 1; harmonic < harmonics.length; harmonic += 1) peak = Math.max(peak, harmonics[harmonic] ?? 0);
+  if (peak > 0) {
+    for (let harmonic = 1; harmonic < harmonics.length; harmonic += 1) harmonics[harmonic] /= peak;
   }
   return harmonics;
 }
