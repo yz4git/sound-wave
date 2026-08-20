@@ -19,12 +19,27 @@ describe('continuous vocal AudioWorklet bridge', () => {
     expect(mapped.formants.every((band) => band.bandwidth > 0 && band.targetHz > 0)).toBe(true);
     expect(mapped.phoneme.coarticulationLead).toBeGreaterThan(0);
     expect(mapped.phoneme.voicingDelaySeconds).toBeGreaterThanOrEqual(0);
+    expect(mapped.karaoke.pitchStability).toBeGreaterThan(0.8);
+    expect(mapped.karaoke.dynamicGain).toBeGreaterThanOrEqual(0.9);
     expect(mapped.style.glottalOpenQuotient).toBeGreaterThan(0);
     expect(mapped.style.glottalOpenQuotient).toBeLessThan(1);
     expect(mapped.style.vibratoRateHz).toBeGreaterThanOrEqual(5);
     expect(mapped.style.vibratoRateHz).toBeLessThanOrEqual(7);
     expect(mapped.phrase.energyStart).toBeGreaterThan(0);
     expect(mapped.phrase.sourceTractCoupling).toBeGreaterThan(0);
+  });
+
+  it('marks long notes for straight-hold then late-vibrato scoring phrasing', () => {
+    const composition = generateComposition({ ...defaultComposeSettings(2121), seed: 2121, density: 1 });
+    const line = generateVocalLine(composition, 8181);
+    const event = line.find((candidate) => candidate.durationSteps >= 2) ?? line[0];
+    expect(event).toBeDefined();
+
+    const mapped = vocalEventToWorklet(event!, 'warm', 0, 0.9);
+    expect(mapped.karaoke.longTone).toBe(true);
+    expect(mapped.karaoke.straightHoldRatio).toBeGreaterThanOrEqual(0.6);
+    expect(mapped.karaoke.vibratoGain).toBeGreaterThan(0.5);
+    expect(mapped.karaoke.pitchStability).toBeGreaterThanOrEqual(0.9);
   });
 
   it('maps planned next vowels into per-formant anticipatory targets', () => {
