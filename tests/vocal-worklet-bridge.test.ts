@@ -28,6 +28,10 @@ describe('continuous vocal AudioWorklet bridge', () => {
     expect(mapped.resonance.collisionGainFloor).toBeGreaterThan(0.7);
     expect(mapped.resonance.collisionBandwidthBoost).toBeGreaterThan(0);
     expect(mapped.resonance.vibratoResonanceDepth).toBeGreaterThan(0);
+    expect(mapped.spectral.timeSmoothingMs).toBeGreaterThan(mapped.spectral.transitionSmoothingMs);
+    expect(mapped.spectral.frequencySmoothing).toBeGreaterThanOrEqual(0.08);
+    expect(mapped.spectral.frequencySmoothing).toBeLessThanOrEqual(0.19);
+    expect(mapped.spectral.trajectoryDepth).toBeGreaterThanOrEqual(0.72);
     expect(mapped.style.glottalOpenQuotient).toBeGreaterThan(0);
     expect(mapped.style.glottalOpenQuotient).toBeLessThan(1);
     expect(mapped.style.vibratoRateHz).toBeGreaterThanOrEqual(5);
@@ -60,11 +64,14 @@ describe('continuous vocal AudioWorklet bridge', () => {
     expect(event).toBeDefined();
     const longEvent = { ...event!, durationSteps: 2 };
 
+    const shortMapped = vocalEventToWorklet(longEvent, 'warm', 0, 0.22);
     const mapped = vocalEventToWorklet(longEvent, 'warm', 0, 0.9);
     expect(mapped.karaoke.longTone).toBe(true);
     expect(mapped.karaoke.straightHoldRatio).toBeGreaterThanOrEqual(0.6);
     expect(mapped.karaoke.vibratoGain).toBeGreaterThan(0.5);
     expect(mapped.karaoke.pitchStability).toBeGreaterThanOrEqual(0.9);
+    expect(mapped.spectral.timeSmoothingMs).toBeGreaterThan(shortMapped.spectral.timeSmoothingMs);
+    expect(mapped.spectral.spectralTiltDepth).toBeGreaterThan(shortMapped.spectral.spectralTiltDepth);
   });
 
   it('maps planned next vowels into per-formant anticipatory targets', () => {
