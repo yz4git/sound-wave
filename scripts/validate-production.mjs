@@ -57,6 +57,16 @@ for (const arrangementFeature of [
     fail(`production bundle is missing Genre Arrangement Grammar feature: ${arrangementFeature}`);
   }
 }
+for (const vocaloidExpressionFeature of [
+  'consonantPreRollSeconds',
+  'transitionPreservation',
+  'sustainTimbreMotion',
+  'upperFormantScale',
+]) {
+  if (!entryJavaScript.includes(vocaloidExpressionFeature)) {
+    fail(`production bundle is missing VOCALOID-informed expression feature: ${vocaloidExpressionFeature}`);
+  }
+}
 
 const vocalWorklet = readFileSync(join(distDir, 'vocal-worklet.js'), 'utf8');
 try {
@@ -107,4 +117,4 @@ for (const resonanceFeature of [
   }
 }
 
-console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact + Genre Style/Arrangement Grammar + Human Phrase Model + Japanese phoneme/coarticulation + karaoke-score phrasing + dynamic resonance/glottal AudioWorklet`);
+console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact + Genre Style/Arrangement Grammar + VOCALOID-informed score-aligned expression + Human Phrase Model + Japanese phoneme/coarticulation + karaoke-score phrasing + dynamic resonance/glottal AudioWorklet`);
