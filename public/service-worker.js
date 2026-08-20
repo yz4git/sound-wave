@@ -1,4 +1,4 @@
-const CACHE = 'sound-wave-v14-vocal-worklet';
+const CACHE = 'sound-wave-v15-vocal-presence';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon.svg', './vocal-worklet.js'];
 
 self.addEventListener('install', (event) => {
