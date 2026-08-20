@@ -1,5 +1,5 @@
 .compose-controls {
-  grid-template-columns: .62fr .78fr 1fr 1fr .62fr .76fr;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .compose-vocal-toggle button {
@@ -21,7 +21,7 @@
 }
 
 .compose-stage {
-  grid-template-rows: auto auto 5px auto minmax(72px, 1fr) auto;
+  grid-template-rows: auto auto auto 5px auto minmax(72px, 1fr) auto;
 }
 .compose-vocal-strip {
   min-height: 24px;
@@ -62,7 +62,7 @@
 
 @media (max-width: 900px), (max-height: 460px) {
   .compose-controls {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 4px 5px;
   }
   .compose-controls label { min-height: 29px; }
