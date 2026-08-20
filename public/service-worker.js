@@ -1,4 +1,4 @@
-const CACHE = 'sound-wave-v17-vocal-natural';
+const CACHE = 'sound-wave-v18-vocal-soft-legato';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon.svg', './vocal-worklet.js'];
 
 self.addEventListener('install', (event) => {
