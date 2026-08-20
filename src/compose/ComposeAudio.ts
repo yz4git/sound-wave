@@ -1,6 +1,6 @@
 import type { PitchClass } from '../core/music';
 import type { AutoComposition } from './AutoComposer';
-import type { VocalEvent, VocalStyle } from './VocalGenerator';
+import { vocalActiveAtStep, type VocalEvent, type VocalStyle } from './VocalGenerator';
 import {
   VocalWorkletBridge,
   vocalEventToWorklet,
@@ -113,6 +113,16 @@ export class ComposeAudio {
 
   clearVocalStream(): void {
     this.vocalWorklet.clear();
+  }
+
+  private scheduleVocalDucking(active: boolean, when: number): void {
+    if (!this.context || !this.musicBus || !this.drumBus) return;
+    const start = Math.max(this.context.currentTime, when);
+    const musicTarget = active ? 0.34 : 0.53;
+    const drumTarget = active ? 0.52 : 0.68;
+    const timeConstant = active ? 0.018 : 0.075;
+    this.musicBus.gain.setTargetAtTime(musicTarget, start, timeConstant);
+    this.drumBus.gain.setTargetAtTime(drumTarget, start, timeConstant);
   }
 
   private makeNoiseBuffer(): AudioBuffer | null {
@@ -259,7 +269,9 @@ export class ComposeAudio {
     const bar = Math.floor(step / 16);
     const localStep = step % 16;
     const vocalsAtStep = vocalLine.filter((vocal) => vocal.step === step);
-    const hasVocal = vocalsAtStep.length > 0 && this.vocalWorklet.status === 'ready';
+    const vocalActive = vocalActiveAtStep(vocalLine, step) && this.vocalWorklet.status === 'ready';
+
+    this.scheduleVocalDucking(vocalActive, when);
 
     if (localStep === 0) {
       const chord = composition.chords[bar]?.chord;
@@ -277,7 +289,7 @@ export class ComposeAudio {
     }
     for (const note of composition.melody) {
       if (note.step === step) {
-        const melodyVelocity = hasVocal ? note.velocity * 0.08 : note.velocity * 0.9;
+        const melodyVelocity = vocalActive ? note.velocity * 0.055 : note.velocity * 0.9;
         this.playMelody(note.pitch, note.octave, stepSeconds * note.durationSteps * 0.88, melodyVelocity, when);
       }
     }
