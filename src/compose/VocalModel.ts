@@ -37,8 +37,9 @@ const VOWEL_FORMANTS: Record<VocalVowel, readonly [number, number, number, numbe
   u: [300, 870, 2240, 3300, 4950],
 };
 
-// Soft Pop keeps vowel identity bright and readable while widening the
-// resonances enough to avoid the narrow metallic peaks of a classic formant synth.
+// Presence Reset keeps the Soft Pop vocal-tract shape but disables the extra
+// singer-presence resonator. This lets the Human Phrase Model be judged without
+// a permanently emphasized 2.8-3.0 kHz layer on top of the five formants.
 const FORMANT_BANDWIDTHS = [104, 122, 176, 238, 295] as const;
 const FORMANT_GAINS = [1, 0.6, 0.28, 0.1, 0.04] as const;
 
@@ -55,7 +56,7 @@ export const VOCAL_STYLE_MODELS: Record<VocalStyle, VocalStyleModel> = {
     shimmerDepth: 0.005,
     formantShift: 0.985,
     presenceFrequency: 2840,
-    presenceGain: 0.12,
+    presenceGain: 0,
     breathLevel: 0.007,
     attackSeconds: 0.06,
     releaseSeconds: 0.145,
@@ -77,7 +78,7 @@ export const VOCAL_STYLE_MODELS: Record<VocalStyle, VocalStyleModel> = {
     shimmerDepth: 0.004,
     formantShift: 1.025,
     presenceFrequency: 2960,
-    presenceGain: 0.145,
+    presenceGain: 0,
     breathLevel: 0.0055,
     attackSeconds: 0.052,
     releaseSeconds: 0.125,
@@ -99,7 +100,7 @@ export const VOCAL_STYLE_MODELS: Record<VocalStyle, VocalStyleModel> = {
     shimmerDepth: 0.008,
     formantShift: 1,
     presenceFrequency: 2800,
-    presenceGain: 0.085,
+    presenceGain: 0,
     breathLevel: 0.017,
     attackSeconds: 0.074,
     releaseSeconds: 0.175,
