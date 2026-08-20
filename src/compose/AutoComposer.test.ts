@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   compositionLengthSteps,
+  defaultComposeSettings,
   generateComposition,
   type AutoComposeSettings,
 } from './AutoComposer';
 
 const settings: AutoComposeSettings = {
+  ...defaultComposeSettings(12345),
   tonic: 0,
   mode: 'minor',
   bpm: 108,
