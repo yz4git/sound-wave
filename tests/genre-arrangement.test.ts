@@ -76,4 +76,22 @@ describe('genre arrangement fidelity', () => {
     expect(composition.arrangement[4]?.energy).toBeGreaterThan(1);
     expect(composition.arrangement[7]?.hookRepeat).toBeGreaterThan(0.8);
   });
+
+  it('uses subgenre-specific arrangement overrides instead of only family defaults', () => {
+    const cityPop = buildGenreArrangement(genreStyle('j-pop', 'city-pop'), 8);
+    const punk = buildGenreArrangement(genreStyle('rock', 'punk'), 8);
+    const kpopBallad = buildGenreArrangement(genreStyle('k-pop', 'ballad'), 8);
+    const puzzle = buildGenreArrangement(genreStyle('game-music', 'puzzle'), 8);
+    const boss = buildGenreArrangement(genreStyle('game-music', 'boss-battle'), 8);
+
+    expect(cityPop[0]?.chordPattern).toBe('offbeat-stabs');
+    expect(cityPop[0]?.bassPattern).toBe('root-fifth');
+    expect(punk.every((bar) => bar.chordPattern === 'power-pulse')).toBe(true);
+    expect(kpopBallad.some((bar) => bar.section === 'drop')).toBe(false);
+    expect(kpopBallad.filter((bar) => bar.section === 'chorus')).toHaveLength(3);
+    expect(puzzle[0]?.chordPattern).toBe('arpeggio-pulse');
+    expect(puzzle[0]?.drumDensityScale).toBeLessThan(0.6);
+    expect(boss[0]?.bassPattern).toBe('ostinato');
+    expect(boss[0]?.energy).toBeGreaterThan(1);
+  });
 });
