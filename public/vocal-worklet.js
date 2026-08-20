@@ -1,3 +1,14 @@
+const NEUTRAL_FORMANTS = [500, 1500, 2500, 3500, 4500];
+
+function clamp01(value) {
+  return Math.max(0, Math.min(1, value));
+}
+
+function smoothstep(value) {
+  const x = clamp01(value);
+  return x * x * (3 - 2 * x);
+}
+
 class SoundWaveVocalProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
@@ -127,12 +138,18 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
 
   updateFormantCoefficients(event, elapsed, noteDuration) {
     const transitionDuration = Math.min(event.articulate ? 0.145 : 0.09, noteDuration * 0.44);
-    const transition = Math.max(0, Math.min(1, elapsed / Math.max(0.001, transitionDuration)));
+    const transition = clamp01(elapsed / Math.max(0.001, transitionDuration));
     const eased = transition * transition * transition * (transition * (transition * 6 - 15) + 10);
+    const noteProgress = smoothstep(elapsed / Math.max(0.001, noteDuration));
+    const centering = event.phrase.centeringStart
+      + (event.phrase.centeringEnd - event.phrase.centeringStart) * noteProgress;
+
     for (let index = 0; index < 5; index += 1) {
       const band = event.formants[index];
       if (!band) continue;
-      const frequency = band.startHz + (band.targetHz - band.startHz) * eased;
+      const neutral = NEUTRAL_FORMANTS[index] || band.targetHz;
+      const centeredTarget = band.targetHz + (neutral - band.targetHz) * centering;
+      const frequency = band.startHz + (centeredTarget - band.startHz) * eased;
       const r = Math.exp(-Math.PI * Math.max(20, band.bandwidth) / sampleRate);
       const angle = 2 * Math.PI * Math.min(sampleRate * 0.45, Math.max(60, frequency)) / sampleRate;
       this.formantCoefficient[index] = 2 * r * Math.cos(angle);
@@ -168,10 +185,10 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     const rawAttackGain = Math.min(1, elapsed / attack);
     const attackGain = legato ? 0.94 + rawAttackGain * 0.06 : rawAttackGain;
     const releaseGain = Math.min(1, remaining / release);
-    const shaped = Math.sin(Math.min(1, Math.max(0, attackGain)) * Math.PI * 0.5)
-      * Math.sin(Math.min(1, Math.max(0, releaseGain)) * Math.PI * 0.5);
+    const shaped = Math.sin(clamp01(attackGain) * Math.PI * 0.5)
+      * Math.sin(clamp01(releaseGain) * Math.PI * 0.5);
     const normalized = (frame - event.startFrame) / progressFrames;
-    return shaped * Math.max(0, Math.min(1, 1 - Math.max(0, normalized - 0.955) * 3.2));
+    return shaped * clamp01(1 - Math.max(0, normalized - 0.955) * 3.2);
   }
 
   consonant(event, elapsed, sourceSample, noise) {
@@ -219,6 +236,11 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     const elapsed = (frame - active.startFrame) / sampleRate;
     const remaining = Math.max(0, active.endFrame - frame) / sampleRate;
     const noteDuration = Math.max(0.001, (active.endFrame - active.startFrame) / sampleRate);
+    const noteProgress = smoothstep(elapsed / noteDuration);
+    const phraseProgress = active.phrase.progressStart
+      + (active.phrase.progressEnd - active.phrase.progressStart) * noteProgress;
+    const phraseEnergy = active.phrase.energyStart
+      + (active.phrase.energyEnd - active.phrase.energyStart) * noteProgress;
     const style = active.style;
     if (this.coefficientCountdown <= 0) this.updateFormantCoefficients(active, elapsed, noteDuration);
     else this.coefficientCountdown -= 1;
@@ -226,7 +248,7 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     const glideDuration = Math.min(0.065, noteDuration * 0.26);
     let targetHz = active.targetHz;
     if (active.glideFromHz !== null && elapsed < glideDuration) {
-      const mix = Math.max(0, Math.min(1, elapsed / Math.max(0.001, glideDuration)));
+      const mix = clamp01(elapsed / Math.max(0.001, glideDuration));
       const eased = mix * mix * (3 - 2 * mix);
       targetHz = active.glideFromHz * (active.targetHz / active.glideFromHz) ** eased;
     } else if (active.glideFromHz === null && elapsed < Math.min(0.06, noteDuration * 0.24)) {
@@ -241,11 +263,13 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     this.shimmerState += (noise - this.shimmerState) * 0.0007;
     this.advanceModulation(style.vibratoRateHz);
     const vibratoEligibility = Math.max(0, Math.min(1, (noteDuration - 0.55) / 0.55));
+    const phraseVibratoEligibility = smoothstep((phraseProgress - 0.42) / 0.38);
     const vibratoDelay = Math.min(style.vibratoDelaySeconds, noteDuration * 0.62);
-    const vibratoRise = Math.max(0, Math.min(1, (elapsed - vibratoDelay) / 0.26));
+    const vibratoRise = clamp01((elapsed - vibratoDelay) / 0.26);
     const vibratoWave = Math.sin(2 * Math.PI * this.vibratoPhase);
-    const vibratoCents = vibratoWave * style.vibratoDepthCents * vibratoRise * vibratoEligibility;
-    const driftCents = Math.sin(2 * Math.PI * this.driftPhase) * 0.65;
+    const vibratoCents = vibratoWave * style.vibratoDepthCents
+      * vibratoRise * vibratoEligibility * phraseVibratoEligibility;
+    const driftCents = Math.sin(2 * Math.PI * this.driftPhase) * 0.55;
     const jitterCents = this.jitterState * style.jitterCents;
     const desiredHz = targetHz * 2 ** ((vibratoCents + driftCents + jitterCents) / 1200);
     this.currentHz += (desiredHz - this.currentHz) * 0.045;
@@ -257,13 +281,18 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     this.previousFlow = flow;
     const rawSource = flow * 0.54 + derivative * 7.2;
     this.sourceState += (rawSource - this.sourceState) * 0.62;
-    const glottalSource = this.sourceState;
+
+    // Weak source–tract coupling: feed a tiny amount of the previous F1 state
+    // back into the next glottal excitation. The clamp keeps the loop far from
+    // self-oscillation while avoiding a perfectly separated source/filter feel.
+    const coupling = Math.max(0, Math.min(0.045, active.phrase.sourceTractCoupling));
+    const coupledSource = this.sourceState + this.formantY1[0] * coupling;
 
     let vocal = 0;
     for (let index = 0; index < Math.min(5, active.formants.length); index += 1) {
-      vocal += this.resonator(glottalSource, active.formants[index].gain, index);
+      vocal += this.resonator(coupledSource, active.formants[index].gain, index);
     }
-    vocal += this.presence(glottalSource, style.presenceGain);
+    vocal += this.presence(coupledSource, style.presenceGain);
 
     const highpassed = this.radiationAlpha * (this.radiationState + vocal - this.previousRadiationInput);
     this.previousRadiationInput = vocal;
@@ -271,19 +300,33 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     vocal += highpassed * this.radiationMix;
 
     const phraseBreath = active.phraseStart ? 1 : active.articulate ? 0.45 : 0.18;
-    const breathEnvelope = Math.max(0, Math.min(1, elapsed / 0.055)) * Math.max(0, Math.min(1, remaining / 0.085));
+    const breathEnvelope = clamp01(elapsed / 0.055) * clamp01(remaining / 0.085);
     const breath = (noise - this.shimmerState) * style.breathLevel * phraseBreath * breathEnvelope;
-    const releaseBreathGain = active.phraseEnd ? Math.max(0, Math.min(1, (0.11 - remaining) / 0.11)) : 0;
+
+    // Aspiration follows the open part of the glottal cycle instead of being
+    // purely broadband/random. This adds a subtle breath pulse that stays tied
+    // to the same continuous glottal stream across notes.
+    const openQuotient = Math.max(0.1, style.glottalOpenQuotient);
+    const glottalOpen = this.phase < openQuotient
+      ? Math.sin(Math.PI * clamp01(this.phase / openQuotient)) ** 2
+      : 0;
+    const aspiration = (noise - this.jitterState) * style.breathLevel
+      * active.phrase.aspirationDepth * 2.2 * (0.22 + glottalOpen * 0.78);
+
+    const releaseBreathGain = active.phraseEnd ? clamp01((0.11 - remaining) / 0.11) : 0;
     const releaseBreath = (noise - this.shimmerState) * style.breathLevel * 0.55 * releaseBreathGain;
-    const consonant = this.consonant(active, elapsed, glottalSource, noise);
-    const amplitudeVibrato = 1 + vibratoWave * style.intensityModDepth * vibratoRise * vibratoEligibility;
+    const consonant = this.consonant(active, elapsed, coupledSource, noise);
+    const amplitudeVibrato = 1 + vibratoWave * style.intensityModDepth
+      * vibratoRise * vibratoEligibility * phraseVibratoEligibility;
     const shimmer = 1 + this.shimmerState * style.shimmerDepth;
-    const targetEnvelope = this.envelopeFor(active, frame) * Math.max(0.3, Math.min(1, active.velocity));
+    const targetEnvelope = this.envelopeFor(active, frame)
+      * Math.max(0.3, Math.min(1, active.velocity)) * phraseEnergy;
     const envelopeRate = targetEnvelope > this.envelopeState
       ? active.articulate ? 0.0055 : 0.0028
       : 0.0023;
     this.envelopeState += (targetEnvelope - this.envelopeState) * envelopeRate;
-    let sample = (vocal * amplitudeVibrato * shimmer + breath + releaseBreath + consonant) * this.envelopeState * 0.415;
+    let sample = (vocal * amplitudeVibrato * shimmer + breath + aspiration + releaseBreath + consonant)
+      * this.envelopeState * 0.415;
 
     const readIndex = (this.delayWrite - this.delaySamples + this.delayBuffer.length) % this.delayBuffer.length;
     const delayed = this.delayBuffer[readIndex];
