@@ -9,6 +9,15 @@ import {
 } from './AutoComposer';
 import { ComposeAudio } from './ComposeAudio';
 import {
+  GENRE_DEFINITIONS,
+  defaultSubgenreFor,
+  genreDefinition,
+  genreStyle,
+  validGenre,
+  validSubgenre,
+  type GenreId,
+} from './GenreStyle';
+import {
   generateVocalLine,
   vocalSyllableAtStep,
   type VocalEvent,
@@ -81,13 +90,19 @@ export class AutoComposeMode {
       const parsed = JSON.parse(raw) as Partial<AutoComposeSettings>;
       const tonic = PITCHES.includes(parsed.tonic as PitchClass) ? parsed.tonic as PitchClass : fallback.tonic;
       const mode = MODES.includes(parsed.mode as Mode) ? parsed.mode as Mode : fallback.mode;
+      const genre: GenreId = validGenre(parsed.genre) ? parsed.genre : fallback.genre;
+      const subgenre = validSubgenre(genre, parsed.subgenre)
+        ? parsed.subgenre as string
+        : defaultSubgenreFor(genre);
       return {
         tonic,
         mode,
-        bpm: Math.max(60, Math.min(180, Number(parsed.bpm) || fallback.bpm)),
+        bpm: Math.max(60, Math.min(190, Number(parsed.bpm) || fallback.bpm)),
         density: Math.max(0.15, Math.min(1, Number(parsed.density) || fallback.density)),
         bars: 8,
         seed: Number(parsed.seed) >>> 0 || fallback.seed,
+        genre,
+        subgenre,
       };
     } catch {
       return fallback;
@@ -97,12 +112,14 @@ export class AutoComposeMode {
   private loadVocalSettings(): { enabled: boolean; style: VocalStyle } {
     try {
       const raw = localStorage.getItem(VOCAL_STORAGE_KEY);
-      if (!raw) return { enabled: true, style: 'warm' };
+      if (!raw) return { enabled: true, style: genreStyle(this.settings.genre, this.settings.subgenre).recommendedVocalStyle };
       const parsed = JSON.parse(raw) as { enabled?: unknown; style?: unknown };
-      const style = VOCAL_STYLES.includes(parsed.style as VocalStyle) ? parsed.style as VocalStyle : 'warm';
+      const style = VOCAL_STYLES.includes(parsed.style as VocalStyle)
+        ? parsed.style as VocalStyle
+        : genreStyle(this.settings.genre, this.settings.subgenre).recommendedVocalStyle;
       return { enabled: parsed.enabled !== false, style };
     } catch {
-      return { enabled: true, style: 'warm' };
+      return { enabled: true, style: genreStyle(this.settings.genre, this.settings.subgenre).recommendedVocalStyle };
     }
   }
 
@@ -122,6 +139,18 @@ export class AutoComposeMode {
     }
   }
 
+  private genreOptions(): string {
+    return GENRE_DEFINITIONS
+      .map((genre) => `<option value="${genre.id}">${genre.label}</option>`)
+      .join('');
+  }
+
+  private subgenreOptions(genre: GenreId): string {
+    return genreDefinition(genre).subgenres
+      .map((style) => `<option value="${style.id}">${style.label}</option>`)
+      .join('');
+  }
+
   private renderShell(): void {
     const keyOptions = PITCHES.map((pitch) => `<option value="${pitch}">${pitchName(pitch)}</option>`).join('');
     const modeOptions = MODES.map((mode) => `<option value="${mode}">${mode.toUpperCase()}</option>`).join('');
@@ -129,9 +158,9 @@ export class AutoComposeMode {
     this.root.innerHTML = `
       <header class="compose-header">
         <div>
-          <span class="compose-kicker">100% LOCAL · THEORY + CONTINUOUS VOCAL WORKLET</span>
+          <span class="compose-kicker">AUTO COMPOSE v2 · GENRE STYLE ENGINE · LOCAL VOCAL WORKLET</span>
           <h1>AUTO COMPOSE</h1>
-          <p>No cloud model. Harmony, melody, bass, rhythm and a continuous synthesized singer are generated on this device.</p>
+          <p>Choose a genre and subgenre. Harmony, melody, rhythm, arrangement and vocal character adapt together on this device.</p>
         </div>
         <div class="compose-transport">
           <button type="button" id="compose-play">▶ PLAY</button>
@@ -139,19 +168,22 @@ export class AutoComposeMode {
         </div>
       </header>
       <section class="compose-controls" aria-label="Composition settings">
+        <label class="compose-style-control"><span>GENRE</span><select id="compose-genre">${this.genreOptions()}</select></label>
+        <label class="compose-style-control"><span>SUBGENRE</span><select id="compose-subgenre">${this.subgenreOptions(this.settings.genre)}</select></label>
         <label><span>KEY</span><select id="compose-key">${keyOptions}</select></label>
         <label><span>MODE</span><select id="compose-mode">${modeOptions}</select></label>
-        <label><span id="compose-bpm-label">108 BPM</span><input id="compose-bpm" type="range" min="60" max="180" step="1" /></label>
+        <label><span id="compose-bpm-label">108 BPM</span><input id="compose-bpm" type="range" min="60" max="190" step="1" /></label>
         <label><span id="compose-density-label">DENSITY 55%</span><input id="compose-density" type="range" min="15" max="100" step="1" /></label>
         <label class="compose-vocal-toggle"><span>VOCAL</span><button type="button" id="compose-vocal-toggle">ON</button></label>
         <label><span>VOICE</span><select id="compose-vocal-style">${vocalOptions}</select></label>
       </section>
       <section class="compose-stage">
         <div class="compose-now">
-          <span id="compose-title">MINOR CURRENT</span>
+          <span id="compose-title">STYLE CURRENT</span>
           <strong id="compose-chord">C · TONIC</strong>
-          <small id="compose-theory">TONIC → BUILD → DOMINANT → RESOLVE</small>
+          <small id="compose-theory">GENRE STYLE ENGINE</small>
         </div>
+        <div class="compose-style-strip"><b id="compose-style-name">STYLE</b><span id="compose-style-description"></span></div>
         <div class="compose-vocal-strip"><b>VOCAL</b><span id="compose-vocal-now">AUDIOWORKLET SINGER · INITIALIZING</span></div>
         <div class="compose-progress"><i id="compose-progress-fill"></i></div>
         <div id="compose-chords" class="compose-chords" aria-label="Generated chord progression"></div>
@@ -160,12 +192,14 @@ export class AutoComposeMode {
           <div id="compose-roll" class="compose-roll"></div>
         </div>
         <div class="compose-explain">
-          <b>WHY IT WORKS</b>
-          <span>Strong beats prefer chord tones · one continuous glottal stream keeps phase and vocal-tract state across notes · formants and pitch glide shape the phrase.</span>
+          <b>STYLE ENGINE</b>
+          <span>Genre profiles reshape chord choices · melodic density · syncopation · drum placement · arrangement weight · recommended vocal character.</span>
         </div>
       </section>
     `;
 
+    this.required<HTMLSelectElement>('#compose-genre').value = this.settings.genre;
+    this.required<HTMLSelectElement>('#compose-subgenre').value = this.settings.subgenre;
     this.required<HTMLSelectElement>('#compose-key').value = String(this.settings.tonic);
     this.required<HTMLSelectElement>('#compose-mode').value = this.settings.mode;
     this.required<HTMLInputElement>('#compose-bpm').value = String(this.settings.bpm);
@@ -173,6 +207,7 @@ export class AutoComposeMode {
     this.required<HTMLSelectElement>('#compose-vocal-style').value = this.vocalStyle;
     this.syncControlLabels();
     this.syncVocalControl();
+    this.syncStyleInfo();
   }
 
   private required<T extends Element>(selector: string): T {
@@ -209,6 +244,24 @@ export class AutoComposeMode {
       this.updateVisual(this.visualStep);
     });
 
+    this.required<HTMLSelectElement>('#compose-genre').addEventListener('change', (event) => {
+      const value = (event.target as HTMLSelectElement).value;
+      if (!validGenre(value)) return;
+      const subgenre = defaultSubgenreFor(value);
+      this.settings = { ...this.settings, genre: value, subgenre };
+      this.syncSubgenreOptions();
+      this.applyStyleDefaults();
+      this.rebuildFromControls();
+    });
+
+    this.required<HTMLSelectElement>('#compose-subgenre').addEventListener('change', (event) => {
+      const subgenre = (event.target as HTMLSelectElement).value;
+      if (!validSubgenre(this.settings.genre, subgenre)) return;
+      this.settings = { ...this.settings, subgenre };
+      this.applyStyleDefaults();
+      this.rebuildFromControls();
+    });
+
     this.required<HTMLSelectElement>('#compose-key').addEventListener('change', (event) => {
       this.settings = { ...this.settings, tonic: Number((event.target as HTMLSelectElement).value) as PitchClass };
       this.rebuildFromControls();
@@ -230,9 +283,38 @@ export class AutoComposeMode {
     this.root.addEventListener('contextmenu', (event) => event.preventDefault());
   }
 
+  private syncSubgenreOptions(): void {
+    const select = this.required<HTMLSelectElement>('#compose-subgenre');
+    select.innerHTML = this.subgenreOptions(this.settings.genre);
+    select.value = this.settings.subgenre;
+  }
+
+  private applyStyleDefaults(): void {
+    const style = genreStyle(this.settings.genre, this.settings.subgenre);
+    const [minimum, maximum] = style.bpmRange;
+    const bpm = Math.round((minimum + maximum) / 2);
+    this.settings = { ...this.settings, bpm };
+    this.vocalStyle = style.recommendedVocalStyle;
+    this.required<HTMLInputElement>('#compose-bpm').value = String(bpm);
+    this.required<HTMLSelectElement>('#compose-vocal-style').value = this.vocalStyle;
+    this.audio.clearVocalStream();
+    this.saveVocalSettings();
+    this.syncControlLabels();
+    this.syncStyleInfo();
+  }
+
   private syncControlLabels(): void {
-    this.required<HTMLElement>('#compose-bpm-label').textContent = `${Math.round(this.settings.bpm)} BPM`;
+    const style = genreStyle(this.settings.genre, this.settings.subgenre);
+    this.required<HTMLElement>('#compose-bpm-label').textContent = `${Math.round(this.settings.bpm)} BPM · ${style.bpmRange[0]}–${style.bpmRange[1]}`;
     this.required<HTMLElement>('#compose-density-label').textContent = `DENSITY ${Math.round(this.settings.density * 100)}%`;
+  }
+
+  private syncStyleInfo(): void {
+    const style = genreStyle(this.settings.genre, this.settings.subgenre);
+    const genre = genreDefinition(this.settings.genre);
+    this.required<HTMLElement>('#compose-style-name').textContent = `${genre.label} · ${style.label}`;
+    this.required<HTMLElement>('#compose-style-description').textContent = style.description;
+    this.required<HTMLElement>('#compose-theory').textContent = `SYNC ${Math.round(style.syncopation * 100)}% · MELODY ${Math.round(style.melodyDensity * 100)}% · VOICE ${style.recommendedVocalStyle.toUpperCase()}`;
   }
 
   private syncVocalControl(): void {
@@ -245,8 +327,10 @@ export class AutoComposeMode {
     const wasPlaying = this.playing;
     this.stop();
     this.composition = generateComposition(this.settings);
+    this.settings = this.composition.settings;
     this.vocalLine = generateVocalLine(this.composition);
     this.saveSettings();
+    this.syncStyleInfo();
     this.renderComposition();
     if (wasPlaying && this.active) void this.play();
   }
@@ -258,6 +342,7 @@ export class AutoComposeMode {
 
   private renderComposition(): void {
     this.required<HTMLElement>('#compose-title').textContent = this.composition.title;
+    this.syncStyleInfo();
     const chords = this.required<HTMLElement>('#compose-chords');
     chords.replaceChildren();
     for (const item of this.composition.chords) {
@@ -371,6 +456,7 @@ export class AutoComposeMode {
 
     const vocalStatus = this.audio.vocalEngineStatus;
     const syllable = this.vocalEnabled && this.playing ? vocalSyllableAtStep(this.vocalLine, step) : '';
+    const style = genreStyle(this.settings.genre, this.settings.subgenre);
     this.required<HTMLElement>('#compose-vocal-now').textContent = !this.vocalEnabled
       ? 'OFF · INSTRUMENTAL ONLY'
       : vocalStatus === 'unavailable'
@@ -378,7 +464,7 @@ export class AutoComposeMode {
         : vocalStatus !== 'ready'
           ? 'AUDIOWORKLET SINGER · INITIALIZING'
           : syllable
-            ? `${this.vocalStyle.toUpperCase()} · STREAMING “${syllable.toUpperCase()}”`
-            : `${this.vocalStyle.toUpperCase()} · CONTINUOUS AUDIOWORKLET SINGER`;
+            ? `${this.vocalStyle.toUpperCase()} · ${style.label.toUpperCase()} · “${syllable.toUpperCase()}”`
+            : `${this.vocalStyle.toUpperCase()} · ${style.label.toUpperCase()} · CONTINUOUS AUDIOWORKLET SINGER`;
   }
 }
