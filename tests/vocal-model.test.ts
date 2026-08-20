@@ -8,15 +8,18 @@ import {
 } from '../src/compose/VocalModel';
 
 describe('local vocal model', () => {
-  it('uses singing-like vibrato rates and restrained human variation', () => {
+  it('uses singing-like vibrato rates with restrained natural modulation', () => {
     for (const model of Object.values(VOCAL_STYLE_MODELS)) {
       expect(model.vibratoRateHz).toBeGreaterThanOrEqual(5);
       expect(model.vibratoRateHz).toBeLessThanOrEqual(7);
-      expect(model.vibratoDepthCents).toBeGreaterThan(20);
+      expect(model.vibratoDepthCents).toBeGreaterThanOrEqual(18);
+      expect(model.vibratoDepthCents).toBeLessThanOrEqual(32);
+      expect(model.vibratoDelaySeconds).toBeGreaterThanOrEqual(0.18);
       expect(model.jitterCents).toBeGreaterThan(0);
-      expect(model.jitterCents).toBeLessThan(4);
+      expect(model.jitterCents).toBeLessThan(3);
       expect(model.shimmerDepth).toBeGreaterThan(0);
-      expect(model.shimmerDepth).toBeLessThan(0.05);
+      expect(model.shimmerDepth).toBeLessThan(0.03);
+      expect(model.doubleLevel).toBe(0);
     }
   });
 
