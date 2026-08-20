@@ -80,7 +80,7 @@ export function generateVocalLine(composition: AutoComposition, seed = compositi
       octave: Math.max(3, Math.min(5, note.octave)),
       durationSteps: Math.max(1, Math.min(4, note.durationSteps + (random() > 0.7 ? 1 : 0))),
       velocity: Math.max(0.38, Math.min(0.92, note.velocity * 0.9)),
-      syllable: activeToken.syllable,
+      syllable: articulate ? activeToken.syllable : activeToken.vowel,
       vowel: activeToken.vowel,
       articulate,
     };
