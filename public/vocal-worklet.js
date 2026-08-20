@@ -45,6 +45,7 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     this.delayWrite = 0;
     this.delaySamples = 512;
     this.coefficientCountdown = 0;
+    this.lastEventEndFrame = -1;
     this.port.onmessage = (message) => this.handleMessage(message.data);
   }
 
@@ -55,6 +56,7 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       this.active = null;
       this.envelopeState = 0;
       this.outputState = 0;
+      this.lastEventEndFrame = -1;
       return;
     }
     if (data.type !== 'schedule' || !data.event) return;
@@ -63,6 +65,7 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       ...event,
       startFrame: Math.max(currentFrame, Math.round(event.when * sampleRate)),
       endFrame: Math.max(currentFrame + 1, Math.round((event.when + event.duration) * sampleRate)),
+      transitionFromHz: null,
     };
     this.queue.push(scheduled);
     this.queue.sort((a, b) => a.startFrame - b.startFrame);
@@ -98,14 +101,23 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     while (this.queue.length && this.queue[0].startFrame <= frame) {
       const previous = this.active;
       const next = this.queue.shift();
-      const continuousLegato = previous !== null && previous.endFrame >= frame && next.glideFromHz !== null;
+      const previousEnd = previous ? previous.endFrame : this.lastEventEndFrame;
+      const gapFrames = previousEnd >= 0 ? Math.max(0, next.startFrame - previousEnd) : Number.POSITIVE_INFINITY;
+      const nearContinuous = previous !== null || gapFrames <= Math.round(sampleRate * 0.045);
+
       this.active = next;
-      if (!continuousLegato) {
-        if (next.glideFromHz !== null) this.currentHz = Math.max(20, next.glideFromHz);
-        else {
-          const cents = this.onsetCents(next);
-          this.currentHz = Math.max(20, next.targetHz * 2 ** (cents / 1200));
-        }
+      if (nearContinuous) {
+        // Keep the actual running F0 and glide into the next target. This also
+        // covers articulated adjacent syllables, which used to hard-reset F0
+        // and could sound like a brief voice flip or crack.
+        next.transitionFromHz = Math.max(20, this.currentHz);
+      } else if (next.glideFromHz !== null) {
+        this.currentHz = Math.max(20, next.glideFromHz);
+        next.transitionFromHz = Math.max(20, next.glideFromHz);
+      } else {
+        const cents = this.onsetCents(next);
+        this.currentHz = Math.max(20, next.targetHz * 2 ** (cents / 1200));
+        next.transitionFromHz = this.currentHz;
       }
       this.prepareActive(next);
     }
@@ -215,7 +227,10 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
   processSample(frame) {
     this.activateNext(frame);
     const event = this.active;
-    if (event && frame >= event.endFrame) this.active = null;
+    if (event && frame >= event.endFrame) {
+      this.lastEventEndFrame = event.endFrame;
+      this.active = null;
+    }
 
     if (!this.active) {
       this.phase += this.currentHz / sampleRate;
@@ -245,9 +260,13 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     if (this.coefficientCountdown <= 0) this.updateFormantCoefficients(active, elapsed, noteDuration);
     else this.coefficientCountdown -= 1;
 
-    const glideDuration = Math.min(0.065, noteDuration * 0.26);
+    const glideDuration = Math.min(0.075, noteDuration * 0.3);
     let targetHz = active.targetHz;
-    if (active.glideFromHz !== null && elapsed < glideDuration) {
+    if (active.transitionFromHz !== null && elapsed < glideDuration) {
+      const mix = clamp01(elapsed / Math.max(0.001, glideDuration));
+      const eased = mix * mix * (3 - 2 * mix);
+      targetHz = active.transitionFromHz * (active.targetHz / active.transitionFromHz) ** eased;
+    } else if (active.glideFromHz !== null && elapsed < glideDuration) {
       const mix = clamp01(elapsed / Math.max(0.001, glideDuration));
       const eased = mix * mix * (3 - 2 * mix);
       targetHz = active.glideFromHz * (active.targetHz / active.glideFromHz) ** eased;
@@ -272,7 +291,8 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     const driftCents = Math.sin(2 * Math.PI * this.driftPhase) * 0.55;
     const jitterCents = this.jitterState * style.jitterCents;
     const desiredHz = targetHz * 2 ** ((vibratoCents + driftCents + jitterCents) / 1200);
-    this.currentHz += (desiredHz - this.currentHz) * 0.045;
+    const safeDesiredHz = Number.isFinite(desiredHz) ? Math.max(20, Math.min(2200, desiredHz)) : active.targetHz;
+    this.currentHz += (safeDesiredHz - this.currentHz) * 0.035;
 
     this.phase += this.currentHz / sampleRate;
     this.phase -= Math.floor(this.phase);
@@ -282,11 +302,11 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     const rawSource = flow * 0.54 + derivative * 7.2;
     this.sourceState += (rawSource - this.sourceState) * 0.62;
 
-    // Weak source–tract coupling: feed a tiny amount of the previous F1 state
-    // back into the next glottal excitation. The clamp keeps the loop far from
-    // self-oscillation while avoiding a perfectly separated source/filter feel.
-    const coupling = Math.max(0, Math.min(0.045, active.phrase.sourceTractCoupling));
-    const coupledSource = this.sourceState + this.formantY1[0] * coupling;
+    // Keep source–tract coupling subtle and peak-safe. Rare large F1 states can
+    // otherwise feed back as a short crack even when the average coupling is low.
+    const coupling = Math.max(0, Math.min(0.015, active.phrase.sourceTractCoupling));
+    const safeF1 = Math.max(-0.22, Math.min(0.22, this.formantY1[0]));
+    const coupledSource = this.sourceState + safeF1 * coupling;
 
     let vocal = 0;
     for (let index = 0; index < Math.min(5, active.formants.length); index += 1) {
@@ -303,9 +323,6 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     const breathEnvelope = clamp01(elapsed / 0.055) * clamp01(remaining / 0.085);
     const breath = (noise - this.shimmerState) * style.breathLevel * phraseBreath * breathEnvelope;
 
-    // Aspiration follows the open part of the glottal cycle instead of being
-    // purely broadband/random. This adds a subtle breath pulse that stays tied
-    // to the same continuous glottal stream across notes.
     const openQuotient = Math.max(0.1, style.glottalOpenQuotient);
     const glottalOpen = this.phase < openQuotient
       ? Math.sin(Math.PI * clamp01(this.phase / openQuotient)) ** 2
@@ -334,10 +351,16 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     this.delayWrite = (this.delayWrite + 1) % this.delayBuffer.length;
     sample += delayed * style.doubleLevel;
 
-    const driven = sample * 1.005;
-    sample = driven / (1 + Math.abs(driven) * 0.025);
-    this.outputState += (sample - this.outputState) * 0.68;
-    return Math.max(-0.95, Math.min(0.95, this.outputState));
+    if (!Number.isFinite(sample)) sample = 0;
+    const absSample = Math.abs(sample);
+    if (absSample > 0.72) {
+      const sign = sample < 0 ? -1 : 1;
+      sample = sign * (0.72 + (1 - Math.exp(-(absSample - 0.72) * 2.6)) * 0.18);
+    }
+    const driven = sample * 1.003;
+    sample = driven / (1 + Math.abs(driven) * 0.035);
+    this.outputState += (sample - this.outputState) * 0.62;
+    return Math.max(-0.92, Math.min(0.92, this.outputState));
   }
 
   process(_inputs, outputs) {
