@@ -50,9 +50,9 @@ function randomSource(seed: number): () => number {
 function keepForVocal(note: CompositionNote, random: () => number): boolean {
   const localStep = note.step % 16;
   if (localStep % 4 === 0) return true;
-  if (note.durationSteps >= 2) return true;
-  if (localStep % 2 === 0) return random() < 0.88;
-  return random() < 0.58;
+  if (note.durationSteps >= 2 && localStep % 2 === 0) return true;
+  if (localStep % 2 === 0) return random() < 0.72;
+  return random() < 0.32;
 }
 
 function midiFor(pitch: PitchClass, octave: number): number {
@@ -65,11 +65,11 @@ function connectShortGaps(line: VocalEvent[]): void {
     const next = line[index + 1]!;
     const gapSteps = next.step - current.step;
 
-    if (gapSteps <= 4) {
-      // Keep the current vowel alive through short melodic rests. The next event
-      // replaces the active worklet event at its own start, so a one-step overlap
-      // avoids the old note-off/note-on hole without creating polyphony.
-      current.durationSteps = Math.max(current.durationSteps, Math.min(6, gapSteps + 1));
+    if (gapSteps <= 3) {
+      // Carry the vowel only to the next note boundary. The worklet swaps to the
+      // next event on that exact frame, avoiding both silence holes and the old
+      // one-step overhang that made phrases sound permanently held.
+      current.durationSteps = Math.max(current.durationSteps, Math.min(5, gapSteps));
       current.phraseEnd = false;
       next.phraseStart = false;
     } else {
@@ -95,9 +95,9 @@ export function generateVocalLine(composition: AutoComposition, seed = compositi
 
     const octave = Math.max(3, Math.min(5, note.octave));
     const gap = previousEvent ? note.step - previousEvent.step : Number.POSITIVE_INFINITY;
-    const closeToPrevious = previousEvent !== null && gap <= Math.max(4, previousEvent.durationSteps + 1);
-    const continueMelisma = closeToPrevious && (random() < 0.72 || vocal.length % 4 === 2);
-    const phraseStart = previousEvent === null || gap > 5;
+    const closeToPrevious = previousEvent !== null && gap <= Math.max(3, previousEvent.durationSteps + 1);
+    const continueMelisma = closeToPrevious && (random() < 0.58 || vocal.length % 6 === 4);
+    const phraseStart = previousEvent === null || gap > 4;
     let articulate = phraseStart || !continueMelisma;
 
     if (!activeToken || articulate) {
@@ -112,8 +112,8 @@ export function generateVocalLine(composition: AutoComposition, seed = compositi
       step: note.step,
       pitch: note.pitch,
       octave,
-      durationSteps: Math.max(1, Math.min(4, note.durationSteps + (random() > 0.62 ? 1 : 0))),
-      velocity: Math.max(0.48, Math.min(0.98, note.velocity * (phraseStart ? 1.02 : 0.98))),
+      durationSteps: Math.max(1, Math.min(3, note.durationSteps + (random() > 0.78 ? 1 : 0))),
+      velocity: Math.max(0.44, Math.min(0.9, note.velocity * (phraseStart ? 0.96 : 0.92))),
       syllable: articulate ? activeToken.syllable : activeToken.vowel,
       vowel: activeToken.vowel,
       articulate,
@@ -142,7 +142,7 @@ export function vocalSyllableAtStep(line: readonly VocalEvent[], step: number): 
   for (let index = line.length - 1; index >= 0; index -= 1) {
     const event = line[index]!;
     if (step > event.step && step < event.step + event.durationSteps) return `~${event.vowel}`;
-    if (event.step < step - 6) break;
+    if (event.step < step - 5) break;
   }
   return '';
 }
