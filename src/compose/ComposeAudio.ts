@@ -47,16 +47,51 @@ export class ComposeAudio {
       this.vocalBus = this.context.createGain();
       this.drumBus = this.context.createGain();
       this.compressor = this.context.createDynamicsCompressor();
-      this.master.gain.value = 0.72;
-      this.musicBus.gain.value = 0.59;
-      this.vocalBus.gain.value = 0.82;
-      this.drumBus.gain.value = 0.73;
-      this.compressor.threshold.value = -14;
-      this.compressor.ratio.value = 3.2;
-      this.compressor.attack.value = 0.005;
-      this.compressor.release.value = 0.22;
+
+      const vocalHighpass = this.context.createBiquadFilter();
+      const vocalPresence = this.context.createBiquadFilter();
+      const vocalAir = this.context.createBiquadFilter();
+      const vocalCompressor = this.context.createDynamicsCompressor();
+      const vocalMakeup = this.context.createGain();
+
+      this.master.gain.value = 0.7;
+      this.musicBus.gain.value = 0.53;
+      this.vocalBus.gain.value = 0.98;
+      this.drumBus.gain.value = 0.68;
+
+      vocalHighpass.type = 'highpass';
+      vocalHighpass.frequency.value = 86;
+      vocalHighpass.Q.value = 0.58;
+
+      vocalPresence.type = 'peaking';
+      vocalPresence.frequency.value = 2700;
+      vocalPresence.Q.value = 0.88;
+      vocalPresence.gain.value = 4.2;
+
+      vocalAir.type = 'highshelf';
+      vocalAir.frequency.value = 6200;
+      vocalAir.gain.value = 1.7;
+
+      vocalCompressor.threshold.value = -27;
+      vocalCompressor.knee.value = 15;
+      vocalCompressor.ratio.value = 3.8;
+      vocalCompressor.attack.value = 0.004;
+      vocalCompressor.release.value = 0.13;
+      vocalMakeup.gain.value = 1.24;
+
+      this.compressor.threshold.value = -10;
+      this.compressor.knee.value = 12;
+      this.compressor.ratio.value = 2.4;
+      this.compressor.attack.value = 0.006;
+      this.compressor.release.value = 0.2;
+
       this.musicBus.connect(this.master);
-      this.vocalBus.connect(this.master);
+      this.vocalBus.connect(vocalHighpass);
+      vocalHighpass.connect(vocalPresence);
+      vocalPresence.connect(vocalAir);
+      vocalAir.connect(vocalCompressor);
+      vocalCompressor.connect(vocalMakeup);
+      vocalMakeup.connect(this.master);
       this.drumBus.connect(this.master);
       this.master.connect(this.compressor);
       this.compressor.connect(this.context.destination);
@@ -99,12 +134,12 @@ export class ComposeAudio {
     const group = this.context.createGain();
     const filter = this.context.createBiquadFilter();
     group.gain.setValueAtTime(0.0001, start);
-    group.gain.exponentialRampToValueAtTime(0.12, start + 0.03);
-    group.gain.exponentialRampToValueAtTime(0.035, start + Math.max(0.12, duration * 0.65));
+    group.gain.exponentialRampToValueAtTime(0.11, start + 0.03);
+    group.gain.exponentialRampToValueAtTime(0.032, start + Math.max(0.12, duration * 0.65));
     group.gain.exponentialRampToValueAtTime(0.0001, start + Math.max(0.2, duration));
     filter.type = 'lowpass';
-    filter.frequency.value = 1100 + clamp(tension, 0, 1) * 2600;
-    filter.Q.value = 0.7 + tension * 1.4;
+    filter.frequency.value = 1050 + clamp(tension, 0, 1) * 2450;
+    filter.Q.value = 0.7 + tension * 1.3;
     group.connect(filter);
     filter.connect(this.musicBus);
 
@@ -114,7 +149,7 @@ export class ComposeAudio {
       osc.type = index === 0 ? 'triangle' : 'sine';
       osc.frequency.value = midiToHz(midiForPitchClass(pitch, index === 0 ? 3 : 4));
       osc.detune.value = index % 2 === 0 ? -4 : 4;
-      voiceGain.gain.value = index === 0 ? 0.72 : 0.46;
+      voiceGain.gain.value = index === 0 ? 0.7 : 0.44;
       osc.connect(voiceGain);
       voiceGain.connect(group);
       osc.start(start);
@@ -131,11 +166,11 @@ export class ComposeAudio {
     osc.type = 'sawtooth';
     osc.frequency.value = midiToHz(midiForPitchClass(pitch, 2));
     filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(620, start);
-    filter.frequency.exponentialRampToValueAtTime(170, start + Math.min(0.28, duration));
+    filter.frequency.setValueAtTime(590, start);
+    filter.frequency.exponentialRampToValueAtTime(165, start + Math.min(0.28, duration));
     filter.Q.value = 4;
     gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(0.12 * clamp(velocity, 0.2, 1), start + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.11 * clamp(velocity, 0.2, 1), start + 0.008);
     gain.gain.exponentialRampToValueAtTime(0.0001, start + Math.max(0.12, duration));
     osc.connect(filter);
     filter.connect(gain);
@@ -153,10 +188,10 @@ export class ComposeAudio {
     osc.type = 'triangle';
     osc.frequency.value = midiToHz(midiForPitchClass(pitch, octave));
     filter.type = 'lowpass';
-    filter.frequency.value = 3000;
+    filter.frequency.value = 2700;
     filter.Q.value = 0.5;
     gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(0.07 * clamp(velocity, 0.2, 1), start + 0.006);
+    gain.gain.exponentialRampToValueAtTime(0.065 * clamp(velocity, 0.2, 1), start + 0.006);
     gain.gain.exponentialRampToValueAtTime(0.0001, start + Math.max(0.06, duration));
     osc.connect(filter);
     filter.connect(gain);
@@ -176,7 +211,7 @@ export class ComposeAudio {
       osc.type = 'sine';
       osc.frequency.setValueAtTime(145, start);
       osc.frequency.exponentialRampToValueAtTime(46, start + 0.14);
-      gain.gain.setValueAtTime(0.3 * level, start);
+      gain.gain.setValueAtTime(0.28 * level, start);
       gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.18);
       osc.connect(gain);
       gain.connect(this.drumBus);
@@ -204,12 +239,12 @@ export class ComposeAudio {
       source.stop(start + offset + burstDuration + 0.02);
     };
 
-    if (voice === 'hat') burst(0, 0.05, 6500, 0.1);
-    else if (voice === 'snare') burst(0, 0.14, 1800, 0.2);
+    if (voice === 'hat') burst(0, 0.05, 6500, 0.09);
+    else if (voice === 'snare') burst(0, 0.14, 1800, 0.18);
     else {
-      burst(0, 0.05, 2500, 0.12);
-      burst(0.026, 0.07, 3000, 0.08);
-      burst(0.052, 0.08, 3400, 0.06);
+      burst(0, 0.05, 2500, 0.11);
+      burst(0.026, 0.07, 3000, 0.072);
+      burst(0.052, 0.08, 3400, 0.054);
     }
   }
 
@@ -234,7 +269,7 @@ export class ComposeAudio {
       }
     } else if (localStep === 8) {
       const chord = composition.chords[bar]?.chord;
-      if (chord) this.playBass(chord.root, stepSeconds * 2.5, 0.66, when);
+      if (chord) this.playBass(chord.root, stepSeconds * 2.5, 0.64, when);
     }
 
     for (const drum of composition.drums) {
@@ -242,12 +277,12 @@ export class ComposeAudio {
     }
     for (const note of composition.melody) {
       if (note.step === step) {
-        const melodyVelocity = hasVocal ? note.velocity * 0.16 : note.velocity;
+        const melodyVelocity = hasVocal ? note.velocity * 0.08 : note.velocity * 0.9;
         this.playMelody(note.pitch, note.octave, stepSeconds * note.durationSteps * 0.88, melodyVelocity, when);
       }
     }
     for (const vocal of vocalsAtStep) {
-      const duration = stepSeconds * vocal.durationSteps * 0.97;
+      const duration = stepSeconds * vocal.durationSteps * 0.98;
       this.vocalWorklet.schedule(vocalEventToWorklet(vocal, vocalStyle, when, duration));
     }
   }
