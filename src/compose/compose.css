@@ -46,7 +46,7 @@
 
 .compose-controls {
   display: grid;
-  grid-template-columns: .65fr .85fr 1fr 1fr;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 7px;
 }
 .compose-controls label {
@@ -61,6 +61,10 @@
   padding: 0 9px;
   background: rgba(14,18,31,.68);
 }
+.compose-controls .compose-style-control {
+  border-color: rgba(101,243,223,.23);
+  background: linear-gradient(135deg, rgba(20,52,54,.54), rgba(16,20,36,.72));
+}
 .compose-controls span { color: #9aa5bf; font-size: 8px; font-weight: 850; letter-spacing: .1em; white-space: nowrap; }
 .compose-controls select {
   width: 100%;
@@ -74,12 +78,23 @@
   font-weight: 800;
 }
 .compose-controls input { width: 100%; accent-color: #65f3df; }
+.compose-vocal-toggle button {
+  appearance: none;
+  min-height: 28px;
+  border: 1px solid rgba(128,143,190,.2);
+  border-radius: 7px;
+  background: #151a2a;
+  color: #7d879f;
+  font-size: 8px;
+  font-weight: 850;
+}
+.compose-vocal-toggle button.active { color: #65f3df; border-color: rgba(101,243,223,.38); }
 
 .compose-stage {
   min-height: 0;
   display: grid;
-  grid-template-rows: auto 5px auto minmax(72px, 1fr) auto;
-  gap: 8px;
+  grid-template-rows: auto auto auto 5px auto minmax(72px, 1fr) auto;
+  gap: 7px;
   border: 1px solid rgba(133,147,195,.13);
   border-radius: 18px;
   padding: clamp(10px, 1.5vw, 16px);
@@ -90,6 +105,25 @@
 .compose-now span { color: #a68cff; font-size: 8px; font-weight: 850; letter-spacing: .16em; }
 .compose-now strong { color: #fff; font-size: clamp(15px, 2vw, 23px); letter-spacing: .05em; }
 .compose-now small { justify-self: end; color: #6f7994; font-size: 7px; font-weight: 750; letter-spacing: .11em; }
+.compose-style-strip,
+.compose-vocal-strip {
+  min-width: 0;
+  min-height: 22px;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border-radius: 8px;
+  padding: 4px 8px;
+  background: rgba(18,23,39,.52);
+  overflow: hidden;
+}
+.compose-style-strip { border: 1px solid rgba(101,243,223,.14); }
+.compose-vocal-strip { border: 1px solid rgba(166,140,255,.12); }
+.compose-style-strip b,
+.compose-vocal-strip b { flex: 0 0 auto; color: #65f3df; font-size: 7px; letter-spacing: .12em; }
+.compose-vocal-strip b { color: #a68cff; }
+.compose-style-strip span,
+.compose-vocal-strip span { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #7d879f; font-size: 7px; font-weight: 750; letter-spacing: .04em; }
 .compose-progress { height: 5px; border-radius: 999px; background: rgba(124,139,188,.12); overflow: hidden; }
 .compose-progress i { display: block; width: 0; height: 100%; background: linear-gradient(90deg, #65f3df, #a68cff, #ff6d9f); box-shadow: 0 0 12px rgba(166,140,255,.35); }
 .compose-chords { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: 5px; }
@@ -120,15 +154,22 @@
 .compose-explain span { color: #737e99; font-size: 7px; letter-spacing: .04em; }
 
 @media (max-width: 800px), (max-height: 440px) {
-  .compose-header { min-height: 54px; align-items: center; }
+  .compose-header { min-height: 48px; align-items: center; }
   .compose-header p { display: none; }
-  .compose-header h1 { font-size: 22px; }
-  .compose-transport button { min-height: 32px; padding: 0 8px; font-size: 7px; }
-  .compose-controls label { min-height: 34px; padding: 0 6px; gap: 5px; }
-  .compose-controls span, .compose-controls select { font-size: 7px; }
-  .compose-stage { padding: 8px; border-radius: 13px; }
+  .compose-header h1 { font-size: 21px; }
+  .compose-kicker { font-size: 6px; letter-spacing: .15em; }
+  .compose-transport button { min-height: 30px; padding: 0 8px; font-size: 7px; }
+  .compose-controls { gap: 5px; }
+  .compose-controls label { min-height: 31px; padding: 0 5px; gap: 4px; }
+  .compose-controls span { font-size: 6px; letter-spacing: .06em; }
+  .compose-controls select { padding: 5px; font-size: 7px; }
+  .compose-vocal-toggle button { min-height: 24px; font-size: 7px; }
+  .compose-stage { padding: 7px; gap: 5px; border-radius: 13px; }
   .compose-now small { display: none; }
-  .compose-chord-cell { min-height: 44px; border-radius: 7px; }
+  .compose-style-strip, .compose-vocal-strip { min-height: 18px; padding: 2px 6px; }
+  .compose-style-strip b, .compose-style-strip span, .compose-vocal-strip b, .compose-vocal-strip span { font-size: 6px; }
+  .compose-chord-cell { min-height: 38px; border-radius: 7px; }
   .compose-chord-cell span, .compose-chord-cell em { font-size: 5px; }
+  .compose-explain { min-height: 20px; }
   .compose-explain span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 }
