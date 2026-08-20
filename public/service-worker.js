@@ -1,4 +1,4 @@
-const CACHE = 'sound-wave-v20-3-register-continuity';
+const CACHE = 'sound-wave-v20-4-japanese-phoneme-coarticulation';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon.svg', './vocal-worklet.js'];
 
 self.addEventListener('install', (event) => {
