@@ -36,7 +36,7 @@ describe('human phrase control model', () => {
       expect(control!.centeringEnd).toBeLessThanOrEqual(0.16);
       expect(control!.aspirationDepth).toBeGreaterThan(0);
       expect(control!.sourceTractCoupling).toBeGreaterThan(0);
-      expect(control!.sourceTractCoupling).toBeLessThan(0.05);
+      expect(control!.sourceTractCoupling).toBeLessThanOrEqual(0.012);
     }
   });
 });
