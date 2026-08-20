@@ -39,6 +39,13 @@ for (const required of ['service-worker.js', 'manifest.webmanifest', 'icon.svg',
 }
 
 const vocalWorklet = readFileSync(join(distDir, 'vocal-worklet.js'), 'utf8');
+try {
+  // Parse only; unresolved AudioWorklet globals are valid at runtime and are not executed here.
+  // eslint-disable-next-line no-new-func
+  new Function(vocalWorklet);
+} catch (error) {
+  fail(`dist/vocal-worklet.js has invalid JavaScript syntax: ${error instanceof Error ? error.message : String(error)}`);
+}
 if (!vocalWorklet.includes("registerProcessor('sound-wave-vocal-processor'")) {
   fail('dist/vocal-worklet.js does not register the Sound Wave vocal processor');
 }
