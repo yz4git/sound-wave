@@ -6,50 +6,59 @@ SOUND WAVE's local singer is intentionally lightweight: no cloud inference, down
 
 ### Source-filter model
 
-The voice is modeled as a harmonically rich glottal-like source filtered by vocal-tract resonances. The implementation uses a custom `PeriodicWave` with style-dependent spectral tilt, then a parallel bank of formant resonators.
+The voice is modeled as a glottal source filtered by vocal-tract resonances, followed by a lightweight approximation of lip radiation.
 
-- Gunnar Fant, acoustic theory/source-filter work on speech production.
-- Oxford Phonetics source-filter overview: glottal vibration creates the voiced source and the vocal tract shapes its spectrum through resonances.
+- Gunnar Fant's source-filter theory remains the base architecture.
+- The local singer keeps source and vocal-tract parameters separate so voice quality can change without changing the generated melody.
+
+### Glottal source
+
+Earlier versions used a generic harmonic spectrum. Vocal v3 instead builds a periodic glottal pulse from explicit open-quotient and speed-quotient parameters, then derives the oscillator harmonics from that pulse.
+
+This is still lighter than a full sample-by-sample LF solver, but it moves the source toward the LF/Rosenberg family of physiologically motivated glottal models while keeping iPhone Safari cost low.
+
+References:
+- Fant, Liljencrants & Lin glottal-flow/LF-model work.
+- Perrotin, Feugère & d'Alessandro, "Perceptual equivalence of the Liljencrants-Fant and linear-filter glottal flow models", JASA 150(2), 1273 (2021), DOI: 10.1121/10.0005879.
+- Degottex et al., mixed LF + noise source modeling for voice transformation and synthesis, Speech Communication 55(2), 278–294 (2013).
 
 ### Klatt formant synthesis
 
-Dennis H. Klatt's 1980 cascade/parallel formant synthesizer describes time-varying formant parameters and resonator-based synthesis. SOUND WAVE uses the same broad idea in a Web Audio-friendly form: five time-varying formant bands plus separate aspiration/consonant components.
+Dennis H. Klatt's cascade/parallel formant synthesizer motivates the time-varying resonator approach. SOUND WAVE uses five vowel formants with consonant-to-vowel transitions.
 
-Reference: Dennis H. Klatt, "Software for a cascade/parallel formant synthesizer", Journal of the Acoustical Society of America 67(3), 971–995 (1980), DOI: 10.1121/1.383940.
-
-### Glottal source shape
-
-The Liljencrants-Fant (LF) family of glottal models is widely used to describe glottal flow. SOUND WAVE does not implement a full LF waveform because of browser/runtime cost; instead it uses an LF-inspired harmonically rich source with style-dependent spectral tilt and a stronger second harmonic.
-
-Reference: Perrotin, Feugère & d'Alessandro, "Perceptual equivalence of the Liljencrants-Fant and linear-filter glottal flow models", JASA 150(2), 1273 (2021), DOI: 10.1121/10.0005879.
+Reference: Dennis H. Klatt, "Software for a cascade/parallel formant synthesizer", JASA 67(3), 971–995 (1980), DOI: 10.1121/1.383940.
 
 ### Singing presence / singer's formant
 
-Singing research describes a strong spectral envelope peak around 3 kHz, often associated with clustering of upper formants in classical singing. SOUND WAVE adds a restrained broad presence branch around 2.85–3.05 kHz rather than trying to reproduce an operatic voice exactly.
+A restrained presence branch around 2.85–3.05 kHz approximates the spectral concentration associated with singer's-formant research without trying to reproduce operatic technique.
 
 Reference: Johan Sundberg, "Level and center frequency of the singer's formant", Journal of Voice 15(2), 176–186 (2001), DOI: 10.1016/S0892-1997(01)00019-4.
 
-### Vocal vibrato
+### Vibrato, jitter and shimmer
 
-Measured singing vibrato commonly falls around 5–7 Hz. SOUND WAVE uses style-dependent rates inside that range and deliberately smaller pitch extents than many classical measurements so the result remains suitable for electronic/pop-style backing.
+Measured singing vibrato commonly falls around 5–7 Hz, so each style uses a delayed vibrato within that range. Vocal v3 also adds small stochastic F0 perturbation (jitter) and amplitude perturbation (shimmer). The amounts are deliberately restrained so the result sounds humanized rather than unstable.
 
 References:
 - Ferrante, "Vibrato rate and extent in soprano voice: a survey on one century of singing", JASA 130(3), 1683–1688 (2011), DOI: 10.1121/1.3621017.
-- "Characterization of Source-Filter Interactions in Vocal Vibrato Using a Neck-Surface Vibration Sensor: A Pilot Study" (2022), which summarizes typical classically trained F0 vibrato rates around 5–7 Hz.
+- Joint source-filter / glottal-source studies that explicitly model jitter and shimmer as part of human voice production.
 
-## Implemented v2 model
+## Implemented v3 model
 
-- 36-harmonic custom glottal-like source with spectral tilt.
-- Five vowel formants with separate bandwidths and gains.
-- Formant transitions during consonant onsets (`m/n/l/r/y`).
-- Separate ~3 kHz singing-presence branch.
-- Delayed 5.15–5.85 Hz vibrato with style-dependent pitch depth.
-- Low-rate pitch drift and intensity modulation.
-- Continuous aspiration noise, stronger for AIRY.
+- Glottal-pulse-derived 48-harmonic `PeriodicWave` with style-specific open quotient, speed quotient and spectral tilt.
+- Five vowel formants with separate bandwidth/gain control.
+- Consonant-to-vowel formant transitions for M/N/L/R/Y.
+- ~3 kHz singing-presence branch.
+- High-shelf lip-radiation approximation after the vocal-tract envelope.
+- Delayed 5.15–5.85 Hz vibrato.
+- Low-rate deterministic pitch drift plus stochastic jitter.
+- Stochastic shimmer on source amplitude.
+- Continuous aspiration, stronger at phrase starts and in AIRY style.
 - Voiced nasal onsets for M/N and lightweight articulatory attacks for L/R/Y.
-- Legato/melisma continuation: adjacent notes reuse the current vowel instead of replaying a consonant every pitch.
-- Backing melody is ducked strongly on vocal steps so the singer, not a doubled synth, carries the pitch.
+- Phrase boundaries for breath/release shaping.
+- Legato/melisma continuation with short pitch glides from the previous note instead of hard re-triggering every pitch.
+- Subtle 9–16 ms local doubling for body/width without external convolution or samples.
+- Backing melody reduced to 16% level on vocal notes so the singer carries the pitch.
 
 ## Scope
 
-This remains a lightweight procedural singer, not a neural singing-voice model and not an impersonation system. The design goal is a clearly vocal, expressive synthetic singer that runs locally and responsively in iPhone Safari.
+This remains a procedural synthetic singer, not a neural singing-voice model, a downloaded voicebank, or a voice-cloning system. The design target is a clearly vocal and increasingly expressive synthetic singer that remains fully local and responsive in iPhone Safari.
