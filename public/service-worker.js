@@ -1,4 +1,4 @@
-const CACHE = 'sound-wave-v20-1-presence-reset';
+const CACHE = 'sound-wave-v20-2-anti-crack';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon.svg', './vocal-worklet.js'];
 
 self.addEventListener('install', (event) => {
