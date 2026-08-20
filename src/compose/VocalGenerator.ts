@@ -12,6 +12,7 @@ export interface VocalEvent {
   velocity: number;
   syllable: string;
   vowel: VocalVowel;
+  articulate: boolean;
 }
 
 const PHRASES: readonly (readonly { syllable: string; vowel: VocalVowel }[])[] = [
@@ -56,25 +57,42 @@ export function generateVocalLine(composition: AutoComposition, seed = compositi
   const phrase = PHRASES[Math.floor(random() * PHRASES.length)] ?? fallbackPhrase;
   const vocal: VocalEvent[] = [];
   let syllableIndex = 0;
+  let activeToken: { syllable: string; vowel: VocalVowel } | null = null;
+  let previousEvent: VocalEvent | null = null;
 
   for (const note of composition.melody) {
     if (!keepForVocal(note, random)) continue;
-    const token = phrase[syllableIndex % phrase.length] ?? { syllable: 'ah', vowel: 'a' as const };
-    syllableIndex += 1;
-    vocal.push({
+
+    const closeToPrevious = previousEvent !== null
+      && note.step - previousEvent.step <= Math.max(3, previousEvent.durationSteps + 1);
+    const continueMelisma = closeToPrevious && random() < 0.58;
+    let articulate = !continueMelisma;
+
+    if (!activeToken || articulate) {
+      activeToken = phrase[syllableIndex % phrase.length] ?? { syllable: 'ah', vowel: 'a' as const };
+      syllableIndex += 1;
+      articulate = true;
+    }
+
+    const event: VocalEvent = {
       step: note.step,
       pitch: note.pitch,
       octave: Math.max(3, Math.min(5, note.octave)),
       durationSteps: Math.max(1, Math.min(4, note.durationSteps + (random() > 0.7 ? 1 : 0))),
       velocity: Math.max(0.38, Math.min(0.92, note.velocity * 0.9)),
-      syllable: token.syllable,
-      vowel: token.vowel,
-    });
+      syllable: activeToken.syllable,
+      vowel: activeToken.vowel,
+      articulate,
+    };
+    vocal.push(event);
+    previousEvent = event;
   }
 
   return vocal;
 }
 
 export function vocalSyllableAtStep(line: readonly VocalEvent[], step: number): string {
-  return line.find((event) => event.step === step)?.syllable ?? '';
+  const event = line.find((candidate) => candidate.step === step);
+  if (!event) return '';
+  return event.articulate ? event.syllable : `~${event.vowel}`;
 }
