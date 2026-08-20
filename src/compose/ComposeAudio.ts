@@ -1,6 +1,13 @@
 import type { PitchClass } from '../core/music';
 import type { AutoComposition } from './AutoComposer';
-import type { VocalEvent, VocalStyle, VocalVowel } from './VocalGenerator';
+import type { VocalEvent, VocalStyle } from './VocalGenerator';
+import {
+  VOCAL_STYLE_MODELS,
+  deterministicOnsetCents,
+  formantsFor,
+  harmonicSeries,
+  onsetFormantFrequency,
+} from './VocalModel';
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
@@ -12,14 +19,6 @@ function midiForPitchClass(pitch: PitchClass, octave: number): number {
   return 12 * (octave + 1) + pitch;
 }
 
-const FORMANTS: Record<VocalVowel, readonly [number, number, number]> = {
-  a: [800, 1150, 2900],
-  e: [530, 1850, 2500],
-  i: [270, 2290, 3010],
-  o: [570, 840, 2410],
-  u: [300, 870, 2240],
-};
-
 export class ComposeAudio {
   private context: AudioContext | null = null;
   private master: GainNode | null = null;
@@ -28,6 +27,7 @@ export class ComposeAudio {
   private drumBus: GainNode | null = null;
   private compressor: DynamicsCompressorNode | null = null;
   private noise: AudioBuffer | null = null;
+  private readonly vocalWaves = new Map<VocalStyle, PeriodicWave>();
 
   get currentTime(): number {
     return this.context?.currentTime ?? 0;
@@ -46,13 +46,13 @@ export class ComposeAudio {
       this.drumBus = this.context.createGain();
       this.compressor = this.context.createDynamicsCompressor();
       this.master.gain.value = 0.72;
-      this.musicBus.gain.value = 0.68;
-      this.vocalBus.gain.value = 0.58;
-      this.drumBus.gain.value = 0.76;
-      this.compressor.threshold.value = -12;
-      this.compressor.ratio.value = 4;
+      this.musicBus.gain.value = 0.61;
+      this.vocalBus.gain.value = 0.74;
+      this.drumBus.gain.value = 0.74;
+      this.compressor.threshold.value = -13;
+      this.compressor.ratio.value = 3.5;
       this.compressor.attack.value = 0.004;
-      this.compressor.release.value = 0.18;
+      this.compressor.release.value = 0.2;
       this.musicBus.connect(this.master);
       this.vocalBus.connect(this.master);
       this.drumBus.connect(this.master);
@@ -73,7 +73,7 @@ export class ComposeAudio {
 
   private makeNoiseBuffer(): AudioBuffer | null {
     if (!this.context) return null;
-    const duration = 0.5;
+    const duration = 0.75;
     const buffer = this.context.createBuffer(1, Math.floor(this.context.sampleRate * duration), this.context.sampleRate);
     const channel = buffer.getChannelData(0);
     let seed = 0xace1;
@@ -82,6 +82,17 @@ export class ComposeAudio {
       channel[index] = seed / 4294967296 * 2 - 1;
     }
     return buffer;
+  }
+
+  private vocalWave(style: VocalStyle): PeriodicWave | null {
+    if (!this.context) return null;
+    const cached = this.vocalWaves.get(style);
+    if (cached) return cached;
+    const imag = harmonicSeries(style, 36);
+    const real = new Float32Array(imag.length);
+    const wave = this.context.createPeriodicWave(real, imag);
+    this.vocalWaves.set(style, wave);
+    return wave;
   }
 
   playChord(tones: readonly PitchClass[], tension: number, duration: number, when: number): void {
@@ -156,97 +167,160 @@ export class ComposeAudio {
     osc.stop(start + duration + 0.025);
   }
 
-  private playConsonantAttack(syllable: string, velocity: number, when: number): void {
-    if (!this.context || !this.vocalBus || !this.noise) return;
+  private playConsonantAttack(syllable: string, velocity: number, fundamental: number, when: number): void {
+    if (!this.context || !this.vocalBus) return;
     const initial = syllable.charAt(0).toLowerCase();
-    const frequency = initial === 'm' ? 650
-      : initial === 'n' ? 1050
-        : initial === 'l' ? 1750
-          : initial === 'r' ? 2300
-            : initial === 'y' ? 3100
-              : 0;
-    if (frequency === 0) return;
+    const level = clamp(velocity, 0.3, 1);
 
+    if (initial === 'm' || initial === 'n') {
+      const murmur = this.context.createOscillator();
+      const resonator = this.context.createBiquadFilter();
+      const gain = this.context.createGain();
+      murmur.type = 'triangle';
+      murmur.frequency.value = fundamental;
+      resonator.type = 'lowpass';
+      resonator.frequency.value = initial === 'm' ? 620 : 950;
+      resonator.Q.value = 1.2;
+      gain.gain.setValueAtTime(0.0001, when);
+      gain.gain.exponentialRampToValueAtTime(0.026 * level, when + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.052);
+      murmur.connect(resonator);
+      resonator.connect(gain);
+      gain.connect(this.vocalBus);
+      murmur.start(when);
+      murmur.stop(when + 0.06);
+      return;
+    }
+
+    if (!this.noise || !['l', 'r', 'y'].includes(initial)) return;
     const source = this.context.createBufferSource();
     const filter = this.context.createBiquadFilter();
     const gain = this.context.createGain();
     source.buffer = this.noise;
     filter.type = 'bandpass';
-    filter.frequency.value = frequency;
-    filter.Q.value = initial === 'm' || initial === 'n' ? 2.2 : 1.1;
+    filter.frequency.value = initial === 'l' ? 1650 : initial === 'r' ? 2200 : 3100;
+    filter.Q.value = 1.4;
     gain.gain.setValueAtTime(0.0001, when);
-    gain.gain.exponentialRampToValueAtTime(0.012 * clamp(velocity, 0.3, 1), when + 0.006);
-    gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.038);
+    gain.gain.exponentialRampToValueAtTime(0.0045 * level, when + 0.004);
+    gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.026);
     source.connect(filter);
     filter.connect(gain);
     gain.connect(this.vocalBus);
     source.start(when);
-    source.stop(when + 0.045);
+    source.stop(when + 0.032);
+  }
+
+  private playBreath(level: number, velocity: number, start: number, end: number): void {
+    if (!this.context || !this.vocalBus || !this.noise || level <= 0) return;
+    const breath = this.context.createBufferSource();
+    const highpass = this.context.createBiquadFilter();
+    const breathGain = this.context.createGain();
+    breath.buffer = this.noise;
+    breath.loop = true;
+    highpass.type = 'highpass';
+    highpass.frequency.value = 2900;
+    highpass.Q.value = 0.55;
+    breathGain.gain.setValueAtTime(0.0001, start);
+    breathGain.gain.exponentialRampToValueAtTime(level * clamp(velocity, 0.3, 1), start + 0.035);
+    breathGain.gain.setValueAtTime(level * clamp(velocity, 0.3, 1) * 0.72, Math.max(start + 0.04, end - 0.07));
+    breathGain.gain.exponentialRampToValueAtTime(0.0001, end);
+    breath.connect(highpass);
+    highpass.connect(breathGain);
+    breathGain.connect(this.vocalBus);
+    breath.start(start);
+    breath.stop(end + 0.015);
   }
 
   playVocal(event: VocalEvent, style: VocalStyle, duration: number, when: number): void {
     if (!this.context || !this.vocalBus) return;
+    const model = VOCAL_STYLE_MODELS[style];
     const start = Math.max(this.context.currentTime, when);
-    const end = start + Math.max(0.09, duration);
-    const carrier = this.context.createOscillator();
-    const carrierGain = this.context.createGain();
+    const noteDuration = Math.max(0.11, duration);
+    const end = start + noteDuration;
+    const fundamental = midiToHz(midiForPitchClass(event.pitch, event.octave));
+    const source = this.context.createOscillator();
+    const sourceGain = this.context.createGain();
+    const voiceEnvelope = this.context.createGain();
     const vibrato = this.context.createOscillator();
     const vibratoDepth = this.context.createGain();
-    const fundamental = midiToHz(midiForPitchClass(event.pitch, event.octave));
-    const styleShift = style === 'bright' ? 1.08 : style === 'airy' ? 1.02 : 0.95;
-    const level = style === 'airy' ? 0.055 : style === 'bright' ? 0.07 : 0.064;
+    const pitchDrift = this.context.createOscillator();
+    const pitchDriftDepth = this.context.createGain();
+    const intensityDepth = this.context.createGain();
+    const wave = this.vocalWave(style);
+    const sourceLevel = style === 'bright' ? 0.066 : style === 'airy' ? 0.052 : 0.061;
+    const attackEnd = start + Math.min(model.attackSeconds, noteDuration * 0.28);
+    const releaseStart = Math.max(attackEnd + 0.012, end - Math.min(model.releaseSeconds, noteDuration * 0.42));
+    const formantTransitionEnd = start + Math.min(0.075, noteDuration * 0.3);
 
-    this.playConsonantAttack(event.syllable, event.velocity, start);
-    carrier.type = style === 'bright' ? 'sawtooth' : 'triangle';
-    carrier.frequency.setValueAtTime(fundamental, start);
-    carrierGain.gain.value = 0.7;
+    if (wave) source.setPeriodicWave(wave);
+    else source.type = 'sawtooth';
+    source.frequency.setValueAtTime(fundamental, start);
+    source.detune.setValueAtTime(deterministicOnsetCents(event.step, style), start);
+    source.detune.linearRampToValueAtTime(0, start + Math.min(0.06, noteDuration * 0.24));
+
+    sourceGain.gain.setValueAtTime(0.78, start);
+    voiceEnvelope.gain.setValueAtTime(0.0001, start);
+    voiceEnvelope.gain.exponentialRampToValueAtTime(sourceLevel * clamp(event.velocity, 0.3, 1), attackEnd);
+    voiceEnvelope.gain.setValueAtTime(sourceLevel * clamp(event.velocity, 0.3, 1), releaseStart);
+    voiceEnvelope.gain.exponentialRampToValueAtTime(0.0001, end);
+
     vibrato.type = 'sine';
-    vibrato.frequency.value = style === 'airy' ? 5.1 : 5.6;
-    vibratoDepth.gain.value = style === 'bright' ? 10 : 7;
+    vibrato.frequency.value = model.vibratoRateHz;
+    vibratoDepth.gain.setValueAtTime(0, start);
+    vibratoDepth.gain.setValueAtTime(0, start + Math.min(model.vibratoDelaySeconds, noteDuration * 0.45));
+    vibratoDepth.gain.linearRampToValueAtTime(
+      model.vibratoDepthCents,
+      start + Math.min(model.vibratoDelaySeconds + 0.085, noteDuration * 0.72),
+    );
     vibrato.connect(vibratoDepth);
-    vibratoDepth.connect(carrier.detune);
-    carrier.connect(carrierGain);
+    vibratoDepth.connect(source.detune);
 
-    const formants = FORMANTS[event.vowel];
-    formants.forEach((frequency, index) => {
+    pitchDrift.type = 'sine';
+    pitchDrift.frequency.value = 0.68 + (event.step % 5) * 0.035;
+    pitchDriftDepth.gain.value = style === 'bright' ? 2.2 : 3.4;
+    pitchDrift.connect(pitchDriftDepth);
+    pitchDriftDepth.connect(source.detune);
+
+    intensityDepth.gain.value = model.intensityModDepth;
+    vibrato.connect(intensityDepth);
+    intensityDepth.connect(sourceGain.gain);
+    source.connect(sourceGain);
+
+    const formants = formantsFor(event.vowel, style);
+    formants.forEach((band, index) => {
       const filter = this.context!.createBiquadFilter();
-      const formantGain = this.context!.createGain();
-      const envelope = this.context!.createGain();
+      const bandGain = this.context!.createGain();
+      const onsetFrequency = onsetFormantFrequency(event.syllable, index, band.frequency);
       filter.type = 'bandpass';
-      filter.frequency.value = frequency * styleShift;
-      filter.Q.value = style === 'bright' ? 8 : 6.5;
-      formantGain.gain.value = [1, 0.62, 0.34][index] ?? 0.25;
-      envelope.gain.setValueAtTime(0.0001, start);
-      envelope.gain.exponentialRampToValueAtTime(level * clamp(event.velocity, 0.3, 1), start + 0.025);
-      envelope.gain.setValueAtTime(level * clamp(event.velocity, 0.3, 1), Math.max(start + 0.03, end - 0.06));
-      envelope.gain.exponentialRampToValueAtTime(0.0001, end);
-      carrierGain.connect(filter);
-      filter.connect(formantGain);
-      formantGain.connect(envelope);
-      envelope.connect(this.vocalBus!);
+      filter.frequency.setValueAtTime(Math.max(80, onsetFrequency), start);
+      filter.frequency.exponentialRampToValueAtTime(Math.max(80, band.frequency), formantTransitionEnd);
+      filter.Q.value = clamp(band.frequency / band.bandwidth, 2, 22);
+      bandGain.gain.value = band.gain;
+      sourceGain.connect(filter);
+      filter.connect(bandGain);
+      bandGain.connect(voiceEnvelope);
     });
 
-    if (this.noise && style === 'airy') {
-      const breath = this.context.createBufferSource();
-      const highpass = this.context.createBiquadFilter();
-      const breathGain = this.context.createGain();
-      breath.buffer = this.noise;
-      highpass.type = 'highpass';
-      highpass.frequency.value = 3600;
-      breathGain.gain.setValueAtTime(0.0001, start);
-      breathGain.gain.exponentialRampToValueAtTime(0.018 * event.velocity, start + 0.03);
-      breathGain.gain.exponentialRampToValueAtTime(0.0001, Math.min(end, start + 0.45));
-      breath.connect(highpass);
-      highpass.connect(breathGain);
-      breathGain.connect(this.vocalBus);
-      breath.start(start);
-      breath.stop(Math.min(end + 0.02, start + 0.49));
-    }
+    const presence = this.context.createBiquadFilter();
+    const presenceGain = this.context.createGain();
+    presence.type = 'bandpass';
+    presence.frequency.value = model.presenceFrequency;
+    presence.Q.value = 4.7;
+    presenceGain.gain.value = model.presenceGain;
+    sourceGain.connect(presence);
+    presence.connect(presenceGain);
+    presenceGain.connect(voiceEnvelope);
 
-    carrier.start(start);
+    voiceEnvelope.connect(this.vocalBus);
+    this.playConsonantAttack(event.syllable, event.velocity, fundamental, start);
+    this.playBreath(model.breathLevel, event.velocity, start, end);
+
+    source.start(start);
     vibrato.start(start);
-    carrier.stop(end + 0.03);
-    vibrato.stop(end + 0.03);
+    pitchDrift.start(start);
+    source.stop(end + 0.035);
+    vibrato.stop(end + 0.035);
+    pitchDrift.stop(end + 0.035);
   }
 
   playDrum(voice: 'kick' | 'snare' | 'hat' | 'clap', velocity: number, when: number): void {
@@ -270,7 +344,7 @@ export class ComposeAudio {
     }
 
     if (!this.noise) return;
-    const burst = (offset: number, duration: number, frequency: number, gainValue: number): void => {
+    const burst = (offset: number, burstDuration: number, frequency: number, gainValue: number): void => {
       if (!this.context || !this.drumBus || !this.noise) return;
       const source = this.context.createBufferSource();
       const filter = this.context.createBiquadFilter();
@@ -280,12 +354,12 @@ export class ComposeAudio {
       filter.frequency.value = frequency;
       filter.Q.value = voice === 'hat' ? 0.6 : 0.9;
       gain.gain.setValueAtTime(gainValue * level, start + offset);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + offset + duration);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + offset + burstDuration);
       source.connect(filter);
       filter.connect(gain);
       gain.connect(this.drumBus);
       source.start(start + offset);
-      source.stop(start + offset + duration + 0.02);
+      source.stop(start + offset + burstDuration + 0.02);
     };
 
     if (voice === 'hat') burst(0, 0.05, 6500, 0.1);
@@ -307,6 +381,9 @@ export class ComposeAudio {
     const stepSeconds = 60 / composition.settings.bpm / 4;
     const bar = Math.floor(step / 16);
     const localStep = step % 16;
+    const vocalsAtStep = vocalLine.filter((vocal) => vocal.step === step);
+    const hasVocal = vocalsAtStep.length > 0;
+
     if (localStep === 0) {
       const chord = composition.chords[bar]?.chord;
       if (chord) {
@@ -323,13 +400,12 @@ export class ComposeAudio {
     }
     for (const note of composition.melody) {
       if (note.step === step) {
-        this.playMelody(note.pitch, note.octave, stepSeconds * note.durationSteps * 0.88, note.velocity, when);
+        const melodyVelocity = hasVocal ? note.velocity * 0.24 : note.velocity;
+        this.playMelody(note.pitch, note.octave, stepSeconds * note.durationSteps * 0.88, melodyVelocity, when);
       }
     }
-    for (const vocal of vocalLine) {
-      if (vocal.step === step) {
-        this.playVocal(vocal, vocalStyle, stepSeconds * vocal.durationSteps * 0.92, when);
-      }
+    for (const vocal of vocalsAtStep) {
+      this.playVocal(vocal, vocalStyle, stepSeconds * vocal.durationSteps * 0.95, when);
     }
   }
 }
