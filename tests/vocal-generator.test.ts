@@ -25,4 +25,13 @@ describe('local vocal generation', () => {
     expect(first).toBeDefined();
     expect(vocalSyllableAtStep(line, first!.step)).toBe(first!.syllable);
   });
+
+  it('uses vowel-only continuation events for melisma instead of repeating consonants', () => {
+    const composition = generateComposition({ ...defaultComposeSettings(98765), seed: 98765, density: 1 });
+    const line = generateVocalLine(composition, 314159);
+    const continuations = line.filter((event) => !event.articulate);
+    expect(continuations.length).toBeGreaterThan(0);
+    expect(continuations.every((event) => ['a', 'e', 'i', 'o', 'u'].includes(event.syllable))).toBe(true);
+    expect(continuations.every((event) => vocalSyllableAtStep(line, event.step).startsWith('~'))).toBe(true);
+  });
 });
