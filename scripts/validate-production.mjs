@@ -45,5 +45,10 @@ if (!vocalWorklet.includes("registerProcessor('sound-wave-vocal-processor'")) {
 if (/createOscillator\s*\(/.test(vocalWorklet)) {
   fail('vocal AudioWorklet must generate one continuous glottal stream without per-note OscillatorNode creation');
 }
+for (const requiredFeature of ['sourceTractCoupling', 'aspirationDepth', 'centeringStart', 'phraseEnergy']) {
+  if (!vocalWorklet.includes(requiredFeature)) {
+    fail(`vocal AudioWorklet is missing Human Phrase Model feature: ${requiredFeature}`);
+  }
+}
 
-console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact + continuous vocal AudioWorklet`);
+console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact + Human Phrase Model vocal AudioWorklet`);
