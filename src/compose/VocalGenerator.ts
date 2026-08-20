@@ -18,24 +18,32 @@ export interface VocalEvent {
   glideFromMidi: number | null;
 }
 
+// Soft consonants and open/bright vowels keep the local singer close to a
+// light pop delivery without imitating any one real vocalist or lyric.
 const PHRASES: readonly (readonly { syllable: string; vowel: VocalVowel }[])[] = [
   [
-    { syllable: 'la', vowel: 'a' },
     { syllable: 'na', vowel: 'a' },
-    { syllable: 'ri', vowel: 'i' },
+    { syllable: 'ni', vowel: 'i' },
     { syllable: 'yo', vowel: 'o' },
-  ],
-  [
-    { syllable: 'ah', vowel: 'a' },
-    { syllable: 'oh', vowel: 'o' },
-    { syllable: 'ee', vowel: 'i' },
-    { syllable: 'oo', vowel: 'u' },
+    { syllable: 'ne', vowel: 'e' },
   ],
   [
     { syllable: 'ma', vowel: 'a' },
-    { syllable: 're', vowel: 'e' },
     { syllable: 'mi', vowel: 'i' },
-    { syllable: 'no', vowel: 'o' },
+    { syllable: 'yu', vowel: 'u' },
+    { syllable: 'ne', vowel: 'e' },
+  ],
+  [
+    { syllable: 'la', vowel: 'a' },
+    { syllable: 'li', vowel: 'i' },
+    { syllable: 'yo', vowel: 'o' },
+    { syllable: 'na', vowel: 'a' },
+  ],
+  [
+    { syllable: 'ah', vowel: 'a' },
+    { syllable: 'ee', vowel: 'i' },
+    { syllable: 'oo', vowel: 'u' },
+    { syllable: 'eh', vowel: 'e' },
   ],
 ] as const;
 
@@ -51,12 +59,18 @@ function keepForVocal(note: CompositionNote, random: () => number): boolean {
   const localStep = note.step % 16;
   if (localStep % 4 === 0) return true;
   if (note.durationSteps >= 2 && localStep % 2 === 0) return true;
-  if (localStep % 2 === 0) return random() < 0.72;
-  return random() < 0.32;
+  if (localStep % 2 === 0) return random() < 0.74;
+  return random() < 0.28;
 }
 
 function midiFor(pitch: PitchClass, octave: number): number {
   return 12 * (octave + 1) + pitch;
+}
+
+function vowelVelocityScale(vowel: VocalVowel): number {
+  if (vowel === 'i') return 0.95;
+  if (vowel === 'e') return 0.97;
+  return 1;
 }
 
 function connectShortGaps(line: VocalEvent[]): void {
@@ -66,9 +80,6 @@ function connectShortGaps(line: VocalEvent[]): void {
     const gapSteps = next.step - current.step;
 
     if (gapSteps <= 3) {
-      // Carry the vowel only to the next note boundary. The worklet swaps to the
-      // next event on that exact frame, avoiding both silence holes and the old
-      // one-step overhang that made phrases sound permanently held.
       current.durationSteps = Math.max(current.durationSteps, Math.min(5, gapSteps));
       current.phraseEnd = false;
       next.phraseStart = false;
@@ -96,7 +107,7 @@ export function generateVocalLine(composition: AutoComposition, seed = compositi
     const octave = Math.max(3, Math.min(5, note.octave));
     const gap = previousEvent ? note.step - previousEvent.step : Number.POSITIVE_INFINITY;
     const closeToPrevious = previousEvent !== null && gap <= Math.max(3, previousEvent.durationSteps + 1);
-    const continueMelisma = closeToPrevious && (random() < 0.58 || vocal.length % 6 === 4);
+    const continueMelisma = closeToPrevious && (random() < 0.5 || vocal.length % 7 === 5);
     const phraseStart = previousEvent === null || gap > 4;
     let articulate = phraseStart || !continueMelisma;
 
@@ -108,12 +119,13 @@ export function generateVocalLine(composition: AutoComposition, seed = compositi
 
     if (phraseStart && previousEvent) previousEvent.phraseEnd = true;
 
+    const baseVelocity = note.velocity * (phraseStart ? 0.94 : 0.9) * vowelVelocityScale(activeToken.vowel);
     const event: VocalEvent = {
       step: note.step,
       pitch: note.pitch,
       octave,
-      durationSteps: Math.max(1, Math.min(3, note.durationSteps + (random() > 0.78 ? 1 : 0))),
-      velocity: Math.max(0.44, Math.min(0.9, note.velocity * (phraseStart ? 0.96 : 0.92))),
+      durationSteps: Math.max(1, Math.min(3, note.durationSteps + (random() > 0.82 ? 1 : 0))),
+      velocity: Math.max(0.42, Math.min(0.86, baseVelocity)),
       syllable: articulate ? activeToken.syllable : activeToken.vowel,
       vowel: activeToken.vowel,
       articulate,
