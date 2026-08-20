@@ -57,7 +57,7 @@ export function neutralPhraseControl(event: VocalEvent): VocalPhraseControl {
     centeringStart: 0,
     centeringEnd: event.phraseEnd ? 0.12 : 0,
     aspirationDepth: 0.1,
-    sourceTractCoupling: 0.026,
+    sourceTractCoupling: 0.01,
   };
 }
 
@@ -95,7 +95,9 @@ export function buildVocalPhraseControls(line: readonly VocalEvent[]): ReadonlyM
         centeringStart: vowelCenteringAt(progressStart),
         centeringEnd: vowelCenteringAt(progressEnd),
         aspirationDepth: 0.085 + latePhrase * 0.035,
-        sourceTractCoupling: 0.022 + (1 - latePhrase) * 0.008,
+        // Keep source–tract feedback perceptible but far below the range where
+        // a resonant F1 state can momentarily destabilize or crack the source.
+        sourceTractCoupling: 0.008 + (1 - latePhrase) * 0.004,
       });
     }
 
