@@ -151,7 +151,9 @@ export function glottalHarmonicSeries(style: VocalStyle, count = 48): Float32Arr
   let peak = 0;
   for (let harmonic = 1; harmonic < harmonics.length; harmonic += 1) peak = Math.max(peak, harmonics[harmonic] ?? 0);
   if (peak > 0) {
-    for (let harmonic = 1; harmonic < harmonics.length; harmonic += 1) harmonics[harmonic] /= peak;
+    for (let harmonic = 1; harmonic < harmonics.length; harmonic += 1) {
+      harmonics[harmonic] = (harmonics[harmonic] ?? 0) / peak;
+    }
   }
   return harmonics;
 }
