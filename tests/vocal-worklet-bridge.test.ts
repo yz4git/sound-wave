@@ -28,12 +28,16 @@ describe('continuous vocal AudioWorklet bridge', () => {
   });
 
   it('maps planned next vowels into per-formant anticipatory targets', () => {
-    const composition = generateComposition({ ...defaultComposeSettings(76543), seed: 76543, density: 1 });
-    const line = generateVocalLine(composition, 222);
-    const event = line.find((candidate) => candidate.nextVowel !== null);
-    expect(event).toBeDefined();
+    let selected: ReturnType<typeof generateVocalLine>[number] | undefined;
 
-    const mapped = vocalEventToWorklet(event!, 'warm', 0.5, 0.45);
+    for (let seed = 1; seed <= 30 && !selected; seed += 1) {
+      const composition = generateComposition({ ...defaultComposeSettings(seed), seed, density: 1 });
+      const line = generateVocalLine(composition, seed * 3571);
+      selected = line.find((candidate) => candidate.nextVowel !== null && candidate.nextVowel !== candidate.vowel);
+    }
+
+    expect(selected).toBeDefined();
+    const mapped = vocalEventToWorklet(selected!, 'warm', 0.5, 0.45);
     expect(mapped.formants.every((band) => band.nextHz !== null)).toBe(true);
     expect(mapped.formants.some((band) => band.nextHz !== band.targetHz)).toBe(true);
   });
