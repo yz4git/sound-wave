@@ -1,4 +1,4 @@
-const CACHE = 'sound-wave-v20-6-dynamic-resonance-glottal';
+const CACHE = 'sound-wave-auto-compose-v2-genre-style-engine';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon.svg', './vocal-worklet.js'];
 
 self.addEventListener('install', (event) => {
