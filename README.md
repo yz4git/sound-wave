@@ -59,10 +59,11 @@ Generated layers:
 - **Bass** — follows generated chord roots and reinforces phrase structure
 - **Drums** — locally generated kick/snare/hat/clap pattern follows meter and density
 - **Vocal v4** — one persistent `AudioWorkletProcessor` generates the glottal source sample-by-sample and keeps phase, pitch, five formant resonators, singing presence, lip-radiation state, jitter/shimmer and short-delay doubling continuous across note boundaries
+- **Vocal Presence Mix** — the singer now has a dedicated 86 Hz high-pass → 2.7 kHz presence EQ → 6.2 kHz air shelf → vocal compressor → makeup-gain chain, while accompaniment/drums are slightly recessed and the guide melody falls to 8% on sung notes
+- **Projection boost** — the worklet raises vocal body/presence, articulation level and output density, then applies lightweight soft saturation before the vocal bus
 - **No per-note vocal OscillatorNode** — note events are sent to the worklet as timing/pitch/articulation parameters instead of creating a new oscillator and filter graph for every sung note
 - **Legato / melisma** — adjacent sung notes keep the current stream alive and glide from the previous pitch while retaining vocal-tract filter history
 - phrase starts/endings control articulation, breath and release without resetting the glottal phase
-- the backing melody is reduced to 16% on worklet vocal notes so the singer carries the melodic line
 - the final bar always returns to tonic so the eight-bar phrase has a clear resolution
 
 The vocal system remains fully local and procedural: it is not a downloaded neural voice model, remote inference service, recorded voicebank, or voice-cloning system. The worklet module is bundled as a local PWA asset and cached for offline use. Research rationale and references are documented in `docs/vocal-synthesis-notes.md`.
@@ -104,7 +105,7 @@ The UI shows vocal-note markers, the syllable currently being sung and whether t
 - `src/compose/VocalModel.ts` — research-informed voice-style parameters and vocal-tract formant targets
 - `src/compose/VocalWorkletBridge.ts` — converts vocal notes to worklet DSP events and manages the persistent `AudioWorkletNode`
 - `public/vocal-worklet.js` — continuous sample-by-sample glottal/source-filter singer; no per-note Web Audio oscillator creation
-- `src/compose/ComposeAudio.ts` — chord/bass/melody/drum engine plus AudioWorklet vocal scheduling
+- `src/compose/ComposeAudio.ts` — chord/bass/melody/drum engine plus dedicated vocal mix chain and AudioWorklet scheduling
 - `src/compose/AutoComposeMode.ts` — Auto Compose controls, worklet status, visualization and lookahead transport
 - `src/compose/compose-vocal.css` — vocal controls, syllable status and vocal-note visualization
 - `docs/vocal-synthesis-notes.md` — research references and implementation rationale for the local singer
@@ -144,4 +145,4 @@ Rules:
 - `npm run validate:prod` verifies the production artifact and continuous vocal worklet
 - service-worker navigation is network-first while hashed Vite assets are cache-first
 - `vocal-worklet.js` is a local PWA core asset so offline AUTO COMPOSE can initialize the singer
-- current cache generation: `sound-wave-v14-vocal-worklet`
+- current cache generation: `sound-wave-v15-vocal-presence`
