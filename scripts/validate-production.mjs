@@ -46,6 +46,17 @@ for (const genreFeature of ['AUTO COMPOSE v2', 'J-POP', 'ROCK', 'K-POP', 'GAME M
     fail(`production bundle is missing Auto Compose Genre Style Engine feature: ${genreFeature}`);
   }
 }
+for (const arrangementFeature of [
+  'power-pulse',
+  'syncopated-808',
+  'arpeggio-pulse',
+  'eighth-drive',
+  'offbeat-stabs',
+]) {
+  if (!entryJavaScript.includes(arrangementFeature)) {
+    fail(`production bundle is missing Genre Arrangement Grammar feature: ${arrangementFeature}`);
+  }
+}
 
 const vocalWorklet = readFileSync(join(distDir, 'vocal-worklet.js'), 'utf8');
 try {
@@ -96,4 +107,4 @@ for (const resonanceFeature of [
   }
 }
 
-console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact + Auto Compose Genre Style Engine + Human Phrase Model + Japanese phoneme/coarticulation + karaoke-score phrasing + dynamic resonance/glottal AudioWorklet`);
+console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact + Genre Style/Arrangement Grammar + Human Phrase Model + Japanese phoneme/coarticulation + karaoke-score phrasing + dynamic resonance/glottal AudioWorklet`);
