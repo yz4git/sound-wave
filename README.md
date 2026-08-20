@@ -58,14 +58,17 @@ Generated layers:
 - **Melody** — strong beats prefer chord tones; weaker subdivisions use nearby scale tones
 - **Bass** — follows generated chord roots and reinforces phrase structure
 - **Drums** — locally generated kick/snare/hat/clap pattern follows meter and density
-- **Vocal v18 Soft Legato** — the persistent `AudioWorkletProcessor` keeps the local singer continuous while widening formant bandwidths, softening upper resonances and reducing glottal-edge energy rather than simply lowering vocal level
-- **Continuous modulation** — vibrato/drift phase now continues across note boundaries, so legato notes do not restart the same LFO shape on every note; short notes remain almost straight and longer notes grow into a delayed shallow vibrato
-- **Softer articulation** — consonants use more voiced source and heavily smoothed noise, vowel/formant transitions use longer smooth crossfades and new articulated syllables retain part of the previous vocal-tract state instead of hard-resetting it
-- **Gentle envelope continuity** — a shared envelope state carries through legato notes, slower attack/release constants round note edges, and continuous notes preserve the current F0 instead of snapping back to a nominal glide start
-- **Warmer vocal mix** — the vocal high-pass is lowered, the presence boost is broader and shallower, and the vocal compressor uses slower/softer settings while the existing accompaniment duck keeps the singer readable
+- **Vocal v19 Soft Pop Voice** — the persistent `AudioWorkletProcessor` keeps the continuous singer from v18 while retuning the source, formants, articulation and mix toward a lighter close-pop delivery instead of a theatrical synthetic singing voice
+- **Straight pop pitch** — short notes stay almost completely straight; vibrato is reduced to roughly 12–16 cents and appears only late on longer notes
+- **Soft phrase scoop** — phrase starts enter only a few cents below pitch and settle smoothly to the target instead of using a random wide onset bend
+- **Soft-pop syllables** — generated phrases favor `n/m/y/l` consonants and open/bright vowels; hard consonant noise and repeated melisma are reduced
+- **Gentle vowel transitions** — vowel/formant interpolation is slower and smoother while the previous vocal-tract state is retained across connected notes
+- **Breathy phrase release** — phrase endings release through a subtle local breath component rather than ending as a hard voiced cutoff
+- **Light glottal source** — the voiced flow component is increased, the sharp derivative component is reduced and the source/output smoothing is stronger to reduce buzz without making the singer dull
+- **Close but soft mix** — the singer keeps its center presence while using a broad shallow presence boost, a small air shelf and slower compression; accompaniment ducking remains gentle so the voice does not sound isolated from the arrangement
 - **Mono-safe vocal image** — same-signal short-delay doubling remains disabled by default
 - **No per-note vocal OscillatorNode** — note events are sent to the worklet as timing/pitch/articulation parameters instead of creating a new oscillator and filter graph for every sung note
-- phrase starts/endings control articulation, breath and release without resetting the glottal phase
+- phrase starts/endings control articulation, breath and release without resetting the glottal or modulation phase
 - the final bar always returns to tonic so the eight-bar phrase has a clear resolution
 
 The vocal system remains fully local and procedural: it is not a downloaded neural voice model, remote inference service, recorded voicebank, or voice-cloning system. The worklet module is bundled as a local PWA asset and cached for offline use. Research rationale and references are documented in `docs/vocal-synthesis-notes.md`.
@@ -147,4 +150,4 @@ Rules:
 - `npm run validate:prod` verifies the production artifact and continuous vocal worklet
 - service-worker navigation is network-first while hashed Vite assets are cache-first
 - `vocal-worklet.js` is a local PWA core asset so offline AUTO COMPOSE can initialize the singer
-- current cache generation: `sound-wave-v18-vocal-soft-legato`
+- current cache generation: `sound-wave-v19-soft-pop-voice`
