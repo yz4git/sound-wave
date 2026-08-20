@@ -18,6 +18,15 @@ describe('local vocal generation', () => {
     expect(line.every((event) => event.durationSteps >= 1 && event.durationSteps <= 3)).toBe(true);
   });
 
+  it('uses mostly soft pop consonants for articulated syllables', () => {
+    const composition = generateComposition({ ...defaultComposeSettings(2468), seed: 2468, density: 0.9 });
+    const line = generateVocalLine(composition, 13579);
+    const articulated = line.filter((event) => event.articulate && event.syllable.length > 1);
+    const allowed = new Set(['n', 'm', 'y', 'l', 'a', 'e', 'o']);
+    expect(articulated.length).toBeGreaterThan(0);
+    expect(articulated.every((event) => allowed.has(event.syllable.charAt(0)))).toBe(true);
+  });
+
   it('marks phrase boundaries for breath and release shaping', () => {
     const composition = generateComposition({ ...defaultComposeSettings(555), seed: 555, density: 0.78 });
     const line = generateVocalLine(composition, 123);
