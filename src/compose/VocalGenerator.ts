@@ -12,15 +12,22 @@ export interface VocalEvent {
   velocity: number;
   syllable: string;
   vowel: VocalVowel;
+  nextVowel: VocalVowel | null;
   articulate: boolean;
   phraseStart: boolean;
   phraseEnd: boolean;
   glideFromMidi: number | null;
 }
 
-// Soft consonants and open/bright vowels keep the local singer close to a
-// light pop delivery without imitating any one real vocalist or lyric.
-const PHRASES: readonly (readonly { syllable: string; vowel: VocalVowel }[])[] = [
+interface VocalToken {
+  syllable: string;
+  vowel: VocalVowel;
+}
+
+// These are non-lexical mora sequences. v20.4 deliberately broadens the
+// consonant inventory so the local engine exercises Japanese-style stop,
+// fricative, voiced-obstruent and moraic-n timing without using fixed lyrics.
+const PHRASES: readonly (readonly VocalToken[])[] = [
   [
     { syllable: 'na', vowel: 'a' },
     { syllable: 'ni', vowel: 'i' },
@@ -44,6 +51,33 @@ const PHRASES: readonly (readonly { syllable: string; vowel: VocalVowel }[])[] =
     { syllable: 'ee', vowel: 'i' },
     { syllable: 'oo', vowel: 'u' },
     { syllable: 'eh', vowel: 'e' },
+  ],
+  [
+    { syllable: 'ka', vowel: 'a' },
+    { syllable: 'ki', vowel: 'i' },
+    { syllable: 'sa', vowel: 'a' },
+    { syllable: 'se', vowel: 'e' },
+  ],
+  [
+    { syllable: 'ta', vowel: 'a' },
+    { syllable: 'te', vowel: 'e' },
+    { syllable: 'ha', vowel: 'a' },
+    { syllable: 'hi', vowel: 'i' },
+  ],
+  [
+    { syllable: 'fu', vowel: 'u' },
+    { syllable: 'pa', vowel: 'a' },
+    { syllable: 'ba', vowel: 'a' },
+    { syllable: 'be', vowel: 'e' },
+  ],
+  [
+    { syllable: 'ga', vowel: 'a' },
+    { syllable: 'za', vowel: 'a' },
+    // Moraic n has no oral vowel nucleus. `u` is only a formant-carrier fallback;
+    // the worklet's N profile replaces the nucleus with nasal resonance and
+    // anticipates the following vowel through nextVowel.
+    { syllable: 'n', vowel: 'u' },
+    { syllable: 'ke', vowel: 'e' },
   ],
 ] as const;
 
@@ -133,13 +167,30 @@ function connectShortGaps(line: VocalEvent[]): void {
   if (finalEvent) finalEvent.phraseEnd = true;
 }
 
+/**
+ * Plan anticipatory vowel movement after phrase/gap normalization. Each event
+ * only looks to the immediately following event in the same connected phrase;
+ * long rests never pull the current vowel toward a future phrase.
+ */
+function planNextVowels(line: VocalEvent[]): void {
+  for (let index = 0; index < line.length; index += 1) {
+    const event = line[index]!;
+    const next = line[index + 1];
+    if (!next || event.phraseEnd || next.phraseStart || next.step - event.step > 3) {
+      event.nextVowel = null;
+      continue;
+    }
+    event.nextVowel = next.vowel;
+  }
+}
+
 export function generateVocalLine(composition: AutoComposition, seed = composition.settings.seed ^ 0x51f15e): VocalEvent[] {
   const random = randomSource(seed >>> 0);
   const fallbackPhrase = PHRASES[0]!;
   const phrase = PHRASES[Math.floor(random() * PHRASES.length)] ?? fallbackPhrase;
   const vocal: VocalEvent[] = [];
   let syllableIndex = 0;
-  let activeToken: { syllable: string; vowel: VocalVowel } | null = null;
+  let activeToken: VocalToken | null = null;
   let previousEvent: VocalEvent | null = null;
 
   for (const note of composition.melody) {
@@ -169,6 +220,7 @@ export function generateVocalLine(composition: AutoComposition, seed = compositi
       velocity: Math.max(0.42, Math.min(0.86, baseVelocity)),
       syllable: articulate ? activeToken.syllable : activeToken.vowel,
       vowel: activeToken.vowel,
+      nextVowel: null,
       articulate,
       phraseStart,
       phraseEnd: false,
@@ -182,6 +234,7 @@ export function generateVocalLine(composition: AutoComposition, seed = compositi
 
   connectShortGaps(vocal);
   ensureSoftMelisma(vocal);
+  planNextVowels(vocal);
   return vocal;
 }
 
