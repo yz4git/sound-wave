@@ -92,6 +92,6 @@ describe('genre arrangement fidelity', () => {
     expect(puzzle[0]?.chordPattern).toBe('arpeggio-pulse');
     expect(puzzle[0]?.drumDensityScale).toBeLessThan(0.6);
     expect(boss[0]?.bassPattern).toBe('ostinato');
-    expect(boss[0]?.energy).toBeGreaterThan(1);
+    expect(Math.max(...boss.map((bar) => bar.energy))).toBeGreaterThan(1.1);
   });
 });
