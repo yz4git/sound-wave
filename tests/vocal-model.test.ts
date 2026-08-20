@@ -23,6 +23,12 @@ describe('local vocal model', () => {
     }
   });
 
+  it('keeps the v20.1 presence-reset baseline free of the extra presence resonator', () => {
+    for (const model of Object.values(VOCAL_STYLE_MODELS)) {
+      expect(model.presenceGain).toBe(0);
+    }
+  });
+
   it('keeps five ordered vocal-tract formants', () => {
     const bands = formantsFor('a', 'warm');
     expect(bands).toHaveLength(5);
