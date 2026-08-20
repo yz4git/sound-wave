@@ -55,5 +55,10 @@ for (const antiCrackFeature of ['transitionFromHz', 'safeDesiredHz', 'safeF1', '
     fail(`vocal AudioWorklet is missing anti-crack protection: ${antiCrackFeature}`);
   }
 }
+for (const phonemeFeature of ['phonemeExcitation', 'coarticulationMix', 'nextHz', 'moraicN', 'closureSeconds', 'fricationSeconds']) {
+  if (!vocalWorklet.includes(phonemeFeature)) {
+    fail(`vocal AudioWorklet is missing Japanese phoneme/coarticulation feature: ${phonemeFeature}`);
+  }
+}
 
-console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact + Human Phrase Model anti-crack vocal AudioWorklet`);
+console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact + Human Phrase Model + Japanese phoneme/coarticulation AudioWorklet`);
