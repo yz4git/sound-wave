@@ -67,6 +67,18 @@ for (const vocaloidExpressionFeature of [
     fail(`production bundle is missing VOCALOID-informed expression feature: ${vocaloidExpressionFeature}`);
   }
 }
+for (const spectralTrajectoryFeature of [
+  'timeSmoothingMs',
+  'transitionSmoothingMs',
+  'frequencySmoothing',
+  'transitionProtectionSeconds',
+  'spectralTiltDepth',
+  'trajectoryDepth',
+]) {
+  if (!entryJavaScript.includes(spectralTrajectoryFeature)) {
+    fail(`production bundle is missing spectral-envelope trajectory feature: ${spectralTrajectoryFeature}`);
+  }
+}
 
 const vocalWorklet = readFileSync(join(distDir, 'vocal-worklet.js'), 'utf8');
 try {
@@ -116,5 +128,19 @@ for (const resonanceFeature of [
     fail(`vocal AudioWorklet is missing dynamic resonance/glottal feature: ${resonanceFeature}`);
   }
 }
+for (const spectralWorkletFeature of [
+  'DEFAULT_SPECTRAL',
+  'spectralSmoothingAlpha',
+  'spectralFrequencyState',
+  'spectralBandwidthState',
+  'spectralRawGain',
+  'frequencySmoothing',
+  'transitionProtectionSeconds',
+  'vibratoEnvelopeDepth',
+]) {
+  if (!vocalWorklet.includes(spectralWorkletFeature)) {
+    fail(`vocal AudioWorklet is missing v20.8 spectral-envelope trajectory: ${spectralWorkletFeature}`);
+  }
+}
 
-console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact + Genre Style/Arrangement Grammar + VOCALOID-informed score-aligned expression + Human Phrase Model + Japanese phoneme/coarticulation + karaoke-score phrasing + dynamic resonance/glottal AudioWorklet`);
+console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact + Genre Style/Arrangement Grammar + VOCALOID-informed score-aligned expression + v20.8 spectral-envelope trajectory + Human Phrase Model + Japanese phoneme/coarticulation + karaoke-score phrasing + dynamic resonance/glottal AudioWorklet`);
