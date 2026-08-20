@@ -1,5 +1,6 @@
 import type { VocalEvent, VocalStyle } from './VocalGenerator';
 import { VOCAL_STYLE_MODELS, formantsFor, onsetFormantFrequency } from './VocalModel';
+import { neutralPhraseControl, type VocalPhraseControl } from './VocalPhraseModel';
 
 export type VocalWorkletStatus = 'idle' | 'loading' | 'ready' | 'unavailable';
 
@@ -13,6 +14,16 @@ export interface VocalWorkletEvent {
   articulate: boolean;
   phraseStart: boolean;
   phraseEnd: boolean;
+  phrase: {
+    progressStart: number;
+    progressEnd: number;
+    energyStart: number;
+    energyEnd: number;
+    centeringStart: number;
+    centeringEnd: number;
+    aspirationDepth: number;
+    sourceTractCoupling: number;
+  };
   formants: { startHz: number; targetHz: number; bandwidth: number; gain: number }[];
   style: {
     glottalOpenQuotient: number;
@@ -49,6 +60,7 @@ export function vocalEventToWorklet(
   style: VocalStyle,
   when: number,
   duration: number,
+  phraseControl: VocalPhraseControl = neutralPhraseControl(event),
 ): VocalWorkletEvent {
   const model = VOCAL_STYLE_MODELS[style];
   const bands = formantsFor(event.vowel, style);
@@ -63,6 +75,16 @@ export function vocalEventToWorklet(
     articulate: event.articulate,
     phraseStart: event.phraseStart,
     phraseEnd: event.phraseEnd,
+    phrase: {
+      progressStart: phraseControl.progressStart,
+      progressEnd: phraseControl.progressEnd,
+      energyStart: phraseControl.energyStart,
+      energyEnd: phraseControl.energyEnd,
+      centeringStart: phraseControl.centeringStart,
+      centeringEnd: phraseControl.centeringEnd,
+      aspirationDepth: phraseControl.aspirationDepth,
+      sourceTractCoupling: phraseControl.sourceTractCoupling,
+    },
     formants: bands.map((band, index) => ({
       startHz: onsetFormantFrequency(event.syllable, index, band.frequency),
       targetHz: band.frequency,
