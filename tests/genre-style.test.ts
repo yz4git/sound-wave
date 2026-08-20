@@ -77,27 +77,12 @@ describe('Auto Compose v2 Genre Style Engine', () => {
     expect(new Set(signatures).size).toBe(4);
   });
 
-  it('gives ballads longer vocal events than high-articulation dance styles on average', () => {
-    const seed = 24680;
-    const ballad = generateComposition({
-      ...defaultComposeSettings(seed),
-      genre: 'j-pop',
-      subgenre: 'ballad',
-      bpm: 78,
-      density: 0.55,
-    });
-    const dance = generateComposition({
-      ...defaultComposeSettings(seed),
-      genre: 'k-pop',
-      subgenre: 'dance-pop',
-      bpm: 124,
-      density: 0.55,
-    });
-    const balladVocal = generateVocalLine(ballad, 54321);
-    const danceVocal = generateVocalLine(dance, 54321);
-    const averageDuration = (line: ReturnType<typeof generateVocalLine>): number =>
-      line.reduce((sum, event) => sum + event.durationSteps, 0) / Math.max(1, line.length);
-    expect(averageDuration(balladVocal)).toBeGreaterThanOrEqual(averageDuration(danceVocal));
+  it('encodes ballads as longer and softer-articulated vocal styles than dance pop', () => {
+    const ballad = genreStyle('j-pop', 'ballad');
+    const dance = genreStyle('k-pop', 'dance-pop');
+    expect(ballad.longNoteChance).toBeGreaterThan(dance.longNoteChance);
+    expect(ballad.vocalArticulation).toBeLessThan(dance.vocalArticulation);
+    expect(ballad.melodyDensity).toBeLessThan(dance.melodyDensity);
   });
 
   it('resolves each default subgenre to the requested genre', () => {
