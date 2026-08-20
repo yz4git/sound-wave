@@ -5,15 +5,19 @@ import { buildVocalPhraseControls } from '../src/compose/VocalPhraseModel';
 import { vocalEventToWorklet } from '../src/compose/VocalWorkletBridge';
 
 describe('continuous vocal AudioWorklet bridge', () => {
-  it('maps a vocal note into one complete DSP event', () => {
+  it('maps a vocal note into one complete DSP event while preserving Note-Off', () => {
     const composition = generateComposition({ ...defaultComposeSettings(4242), seed: 4242, density: 1 });
     const line = generateVocalLine(composition, 99);
     const event = line[0];
     expect(event).toBeDefined();
 
-    const mapped = vocalEventToWorklet(event!, 'warm', 1.25, 0.5);
-    expect(mapped.when).toBe(1.25);
-    expect(mapped.duration).toBe(0.5);
+    const scoreWhen = 1.25;
+    const scoreDuration = 0.5;
+    const mapped = vocalEventToWorklet(event!, 'warm', scoreWhen, scoreDuration);
+    expect(mapped.when).toBeLessThanOrEqual(scoreWhen);
+    expect(mapped.when + mapped.duration).toBeCloseTo(scoreWhen + scoreDuration, 8);
+    expect(mapped.vocaloid.consonantPreRollSeconds).toBeGreaterThanOrEqual(0);
+    expect(mapped.vocaloid.consonantPreRollSeconds).toBeLessThanOrEqual(0.065);
     expect(mapped.targetHz).toBeGreaterThan(60);
     expect(mapped.formants).toHaveLength(5);
     expect(mapped.formants.every((band) => band.bandwidth > 0 && band.targetHz > 0)).toBe(true);
@@ -30,6 +34,23 @@ describe('continuous vocal AudioWorklet bridge', () => {
     expect(mapped.style.vibratoRateHz).toBeLessThanOrEqual(7);
     expect(mapped.phrase.energyStart).toBeGreaterThan(0);
     expect(mapped.phrase.sourceTractCoupling).toBeGreaterThan(0);
+  });
+
+  it('pre-rolls an articulated consonant but not a vowel-only onset', () => {
+    const composition = generateComposition({ ...defaultComposeSettings(1010), seed: 1010, density: 1 });
+    const line = generateVocalLine(composition, 2020);
+    const base = line[0];
+    expect(base).toBeDefined();
+
+    const consonant = vocalEventToWorklet({ ...base!, syllable: 'ka', vowel: 'a', articulate: true }, 'warm', 2, 0.5);
+    const vowel = vocalEventToWorklet({ ...base!, syllable: 'ah', vowel: 'a', articulate: true }, 'warm', 2, 0.5);
+
+    expect(consonant.when).toBeLessThan(2);
+    expect(consonant.vocaloid.consonantPreRollSeconds).toBeGreaterThan(0.04);
+    expect(consonant.when + consonant.duration).toBeCloseTo(2.5, 8);
+    expect(vowel.when).toBe(2);
+    expect(vowel.duration).toBe(0.5);
+    expect(vowel.vocaloid.consonantPreRollSeconds).toBe(0);
   });
 
   it('marks long notes for straight-hold then late-vibrato scoring phrasing', () => {
@@ -117,9 +138,9 @@ describe('continuous vocal AudioWorklet bridge', () => {
     expect(mapped.phraseEnd).toBe(melisma!.phraseEnd);
     expect(mapped.phrase.progressStart).toBe(phraseControl!.progressStart);
     expect(mapped.phrase.progressEnd).toBe(phraseControl!.progressEnd);
-    expect(mapped.phrase.energyStart).toBe(phraseControl!.energyStart);
-    expect(mapped.phrase.energyEnd).toBe(phraseControl!.energyEnd);
-    expect(mapped.phrase.centeringEnd).toBe(phraseControl!.centeringEnd);
+    expect(mapped.phrase.energyStart).toBeCloseTo(phraseControl!.energyStart * mapped.vocaloid.energyStartScale, 8);
+    expect(mapped.phrase.energyEnd).toBeCloseTo(phraseControl!.energyEnd * mapped.vocaloid.energyEndScale, 8);
+    expect(mapped.phrase.centeringEnd).toBeLessThanOrEqual(0.22);
     expect(mapped.phrase.aspirationDepth).toBeGreaterThan(0);
     expect(mapped.phrase.sourceTractCoupling).toBeGreaterThan(0);
     expect(mapped.style.breathLevel).toBeGreaterThan(0);
