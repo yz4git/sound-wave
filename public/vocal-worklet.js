@@ -152,10 +152,10 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     if (!event.articulate || elapsed < 0 || elapsed > 0.055) return 0;
     const initial = String(event.syllable || '').charAt(0).toLowerCase();
     const fade = 1 - elapsed / 0.055;
-    if (initial === 'm' || initial === 'n') return sourceSample * fade * (initial === 'm' ? 0.22 : 0.16);
-    if (initial === 'l') return noise * fade * 0.025;
-    if (initial === 'r') return noise * fade * 0.034;
-    if (initial === 'y') return noise * fade * 0.018;
+    if (initial === 'm' || initial === 'n') return sourceSample * fade * (initial === 'm' ? 0.26 : 0.2);
+    if (initial === 'l') return noise * fade * 0.03;
+    if (initial === 'r') return noise * fade * 0.042;
+    if (initial === 'y') return noise * fade * 0.024;
     return 0;
   }
 
@@ -216,7 +216,8 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     for (let index = 0; index < Math.min(5, active.formants.length); index += 1) {
       vocal += this.resonator(glottalSource, active.formants[index].gain, index);
     }
-    vocal += this.presence(glottalSource, style.presenceGain);
+    vocal *= 1.05;
+    vocal += this.presence(glottalSource, style.presenceGain * 1.08);
 
     const highpassed = this.radiationAlpha * (this.radiationState + vocal - this.previousRadiationInput);
     this.previousRadiationInput = vocal;
@@ -230,14 +231,17 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     const amplitudeVibrato = 1 + Math.sin(2 * Math.PI * style.vibratoRateHz * elapsed) * style.intensityModDepth * vibratoRise;
     const shimmer = 1 + this.shimmerState * style.shimmerDepth;
     const envelope = this.envelopeFor(active, frame) * Math.max(0.3, Math.min(1, active.velocity));
-    let sample = (vocal * amplitudeVibrato * shimmer + breath + consonant) * envelope * 0.32;
+    let sample = (vocal * amplitudeVibrato * shimmer + breath + consonant) * envelope * 0.43;
 
     const readIndex = (this.delayWrite - this.delaySamples + this.delayBuffer.length) % this.delayBuffer.length;
     const delayed = this.delayBuffer[readIndex];
     this.delayBuffer[this.delayWrite] = sample;
     this.delayWrite = (this.delayWrite + 1) % this.delayBuffer.length;
     sample += delayed * style.doubleLevel;
-    return Math.max(-0.92, Math.min(0.92, sample));
+
+    const driven = sample * 1.08;
+    sample = driven / (1 + Math.abs(driven) * 0.12);
+    return Math.max(-0.95, Math.min(0.95, sample));
   }
 
   process(_inputs, outputs) {
