@@ -3,16 +3,20 @@ import {
   VOCAL_STYLE_MODELS,
   deterministicOnsetCents,
   formantsFor,
-  harmonicSeries,
+  glottalHarmonicSeries,
   onsetFormantFrequency,
 } from '../src/compose/VocalModel';
 
 describe('local vocal model', () => {
-  it('uses singing-like vibrato rates', () => {
+  it('uses singing-like vibrato rates and restrained human variation', () => {
     for (const model of Object.values(VOCAL_STYLE_MODELS)) {
       expect(model.vibratoRateHz).toBeGreaterThanOrEqual(5);
       expect(model.vibratoRateHz).toBeLessThanOrEqual(7);
       expect(model.vibratoDepthCents).toBeGreaterThan(20);
+      expect(model.jitterCents).toBeGreaterThan(0);
+      expect(model.jitterCents).toBeLessThan(4);
+      expect(model.shimmerDepth).toBeGreaterThan(0);
+      expect(model.shimmerDepth).toBeLessThan(0.05);
     }
   });
 
@@ -25,11 +29,21 @@ describe('local vocal model', () => {
     }
   });
 
-  it('builds a harmonically rich but tilted glottal-like source', () => {
-    const harmonics = harmonicSeries('warm', 24);
-    expect(harmonics[1]).toBeGreaterThan(harmonics[8]!);
-    expect(harmonics[8]).toBeGreaterThan(harmonics[20]!);
+  it('derives a rich tilted spectrum from a glottal pulse shape', () => {
+    const harmonics = glottalHarmonicSeries('warm', 32);
+    expect(harmonics).toHaveLength(33);
+    expect(harmonics[1]).toBeGreaterThan(0);
     expect(harmonics[2]).toBeGreaterThan(0);
+    expect(harmonics[1]).toBeGreaterThan(harmonics[20]!);
+  });
+
+  it('uses plausible glottal open and speed quotients', () => {
+    for (const model of Object.values(VOCAL_STYLE_MODELS)) {
+      expect(model.glottalOpenQuotient).toBeGreaterThan(0.4);
+      expect(model.glottalOpenQuotient).toBeLessThan(0.8);
+      expect(model.glottalSpeedQuotient).toBeGreaterThan(0.45);
+      expect(model.glottalSpeedQuotient).toBeLessThan(0.9);
+    }
   });
 
   it('moves consonant onsets toward vowel targets', () => {
