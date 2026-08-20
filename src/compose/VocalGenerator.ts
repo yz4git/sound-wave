@@ -1,5 +1,6 @@
 import type { PitchClass } from '../core/music';
 import type { AutoComposition, CompositionNote } from './AutoComposer';
+import type { ArrangementBar } from './GenreArrangement';
 import { genreStyle, type GenreStyleProfile } from './GenreStyle';
 
 export type VocalStyle = 'warm' | 'bright' | 'airy';
@@ -86,13 +87,19 @@ function randomSource(seed: number): () => number {
   };
 }
 
-function keepForVocal(note: CompositionNote, random: () => number, profile: GenreStyleProfile): boolean {
+function keepForVocal(
+  note: CompositionNote,
+  random: () => number,
+  profile: GenreStyleProfile,
+  state: ArrangementBar | undefined,
+): boolean {
   const localStep = note.step % 16;
-  const densityFactor = clamp(profile.melodyDensity + profile.densityBias, 0.48, 1.35);
-  if (localStep % 4 === 0) return random() < clamp(0.78 + densityFactor * 0.16, 0.72, 0.98);
-  if (note.durationSteps >= 2 && localStep % 2 === 0) return random() < clamp(0.72 + profile.longNoteChance * 0.22, 0.66, 0.94);
-  if (localStep % 2 === 0) return random() < clamp(0.44 + densityFactor * 0.24, 0.42, 0.82);
-  return random() < clamp(0.08 + profile.syncopation * 0.38 + (densityFactor - 0.8) * 0.08, 0.05, 0.46);
+  const sectionScale = state?.vocalDensityScale ?? 1;
+  const densityFactor = clamp((profile.melodyDensity + profile.densityBias) * sectionScale, 0.36, 1.42);
+  if (localStep % 4 === 0) return random() < clamp(0.74 + densityFactor * 0.18, 0.62, 0.98);
+  if (note.durationSteps >= 2 && localStep % 2 === 0) return random() < clamp(0.66 + profile.longNoteChance * 0.24 + sectionScale * 0.05, 0.54, 0.95);
+  if (localStep % 2 === 0) return random() < clamp(0.36 + densityFactor * 0.28, 0.28, 0.84);
+  return random() < clamp(0.06 + profile.syncopation * 0.38 + (densityFactor - 0.8) * 0.1, 0.03, 0.48);
 }
 
 function midiFor(pitch: PitchClass, octave: number): number {
@@ -179,15 +186,24 @@ export function generateVocalLine(composition: AutoComposition, seed = compositi
   let syllableIndex = 0;
   let activeToken: VocalToken | null = null;
   let previousEvent: VocalEvent | null = null;
-  const melismaChance = clamp(
-    0.26 + (1 - profile.vocalArticulation) * 0.5 + profile.longNoteChance * 0.26,
-    0.16,
-    0.64,
-  );
 
   for (const note of composition.melody) {
-    if (!keepForVocal(note, random, profile)) continue;
+    const state = composition.arrangement[Math.floor(note.step / 16)];
+    if (!keepForVocal(note, random, profile, state)) continue;
 
+    const sectionMelismaScale = state?.section === 'chorus'
+      ? 1.08
+      : state?.section === 'drop'
+        ? 0.62
+        : state?.section === 'break'
+          ? 1.18
+          : 1;
+    const melismaChance = clamp(
+      (0.26 + (1 - profile.vocalArticulation) * 0.5 + profile.longNoteChance * 0.26)
+        * sectionMelismaScale,
+      0.12,
+      0.68,
+    );
     const octave = vocalOctaveFor(note.pitch, note.octave, previousEvent);
     const gap = previousEvent ? note.step - previousEvent.step : Number.POSITIVE_INFINITY;
     const closeToPrevious = previousEvent !== null && gap <= Math.max(3, previousEvent.durationSteps + 1);
@@ -204,8 +220,19 @@ export function generateVocalLine(composition: AutoComposition, seed = compositi
 
     if (phraseStart && previousEvent) previousEvent.phraseEnd = true;
 
-    const baseVelocity = note.velocity * (phraseStart ? 0.94 : 0.9) * vowelVelocityScale(activeToken.vowel);
-    const extensionChance = clamp(0.08 + profile.longNoteChance * 0.48, 0.08, 0.44);
+    const sectionEnergy = state?.energy ?? 1;
+    const baseVelocity = note.velocity
+      * (phraseStart ? 0.94 : 0.9)
+      * vowelVelocityScale(activeToken.vowel)
+      * clamp(sectionEnergy, 0.78, 1.08);
+    const extensionChance = clamp(
+      0.08
+        + profile.longNoteChance * 0.48
+        + (state?.section === 'chorus' ? 0.08 : 0)
+        - (state?.section === 'drop' ? 0.08 : 0),
+      0.06,
+      0.5,
+    );
     const extraDuration = random() < extensionChance ? 1 : 0;
     const maxDuration = profile.longNoteChance > 0.58 ? 4 : 3;
     const event: VocalEvent = {
@@ -213,7 +240,7 @@ export function generateVocalLine(composition: AutoComposition, seed = compositi
       pitch: note.pitch,
       octave,
       durationSteps: Math.max(1, Math.min(maxDuration, note.durationSteps + extraDuration)),
-      velocity: Math.max(0.42, Math.min(0.86, baseVelocity)),
+      velocity: Math.max(0.4, Math.min(0.88, baseVelocity)),
       syllable: articulate ? activeToken.syllable : activeToken.vowel,
       vowel: activeToken.vowel,
       nextVowel: null,
