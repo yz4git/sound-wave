@@ -67,6 +67,32 @@ function midiFor(pitch: PitchClass, octave: number): number {
   return 12 * (octave + 1) + pitch;
 }
 
+/**
+ * AUTO COMPOSE deliberately lets the instrumental melody hop between octaves,
+ * but a human singer should not inherit those arbitrary register jumps. Keep
+ * the local vocal in octaves 4-5 and choose the octave nearest to the previous
+ * sung pitch. For a pitch-class sequence this bounds adjacent register motion
+ * to six semitones or less whenever either octave is available.
+ */
+function vocalOctaveFor(pitch: PitchClass, sourceOctave: number, previousEvent: VocalEvent | null): number {
+  const source = Math.max(4, Math.min(5, sourceOctave));
+  if (!previousEvent) return source;
+
+  const previousMidi = midiFor(previousEvent.pitch, previousEvent.octave);
+  const candidates = [4, 5] as const;
+  let best = source;
+  let bestDistance = Math.abs(midiFor(pitch, source) - previousMidi);
+
+  for (const candidate of candidates) {
+    const distance = Math.abs(midiFor(pitch, candidate) - previousMidi);
+    if (distance < bestDistance || (distance === bestDistance && candidate === source)) {
+      best = candidate;
+      bestDistance = distance;
+    }
+  }
+  return best;
+}
+
 function vowelVelocityScale(vowel: VocalVowel): number {
   if (vowel === 'i') return 0.95;
   if (vowel === 'e') return 0.97;
@@ -119,7 +145,7 @@ export function generateVocalLine(composition: AutoComposition, seed = compositi
   for (const note of composition.melody) {
     if (!keepForVocal(note, random)) continue;
 
-    const octave = Math.max(3, Math.min(5, note.octave));
+    const octave = vocalOctaveFor(note.pitch, note.octave, previousEvent);
     const gap = previousEvent ? note.step - previousEvent.step : Number.POSITIVE_INFINITY;
     const closeToPrevious = previousEvent !== null && gap <= Math.max(3, previousEvent.durationSteps + 1);
     const continueMelisma = closeToPrevious && (random() < 0.5 || vocal.length % 7 === 5);
