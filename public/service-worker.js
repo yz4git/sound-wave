@@ -1,5 +1,5 @@
-const CACHE = 'sound-wave-v13-vocal-v3';
-const CORE = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
+const CACHE = 'sound-wave-v14-vocal-worklet';
+const CORE = ['./', './index.html', './manifest.webmanifest', './icon.svg', './vocal-worklet.js'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(CORE)));
