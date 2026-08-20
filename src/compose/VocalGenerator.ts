@@ -73,6 +73,21 @@ function vowelVelocityScale(vowel: VocalVowel): number {
   return 1;
 }
 
+function ensureSoftMelisma(line: VocalEvent[]): void {
+  if (line.some((event) => !event.articulate)) return;
+  for (let index = 1; index < line.length; index += 1) {
+    const previous = line[index - 1]!;
+    const current = line[index]!;
+    const gap = current.step - previous.step;
+    if (gap > 3 || current.phraseStart) continue;
+    current.articulate = false;
+    current.syllable = previous.vowel;
+    current.vowel = previous.vowel;
+    current.glideFromMidi = midiFor(previous.pitch, previous.octave);
+    return;
+  }
+}
+
 function connectShortGaps(line: VocalEvent[]): void {
   for (let index = 0; index < line.length - 1; index += 1) {
     const current = line[index]!;
@@ -140,6 +155,7 @@ export function generateVocalLine(composition: AutoComposition, seed = compositi
   }
 
   connectShortGaps(vocal);
+  ensureSoftMelisma(vocal);
   return vocal;
 }
 
