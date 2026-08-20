@@ -72,5 +72,19 @@ for (const scoringFeature of ['DEFAULT_KARAOKE', 'pitchStability', 'straightHold
     fail(`vocal AudioWorklet is missing karaoke-score-inspired singing feature: ${scoringFeature}`);
   }
 }
+for (const resonanceFeature of [
+  'DEFAULT_RESONANCE',
+  'harmonicCollision',
+  'collisionBandwidthBoost',
+  'formantGainScale',
+  'dynamicOpenQuotient',
+  'dynamicSpeedQuotient',
+  'nasalAntiFormant',
+  'vibratoResonanceDepth',
+]) {
+  if (!vocalWorklet.includes(resonanceFeature)) {
+    fail(`vocal AudioWorklet is missing dynamic resonance/glottal feature: ${resonanceFeature}`);
+  }
+}
 
-console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact + Human Phrase Model + Japanese phoneme/coarticulation + karaoke-score phrasing AudioWorklet`);
+console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact + Human Phrase Model + Japanese phoneme/coarticulation + karaoke-score phrasing + dynamic resonance/glottal AudioWorklet`);
