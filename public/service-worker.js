@@ -1,4 +1,4 @@
-const CACHE = 'sound-wave-auto-compose-v2-genre-style-engine';
+const CACHE = 'sound-wave-auto-compose-v2-genre-fidelity';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon.svg', './vocal-worklet.js'];
 
 self.addEventListener('install', (event) => {
