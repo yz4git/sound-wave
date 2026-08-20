@@ -56,28 +56,28 @@ export class ComposeAudio {
 
       this.master.gain.value = 0.72;
       this.musicBus.gain.value = 0.55;
-      this.vocalBus.gain.value = 0.94;
+      this.vocalBus.gain.value = 0.96;
       this.drumBus.gain.value = 0.7;
 
       vocalHighpass.type = 'highpass';
-      vocalHighpass.frequency.value = 82;
-      vocalHighpass.Q.value = 0.55;
+      vocalHighpass.frequency.value = 74;
+      vocalHighpass.Q.value = 0.5;
 
       vocalPresence.type = 'peaking';
-      vocalPresence.frequency.value = 2650;
-      vocalPresence.Q.value = 0.82;
-      vocalPresence.gain.value = 2.4;
+      vocalPresence.frequency.value = 2580;
+      vocalPresence.Q.value = 0.68;
+      vocalPresence.gain.value = 1.9;
 
       vocalAir.type = 'highshelf';
-      vocalAir.frequency.value = 6500;
-      vocalAir.gain.value = 0.8;
+      vocalAir.frequency.value = 6800;
+      vocalAir.gain.value = 0.35;
 
-      vocalCompressor.threshold.value = -24;
-      vocalCompressor.knee.value = 16;
-      vocalCompressor.ratio.value = 2.6;
-      vocalCompressor.attack.value = 0.008;
-      vocalCompressor.release.value = 0.18;
-      vocalMakeup.gain.value = 1.12;
+      vocalCompressor.threshold.value = -25;
+      vocalCompressor.knee.value = 18;
+      vocalCompressor.ratio.value = 2.2;
+      vocalCompressor.attack.value = 0.014;
+      vocalCompressor.release.value = 0.24;
+      vocalMakeup.gain.value = 1.1;
 
       this.compressor.threshold.value = -9;
       this.compressor.knee.value = 12;
@@ -120,7 +120,7 @@ export class ComposeAudio {
     const start = Math.max(this.context.currentTime, when);
     const musicTarget = active ? 0.42 : 0.55;
     const drumTarget = active ? 0.6 : 0.7;
-    const timeConstant = active ? 0.03 : 0.1;
+    const timeConstant = active ? 0.035 : 0.11;
     this.musicBus.gain.setTargetAtTime(musicTarget, start, timeConstant);
     this.drumBus.gain.setTargetAtTime(drumTarget, start, timeConstant);
   }
