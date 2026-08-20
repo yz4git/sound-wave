@@ -58,11 +58,13 @@ Generated layers:
 - **Melody** — strong beats prefer chord tones; weaker subdivisions use nearby scale tones
 - **Bass** — follows generated chord roots and reinforces phrase structure
 - **Drums** — locally generated kick/snare/hat/clap pattern follows meter and density
-- **Vocal v2** — selected melody notes become deterministic sung syllables. A 36-harmonic glottal-like source is shaped by five vowel formants, a restrained ~3 kHz singing-presence branch, delayed 5–7 Hz vibrato, low-rate pitch/intensity drift, aspiration and consonant-specific onsets. Adjacent notes may continue as vowel-only melisma instead of re-articulating the consonant on every pitch.
-- the backing melody is heavily ducked on vocal steps so the singer, rather than a doubled synth, carries the melodic line
+- **Vocal v3** — a glottal-pulse-derived 48-harmonic source is shaped by five vowel formants, consonant-to-vowel transitions, ~3 kHz singing presence, lip-radiation high-shelf, delayed 5–7 Hz vibrato, pitch drift, stochastic jitter/shimmer, aspiration and subtle short-delay doubling
+- **Legato / melisma** — adjacent sung notes can keep the same vowel and glide from the previous pitch instead of hard re-triggering a consonant on every note
+- phrase boundaries shape breath attacks and phrase-final releases
+- the backing melody is reduced to 16% on vocal notes so the synthetic singer carries the melodic line
 - the final bar always returns to tonic so the eight-bar phrase has a clear resolution
 
-The vocal system remains deliberately lightweight and local: it is a stylized source-filter singing synthesizer, not a downloaded neural voice model and not voice cloning. The implementation direction is documented in `docs/vocal-synthesis-notes.md`, with references to Klatt formant synthesis, source-filter/glottal-source work, singer's-formant research and vocal-vibrato measurements.
+The vocal system remains deliberately lightweight and local: it is a procedural source-filter singing synthesizer, not a downloaded neural voice model and not voice cloning. Research rationale and references are documented in `docs/vocal-synthesis-notes.md`.
 
 The UI shows vocal-note markers and the syllable currently being sung. Vocal settings persist locally when browser storage is available. The UI also displays the generated chord progression, current harmonic function, melody piano-roll-style events and live playback position.
 
@@ -97,9 +99,9 @@ The UI shows vocal-note markers and the syllable currently being sung. Vocal set
 - `src/rhythm/RhythmPlayEngine.ts` — pure minigame timelines, judgement, scoring and ranks
 - `src/rhythm/RhythmPlay.ts` — Rhythm Play browser controller
 - `src/compose/AutoComposer.ts` — deterministic theory-based harmony, melody and rhythm generator
-- `src/compose/VocalGenerator.ts` — deterministic melody-to-syllable phrasing plus melisma/articulation decisions
-- `src/compose/VocalModel.ts` — research-informed glottal-like harmonic source, vowel formants, vibrato and style parameters
-- `src/compose/ComposeAudio.ts` — chord/bass/melody/drum engine plus local source-filter singing synthesis
+- `src/compose/VocalGenerator.ts` — deterministic syllable phrasing, phrase boundaries, melisma and glide planning
+- `src/compose/VocalModel.ts` — research-informed glottal pulse, vocal-tract formants and WARM/BRIGHT/AIRY humanization parameters
+- `src/compose/ComposeAudio.ts` — chord/bass/melody/drum engine plus fully local source-filter singing synthesis
 - `src/compose/AutoComposeMode.ts` — Auto Compose controls, vocal controls, visualization and lookahead transport
 - `src/compose/compose-vocal.css` — vocal controls, syllable status and vocal-note visualization
 - `docs/vocal-synthesis-notes.md` — research references and implementation rationale for the local singer
@@ -138,4 +140,4 @@ Rules:
 - the deleted root `app.js` / root `styles.css` fallback runtime must not return
 - `npm run validate:prod` verifies the production artifact
 - service-worker navigation is network-first while hashed Vite assets are cache-first
-- current cache generation: `sound-wave-v12-vocal-v2`
+- current cache generation: `sound-wave-v13-vocal-v3`
