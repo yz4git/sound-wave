@@ -58,13 +58,13 @@ Generated layers:
 - **Melody** — strong beats prefer chord tones; weaker subdivisions use nearby scale tones
 - **Bass** — follows generated chord roots and reinforces phrase structure
 - **Drums** — locally generated kick/snare/hat/clap pattern follows meter and density
-- **Vocal v17 natural retune** — one persistent `AudioWorkletProcessor` still generates the continuous glottal/source-filter singer, but the previous presence-focused processing has been reduced so the voice remains audible without sounding permanently hyped
-- **Natural vibrato timing** — short notes stay essentially straight; longer notes earn a delayed, gradual 5–6 Hz vibrato instead of receiving an immediate wide wobble
-- **Natural phrase coverage** — only short gaps up to three sequencer steps are bridged, and held vowels stop exactly at the next note boundary rather than overlapping it
-- **Mono-safe vocal image** — the old same-signal short-delay doubling is disabled by default because it could create comb-filter coloration on iPhone speakers
-- **Gentler vocal chain** — presence EQ, air boost, compression, makeup gain, saturation and arrangement ducking are all reduced from the v15/v16 presence-maximized settings
+- **Vocal v18 Soft Legato** — the persistent `AudioWorkletProcessor` keeps the local singer continuous while widening formant bandwidths, softening upper resonances and reducing glottal-edge energy rather than simply lowering vocal level
+- **Continuous modulation** — vibrato/drift phase now continues across note boundaries, so legato notes do not restart the same LFO shape on every note; short notes remain almost straight and longer notes grow into a delayed shallow vibrato
+- **Softer articulation** — consonants use more voiced source and heavily smoothed noise, vowel/formant transitions use longer smooth crossfades and new articulated syllables retain part of the previous vocal-tract state instead of hard-resetting it
+- **Gentle envelope continuity** — a shared envelope state carries through legato notes, slower attack/release constants round note edges, and continuous notes preserve the current F0 instead of snapping back to a nominal glide start
+- **Warmer vocal mix** — the vocal high-pass is lowered, the presence boost is broader and shallower, and the vocal compressor uses slower/softer settings while the existing accompaniment duck keeps the singer readable
+- **Mono-safe vocal image** — same-signal short-delay doubling remains disabled by default
 - **No per-note vocal OscillatorNode** — note events are sent to the worklet as timing/pitch/articulation parameters instead of creating a new oscillator and filter graph for every sung note
-- **Legato / melisma** — adjacent sung notes keep the current stream alive, use shorter pitch glides and smoothly carry envelope/filter state instead of hard retriggering
 - phrase starts/endings control articulation, breath and release without resetting the glottal phase
 - the final bar always returns to tonic so the eight-bar phrase has a clear resolution
 
@@ -147,4 +147,4 @@ Rules:
 - `npm run validate:prod` verifies the production artifact and continuous vocal worklet
 - service-worker navigation is network-first while hashed Vite assets are cache-first
 - `vocal-worklet.js` is a local PWA core asset so offline AUTO COMPOSE can initialize the singer
-- current cache generation: `sound-wave-v17-vocal-natural`
+- current cache generation: `sound-wave-v18-vocal-soft-legato`
