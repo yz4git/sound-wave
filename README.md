@@ -58,15 +58,16 @@ Generated layers:
 - **Melody** — strong beats prefer chord tones; weaker subdivisions use nearby scale tones
 - **Bass** — follows generated chord roots and reinforces phrase structure
 - **Drums** — locally generated kick/snare/hat/clap pattern follows meter and density
-- **Vocal v3** — a glottal-pulse-derived 48-harmonic source is shaped by five vowel formants, consonant-to-vowel transitions, ~3 kHz singing presence, lip-radiation high-shelf, delayed 5–7 Hz vibrato, pitch drift, stochastic jitter/shimmer, aspiration and subtle short-delay doubling
-- **Legato / melisma** — adjacent sung notes can keep the same vowel and glide from the previous pitch instead of hard re-triggering a consonant on every note
-- phrase boundaries shape breath attacks and phrase-final releases
-- the backing melody is reduced to 16% on vocal notes so the synthetic singer carries the melodic line
+- **Vocal v4** — one persistent `AudioWorkletProcessor` generates the glottal source sample-by-sample and keeps phase, pitch, five formant resonators, singing presence, lip-radiation state, jitter/shimmer and short-delay doubling continuous across note boundaries
+- **No per-note vocal OscillatorNode** — note events are sent to the worklet as timing/pitch/articulation parameters instead of creating a new oscillator and filter graph for every sung note
+- **Legato / melisma** — adjacent sung notes keep the current stream alive and glide from the previous pitch while retaining vocal-tract filter history
+- phrase starts/endings control articulation, breath and release without resetting the glottal phase
+- the backing melody is reduced to 16% on worklet vocal notes so the singer carries the melodic line
 - the final bar always returns to tonic so the eight-bar phrase has a clear resolution
 
-The vocal system remains deliberately lightweight and local: it is a procedural source-filter singing synthesizer, not a downloaded neural voice model and not voice cloning. Research rationale and references are documented in `docs/vocal-synthesis-notes.md`.
+The vocal system remains fully local and procedural: it is not a downloaded neural voice model, remote inference service, recorded voicebank, or voice-cloning system. The worklet module is bundled as a local PWA asset and cached for offline use. Research rationale and references are documented in `docs/vocal-synthesis-notes.md`.
 
-The UI shows vocal-note markers and the syllable currently being sung. Vocal settings persist locally when browser storage is available. The UI also displays the generated chord progression, current harmonic function, melody piano-roll-style events and live playback position.
+The UI shows vocal-note markers, the syllable currently being sung and whether the continuous AudioWorklet singer is ready. If AudioWorklet is unavailable, AUTO COMPOSE continues safely as an instrumental arrangement.
 
 ## WAVE GAME core loop
 
@@ -83,7 +84,7 @@ The UI shows vocal-note markers and the syllable currently being sung. Vocal set
 3. **Pressure as music** — WAVE GAME turns harmonic tension into the threat.
 4. **Performance freedom** — JAM LAB works as an instrument.
 5. **Immediate rhythm fun** — RHYTHM PLAY uses tiny input vocabularies and short sessions.
-6. **Local generation** — AUTO COMPOSE is deterministic/seeded TypeScript + Web Audio, including local source-filter vocal synthesis, with no server dependency.
+6. **Local generation** — AUTO COMPOSE is deterministic/seeded TypeScript + Web Audio, including a continuous local vocal AudioWorklet, with no server dependency.
 7. **Touch-first** — designed for landscape iPhone Safari, safe areas and low-latency Web Audio.
 
 ## Architecture
@@ -100,9 +101,11 @@ The UI shows vocal-note markers and the syllable currently being sung. Vocal set
 - `src/rhythm/RhythmPlay.ts` — Rhythm Play browser controller
 - `src/compose/AutoComposer.ts` — deterministic theory-based harmony, melody and rhythm generator
 - `src/compose/VocalGenerator.ts` — deterministic syllable phrasing, phrase boundaries, melisma and glide planning
-- `src/compose/VocalModel.ts` — research-informed glottal pulse, vocal-tract formants and WARM/BRIGHT/AIRY humanization parameters
-- `src/compose/ComposeAudio.ts` — chord/bass/melody/drum engine plus fully local source-filter singing synthesis
-- `src/compose/AutoComposeMode.ts` — Auto Compose controls, vocal controls, visualization and lookahead transport
+- `src/compose/VocalModel.ts` — research-informed voice-style parameters and vocal-tract formant targets
+- `src/compose/VocalWorkletBridge.ts` — converts vocal notes to worklet DSP events and manages the persistent `AudioWorkletNode`
+- `public/vocal-worklet.js` — continuous sample-by-sample glottal/source-filter singer; no per-note Web Audio oscillator creation
+- `src/compose/ComposeAudio.ts` — chord/bass/melody/drum engine plus AudioWorklet vocal scheduling
+- `src/compose/AutoComposeMode.ts` — Auto Compose controls, worklet status, visualization and lookahead transport
 - `src/compose/compose-vocal.css` — vocal controls, syllable status and vocal-note visualization
 - `docs/vocal-synthesis-notes.md` — research references and implementation rationale for the local singer
 - `src/title.css` — four-mode title selection and in-mode TITLE return control
@@ -123,13 +126,13 @@ npm run validate:prod
 Production remains **Vite-only**:
 
 ```text
-src/main.ts + src/**/*.ts + src/**/*.css
-                ↓
-            Vite build
-                ↓
-   dist/index.html + dist/assets/*
-                ↓
-          ChatGPT Sites
+src/main.ts + src/**/*.ts + src/**/*.css + public/vocal-worklet.js
+                           ↓
+                       Vite build
+                           ↓
+       dist/index.html + dist/assets/* + dist/vocal-worklet.js
+                           ↓
+                     ChatGPT Sites
 ```
 
 Rules:
@@ -138,6 +141,7 @@ Rules:
 - production must use Vite-generated hashed JavaScript/CSS assets
 - production must never serve `/src/main.ts` directly
 - the deleted root `app.js` / root `styles.css` fallback runtime must not return
-- `npm run validate:prod` verifies the production artifact
+- `npm run validate:prod` verifies the production artifact and continuous vocal worklet
 - service-worker navigation is network-first while hashed Vite assets are cache-first
-- current cache generation: `sound-wave-v13-vocal-v3`
+- `vocal-worklet.js` is a local PWA core asset so offline AUTO COMPOSE can initialize the singer
+- current cache generation: `sound-wave-v14-vocal-worklet`
