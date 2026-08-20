@@ -68,6 +68,15 @@ const KPOP: GrammarTemplate = {
   hookRepeat: [0, 0, 0, 0, 0, 0.82, 0, 0.9],
 };
 
+const KPOP_BALLAD: GrammarTemplate = {
+  sections: ['verse', 'verse', 'pre', 'pre', 'chorus', 'chorus', 'break', 'chorus'],
+  chordPatterns: ['sustain', 'sustain', 'pulse', 'pulse', 'sustain', 'sustain', 'sustain', 'sustain'],
+  bassPatterns: ['root-pulse', 'root-pulse', 'root-fifth', 'root-fifth', 'root-pulse', 'root-pulse', 'root-pulse', 'root-pulse'],
+  energies: [0.64, 0.68, 0.76, 0.84, 0.96, 1, 0.7, 1.02],
+  motifKeys: [null, null, null, null, 'hook', 'hook', null, 'hook'],
+  hookRepeat: [0, 0, 0, 0, 0, 0.58, 0, 0.7],
+};
+
 const GAME: GrammarTemplate = {
   sections: ['motif', 'motif', 'development', 'development', 'climax', 'climax', 'turnaround', 'loop'],
   chordPatterns: ['arpeggio-pulse', 'arpeggio-pulse', 'pulse', 'arpeggio-pulse', 'pulse', 'pulse', 'arpeggio-pulse', 'sustain'],
@@ -79,7 +88,7 @@ const GAME: GrammarTemplate = {
 
 function templateFor(profile: GenreStyleProfile): GrammarTemplate {
   if (profile.genre === 'rock') return ROCK;
-  if (profile.genre === 'k-pop') return KPOP;
+  if (profile.genre === 'k-pop') return profile.id === 'ballad' ? KPOP_BALLAD : KPOP;
   if (profile.genre === 'game-music') return GAME;
   return JPOP;
 }
@@ -91,6 +100,50 @@ function subgenreEnergy(profile: GenreStyleProfile): number {
   if (profile.id === 'puzzle') return 0.76;
   if (profile.id === 'dance-pop' || profile.id === 'electro-pop') return 1.05;
   return 1;
+}
+
+function customizeSubgenre(profile: GenreStyleProfile, bar: ArrangementBar): ArrangementBar {
+  if (profile.genre === 'j-pop' && profile.id === 'city-pop') {
+    return {
+      ...bar,
+      chordPattern: bar.section === 'pre' ? 'pulse' : 'offbeat-stabs',
+      bassPattern: 'root-fifth',
+      drumDensityScale: bar.drumDensityScale * 0.9,
+      vocalDensityScale: bar.vocalDensityScale * 0.92,
+    };
+  }
+  if (profile.genre === 'j-pop' && profile.id === 'ballad') {
+    return {
+      ...bar,
+      chordPattern: bar.section === 'pre' ? 'pulse' : 'sustain',
+      bassPattern: 'root-pulse',
+      drumDensityScale: bar.drumDensityScale * 0.56,
+      melodyDensityScale: bar.melodyDensityScale * 0.78,
+      hookRepeat: Math.min(bar.hookRepeat, 0.46),
+    };
+  }
+  if (profile.genre === 'j-pop' && profile.id === 'anime-pop' && bar.section === 'chorus') {
+    return { ...bar, energy: Math.min(1.2, bar.energy * 1.06), drumDensityScale: bar.drumDensityScale * 1.08, registerShift: 1 };
+  }
+  if (profile.genre === 'rock' && profile.id === 'punk') {
+    return { ...bar, chordPattern: 'power-pulse', bassPattern: 'eighth-drive', drumDensityScale: Math.max(1.04, bar.drumDensityScale), hookRepeat: Math.min(0.62, bar.hookRepeat) };
+  }
+  if (profile.genre === 'rock' && profile.id === 'indie') {
+    return { ...bar, chordPattern: bar.section === 'chorus' ? 'pulse' : 'sustain', bassPattern: 'root-fifth', drumDensityScale: bar.drumDensityScale * 0.82 };
+  }
+  if (profile.genre === 'k-pop' && profile.id === 'r&b-pop') {
+    return { ...bar, chordPattern: 'offbeat-stabs', bassPattern: 'syncopated-808', drumDensityScale: bar.drumDensityScale * 0.82, melodyDensityScale: bar.melodyDensityScale * 0.9 };
+  }
+  if (profile.genre === 'game-music' && profile.id === 'puzzle') {
+    return { ...bar, chordPattern: 'arpeggio-pulse', bassPattern: 'root-pulse', drumDensityScale: bar.drumDensityScale * 0.48, melodyDensityScale: bar.melodyDensityScale * 0.82, vocalDensityScale: bar.vocalDensityScale * 0.52 };
+  }
+  if (profile.genre === 'game-music' && profile.id === 'boss-battle') {
+    return { ...bar, chordPattern: bar.section === 'turnaround' ? 'arpeggio-pulse' : 'power-pulse', bassPattern: 'ostinato', drumDensityScale: Math.max(1.08, bar.drumDensityScale), energy: Math.min(1.2, bar.energy * 1.06) };
+  }
+  if (profile.genre === 'game-music' && profile.id === 'racing') {
+    return { ...bar, chordPattern: 'pulse', bassPattern: 'ostinato', drumDensityScale: Math.max(1.04, bar.drumDensityScale), melodyDensityScale: bar.melodyDensityScale * 1.08 };
+  }
+  return bar;
 }
 
 export function buildGenreArrangement(profile: GenreStyleProfile, bars: number): ArrangementBar[] {
@@ -106,7 +159,7 @@ export function buildGenreArrangement(profile: GenreStyleProfile, bars: number):
     const climax = section === 'chorus' || section === 'drop' || section === 'climax';
     const sparse = section === 'break' || (profile.id === 'ballad' && !climax);
 
-    result.push({
+    const base: ArrangementBar = {
       bar,
       section,
       energy,
@@ -119,7 +172,8 @@ export function buildGenreArrangement(profile: GenreStyleProfile, bars: number):
       chordPattern: template.chordPatterns[index] ?? 'sustain',
       bassPattern: template.bassPatterns[index] ?? 'root-pulse',
       transitionFill: nextSection !== section && (section === 'pre' || section === 'development' || section === 'break'),
-    });
+    };
+    result.push(customizeSubgenre(profile, base));
   }
 
   return result;
