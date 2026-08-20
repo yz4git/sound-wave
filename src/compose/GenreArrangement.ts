@@ -98,7 +98,7 @@ function subgenreEnergy(profile: GenreStyleProfile): number {
   if (profile.id === 'punk' || profile.id === 'hard-rock') return 1.08;
   if (profile.id === 'battle' || profile.id === 'boss-battle' || profile.id === 'racing') return 1.08;
   if (profile.id === 'puzzle') return 0.76;
-  if (profile.id === 'dance-pop' || profile.id === 'electro-pop') return 1.05;
+  if (profile.id === 'dance-pop' || profile.id === 'electro') return 1.05;
   return 1;
 }
 
@@ -131,7 +131,7 @@ function customizeSubgenre(profile: GenreStyleProfile, bar: ArrangementBar): Arr
   if (profile.genre === 'rock' && profile.id === 'indie') {
     return { ...bar, chordPattern: bar.section === 'chorus' ? 'pulse' : 'sustain', bassPattern: 'root-fifth', drumDensityScale: bar.drumDensityScale * 0.82 };
   }
-  if (profile.genre === 'k-pop' && profile.id === 'r&b-pop') {
+  if (profile.genre === 'k-pop' && profile.id === 'rnb-pop') {
     return { ...bar, chordPattern: 'offbeat-stabs', bassPattern: 'syncopated-808', drumDensityScale: bar.drumDensityScale * 0.82, melodyDensityScale: bar.melodyDensityScale * 0.9 };
   }
   if (profile.genre === 'game-music' && profile.id === 'puzzle') {
