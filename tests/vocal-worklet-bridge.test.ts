@@ -32,10 +32,11 @@ describe('continuous vocal AudioWorklet bridge', () => {
   it('marks long notes for straight-hold then late-vibrato scoring phrasing', () => {
     const composition = generateComposition({ ...defaultComposeSettings(2121), seed: 2121, density: 1 });
     const line = generateVocalLine(composition, 8181);
-    const event = line.find((candidate) => candidate.durationSteps >= 2) ?? line[0];
+    const event = line[0];
     expect(event).toBeDefined();
+    const longEvent = { ...event!, durationSteps: 2 };
 
-    const mapped = vocalEventToWorklet(event!, 'warm', 0, 0.9);
+    const mapped = vocalEventToWorklet(longEvent, 'warm', 0, 0.9);
     expect(mapped.karaoke.longTone).toBe(true);
     expect(mapped.karaoke.straightHoldRatio).toBeGreaterThanOrEqual(0.6);
     expect(mapped.karaoke.vibratoGain).toBeGreaterThan(0.5);
