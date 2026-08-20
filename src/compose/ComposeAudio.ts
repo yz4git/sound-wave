@@ -66,21 +66,24 @@ export class ComposeAudio {
       vocalHighpass.frequency.value = 68;
       vocalHighpass.Q.value = 0.48;
 
+      // Vocal v20.1 Presence Reset: keep the nodes in the stable graph but make
+      // the legacy vocal-enhancement stages sonically neutral. This exposes the
+      // Human Phrase Model without a fixed presence/air contour layered on top.
       vocalPresence.type = 'peaking';
       vocalPresence.frequency.value = 2480;
       vocalPresence.Q.value = 0.62;
-      vocalPresence.gain.value = 1.55;
+      vocalPresence.gain.value = 0;
 
       vocalAir.type = 'highshelf';
       vocalAir.frequency.value = 7200;
-      vocalAir.gain.value = 0.55;
+      vocalAir.gain.value = 0;
 
-      vocalCompressor.threshold.value = -26;
-      vocalCompressor.knee.value = 20;
-      vocalCompressor.ratio.value = 2;
-      vocalCompressor.attack.value = 0.018;
-      vocalCompressor.release.value = 0.3;
-      vocalMakeup.gain.value = 1.08;
+      vocalCompressor.threshold.value = 0;
+      vocalCompressor.knee.value = 0;
+      vocalCompressor.ratio.value = 1;
+      vocalCompressor.attack.value = 0.003;
+      vocalCompressor.release.value = 0.25;
+      vocalMakeup.gain.value = 1;
 
       this.compressor.threshold.value = -9;
       this.compressor.knee.value = 12;
@@ -129,9 +132,12 @@ export class ComposeAudio {
   private scheduleVocalDucking(active: boolean, when: number): void {
     if (!this.context || !this.musicBus || !this.drumBus) return;
     const start = Math.max(this.context.currentTime, when);
-    const musicTarget = active ? 0.44 : 0.55;
-    const drumTarget = active ? 0.62 : 0.7;
-    const timeConstant = active ? 0.05 : 0.14;
+    // Presence Reset leaves only a tiny amount of arrangement breathing. The
+    // singer must earn its place from synthesis rather than deep sidechain-like
+    // attenuation of the accompaniment.
+    const musicTarget = active ? 0.53 : 0.55;
+    const drumTarget = active ? 0.69 : 0.7;
+    const timeConstant = active ? 0.06 : 0.14;
     this.musicBus.gain.setTargetAtTime(musicTarget, start, timeConstant);
     this.drumBus.gain.setTargetAtTime(drumTarget, start, timeConstant);
   }
@@ -300,7 +306,7 @@ export class ComposeAudio {
     }
     for (const note of composition.melody) {
       if (note.step === step) {
-        const melodyVelocity = vocalActive ? note.velocity * 0.085 : note.velocity * 0.9;
+        const melodyVelocity = vocalActive ? note.velocity * 0.45 : note.velocity * 0.9;
         this.playMelody(note.pitch, note.octave, stepSeconds * note.durationSteps * 0.88, melodyVelocity, when);
       }
     }
