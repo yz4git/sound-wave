@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { defaultComposeSettings, generateComposition } from '../src/compose/AutoComposer';
 import { generateVocalLine } from '../src/compose/VocalGenerator';
+import { buildVocalPhraseControls } from '../src/compose/VocalPhraseModel';
 import { vocalEventToWorklet } from '../src/compose/VocalWorkletBridge';
 
 describe('continuous vocal AudioWorklet bridge', () => {
@@ -20,6 +21,8 @@ describe('continuous vocal AudioWorklet bridge', () => {
     expect(mapped.style.glottalOpenQuotient).toBeLessThan(1);
     expect(mapped.style.vibratoRateHz).toBeGreaterThanOrEqual(5);
     expect(mapped.style.vibratoRateHz).toBeLessThanOrEqual(7);
+    expect(mapped.phrase.energyStart).toBeGreaterThan(0);
+    expect(mapped.phrase.sourceTractCoupling).toBeGreaterThan(0);
   });
 
   it('preserves phrase and portamento planning for melisma events', () => {
@@ -28,12 +31,23 @@ describe('continuous vocal AudioWorklet bridge', () => {
     const melisma = line.find((event) => !event.articulate && event.glideFromMidi !== null);
     expect(melisma).toBeDefined();
 
-    const mapped = vocalEventToWorklet(melisma!, 'airy', 2, 0.32);
+    const controls = buildVocalPhraseControls(line);
+    const phraseControl = controls.get(melisma!.step);
+    expect(phraseControl).toBeDefined();
+
+    const mapped = vocalEventToWorklet(melisma!, 'airy', 2, 0.32, phraseControl!);
     expect(mapped.articulate).toBe(false);
     expect(mapped.glideFromHz).not.toBeNull();
     expect(mapped.glideFromHz!).toBeGreaterThan(40);
     expect(mapped.phraseStart).toBe(melisma!.phraseStart);
     expect(mapped.phraseEnd).toBe(melisma!.phraseEnd);
+    expect(mapped.phrase.progressStart).toBe(phraseControl!.progressStart);
+    expect(mapped.phrase.progressEnd).toBe(phraseControl!.progressEnd);
+    expect(mapped.phrase.energyStart).toBe(phraseControl!.energyStart);
+    expect(mapped.phrase.energyEnd).toBe(phraseControl!.energyEnd);
+    expect(mapped.phrase.centeringEnd).toBe(phraseControl!.centeringEnd);
+    expect(mapped.phrase.aspirationDepth).toBeGreaterThan(0);
+    expect(mapped.phrase.sourceTractCoupling).toBeGreaterThan(0);
     expect(mapped.style.breathLevel).toBeGreaterThan(0);
     expect(mapped.style.doubleDelaySeconds).toBeGreaterThan(0);
   });
