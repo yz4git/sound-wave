@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { defaultComposeSettings, generateComposition } from '../src/compose/AutoComposer';
+import { consonantForSyllable } from '../src/compose/JapanesePhoneme';
 import { generateVocalLine, vocalActiveAtStep, vocalSyllableAtStep } from '../src/compose/VocalGenerator';
 
 function midiFor(pitch: number, octave: number): number {
@@ -12,7 +13,7 @@ describe('local vocal generation', () => {
     expect(generateVocalLine(composition, 77)).toEqual(generateVocalLine(composition, 77));
   });
 
-  it('follows the generated melody and emits valid vowel syllables', () => {
+  it('follows the generated melody and emits valid vowel carriers', () => {
     const composition = generateComposition({ ...defaultComposeSettings(99), seed: 99 });
     const line = generateVocalLine(composition, 101);
     const melodySteps = new Set(composition.melody.map((note) => note.step));
@@ -40,13 +41,44 @@ describe('local vocal generation', () => {
     }
   });
 
-  it('uses mostly soft pop consonants for articulated syllables', () => {
-    const composition = generateComposition({ ...defaultComposeSettings(2468), seed: 2468, density: 0.9 });
-    const line = generateVocalLine(composition, 13579);
-    const articulated = line.filter((event) => event.articulate && event.syllable.length > 1);
-    const allowed = new Set(['n', 'm', 'y', 'l', 'a', 'e', 'o']);
-    expect(articulated.length).toBeGreaterThan(0);
-    expect(articulated.every((event) => allowed.has(event.syllable.charAt(0)))).toBe(true);
+  it('exercises the expanded Japanese consonant inventory across deterministic seeds', () => {
+    const seen = new Set<string>();
+    for (let seed = 1; seed <= 40; seed += 1) {
+      const composition = generateComposition({ ...defaultComposeSettings(seed), seed, density: 1 });
+      const line = generateVocalLine(composition, seed * 7919);
+      for (const event of line) {
+        if (!event.articulate) continue;
+        seen.add(consonantForSyllable(event.syllable));
+      }
+    }
+
+    for (const required of ['k', 't', 's', 'h', 'f', 'p', 'b', 'g', 'z', 'n', 'N']) {
+      expect(seen.has(required)).toBe(true);
+    }
+  });
+
+  it('plans next-vowel coarticulation only inside a connected phrase', () => {
+    const composition = generateComposition({ ...defaultComposeSettings(76543), seed: 76543, density: 1 });
+    const line = generateVocalLine(composition, 222);
+    expect(line.length).toBeGreaterThan(1);
+
+    let planned = 0;
+    for (let index = 0; index < line.length; index += 1) {
+      const current = line[index]!;
+      const next = line[index + 1];
+      const connected = next !== undefined
+        && !current.phraseEnd
+        && !next.phraseStart
+        && next.step - current.step <= 3;
+
+      if (connected) {
+        expect(current.nextVowel).toBe(next!.vowel);
+        planned += 1;
+      } else {
+        expect(current.nextVowel).toBeNull();
+      }
+    }
+    expect(planned).toBeGreaterThan(0);
   });
 
   it('marks phrase boundaries for breath and release shaping', () => {
