@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { defaultComposeSettings, generateComposition } from '../src/compose/AutoComposer';
-import { generateVocalLine, vocalSyllableAtStep } from '../src/compose/VocalGenerator';
+import { generateVocalLine, vocalActiveAtStep, vocalSyllableAtStep } from '../src/compose/VocalGenerator';
 
 describe('local vocal generation', () => {
   it('is deterministic for the same composition and seed', () => {
@@ -15,7 +15,7 @@ describe('local vocal generation', () => {
     expect(line.length).toBeGreaterThan(0);
     expect(line.every((event) => melodySteps.has(event.step))).toBe(true);
     expect(line.every((event) => ['a', 'e', 'i', 'o', 'u'].includes(event.vowel))).toBe(true);
-    expect(line.every((event) => event.durationSteps >= 1 && event.durationSteps <= 4)).toBe(true);
+    expect(line.every((event) => event.durationSteps >= 1 && event.durationSteps <= 6)).toBe(true);
   });
 
   it('marks phrase boundaries for breath and release shaping', () => {
@@ -41,5 +41,25 @@ describe('local vocal generation', () => {
     expect(continuations.every((event) => ['a', 'e', 'i', 'o', 'u'].includes(event.syllable))).toBe(true);
     expect(continuations.every((event) => vocalSyllableAtStep(line, event.step).startsWith('~'))).toBe(true);
     expect(continuations.some((event) => event.glideFromMidi !== null)).toBe(true);
+  });
+
+  it('bridges short melodic gaps instead of switching the singer fully off', () => {
+    const composition = generateComposition({ ...defaultComposeSettings(76543), seed: 76543, density: 0.82 });
+    const line = generateVocalLine(composition, 222);
+    let bridged = 0;
+
+    for (let index = 0; index < line.length - 1; index += 1) {
+      const current = line[index]!;
+      const next = line[index + 1]!;
+      const gap = next.step - current.step;
+      if (gap <= 4) {
+        expect(current.durationSteps).toBeGreaterThan(gap);
+        expect(current.phraseEnd).toBe(false);
+        expect(vocalActiveAtStep(line, next.step - 1)).toBe(true);
+        bridged += 1;
+      }
+    }
+
+    expect(bridged).toBeGreaterThan(0);
   });
 });
