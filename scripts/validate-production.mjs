@@ -50,5 +50,10 @@ for (const requiredFeature of ['sourceTractCoupling', 'aspirationDepth', 'center
     fail(`vocal AudioWorklet is missing Human Phrase Model feature: ${requiredFeature}`);
   }
 }
+for (const antiCrackFeature of ['transitionFromHz', 'safeDesiredHz', 'safeF1', 'Number.isFinite(sample)']) {
+  if (!vocalWorklet.includes(antiCrackFeature)) {
+    fail(`vocal AudioWorklet is missing anti-crack protection: ${antiCrackFeature}`);
+  }
+}
 
-console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact + Human Phrase Model vocal AudioWorklet`);
+console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact + Human Phrase Model anti-crack vocal AudioWorklet`);
