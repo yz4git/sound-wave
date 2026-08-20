@@ -5,6 +5,10 @@ import { VOCAL_STYLE_MODELS, formantsFor, onsetFormantFrequency } from './VocalM
 import { neutralPhraseControl, type VocalPhraseControl } from './VocalPhraseModel';
 import { vocalResonanceControlFor, type VocalResonanceControl } from './VocalResonance';
 import {
+  spectralEnvelopeControlFor,
+  type VocalSpectralEnvelopeControl,
+} from './VocalSpectralEnvelope';
+import {
   vocaloidExpressionFor,
   type VocaloidExpressionControl,
 } from './VocaloidExpression';
@@ -25,6 +29,7 @@ export interface VocalWorkletEvent {
   karaoke: KaraokeSingingControl;
   resonance: VocalResonanceControl;
   vocaloid: VocaloidExpressionControl;
+  spectral: VocalSpectralEnvelopeControl;
   phrase: {
     progressStart: number;
     progressEnd: number;
@@ -92,7 +97,7 @@ export function vocalEventToWorklet(
   const plannedExpression = vocaloidExpressionFor(event, phoneme, normalizedDuration, phraseControl);
 
   // Early VOCALOID descriptions align the vowel onset with score Note-On and
-  // place consonantal material before it.  Schedule only as far into the past
+  // place consonantal material before it. Schedule only as far into the past
   // as the absolute Web Audio timestamp permits, then extend duration by the
   // same amount so the musical note end remains unchanged.
   const appliedPreRoll = Math.min(plannedExpression.consonantPreRollSeconds, Math.max(0, when));
@@ -102,6 +107,7 @@ export function vocalEventToWorklet(
     ...plannedExpression,
     consonantPreRollSeconds: appliedPreRoll,
   };
+  const spectral = spectralEnvelopeControlFor(event, normalizedDuration, phraseControl, vocaloid);
 
   const resonance: VocalResonanceControl = {
     ...baseResonance,
@@ -125,6 +131,7 @@ export function vocalEventToWorklet(
     karaoke,
     resonance,
     vocaloid,
+    spectral,
     phrase: {
       progressStart: phraseControl.progressStart,
       progressEnd: phraseControl.progressEnd,
