@@ -24,6 +24,22 @@ const DEFAULT_KARAOKE = Object.freeze({
   longTone: false,
 });
 
+const DEFAULT_RESONANCE = Object.freeze({
+  collisionThresholdRatio: 0.42,
+  collisionGainFloor: 0.78,
+  collisionBandwidthBoost: 0.34,
+  bandwidthMotion: 0.16,
+  gainMotion: 0.1,
+  energyClosureDepth: 0.032,
+  releaseOpenBoost: 0.035,
+  highPitchOpenBoost: 0.032,
+  speedEnergyBoost: 0.024,
+  vibratoResonanceDepth: 0.016,
+  nasalZeroHz: 0,
+  nasalZeroQ: 2.2,
+  nasalZeroMix: 0,
+});
+
 class SoundWaveVocalProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
@@ -40,6 +56,8 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     this.formantCoefficient = new Float64Array(5);
     this.formantR2 = new Float64Array(5);
     this.formantInput = new Float64Array(5);
+    this.formantGainScale = new Float64Array(5);
+    this.formantGainScale.fill(1);
 
     this.presenceY1 = 0;
     this.presenceY2 = 0;
@@ -51,6 +69,16 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     this.radiationState = 0;
     this.radiationAlpha = 0.9;
     this.radiationMix = 0;
+
+    this.nasalNotchB0 = 1;
+    this.nasalNotchB1 = 0;
+    this.nasalNotchB2 = 0;
+    this.nasalNotchA1 = 0;
+    this.nasalNotchA2 = 0;
+    this.nasalNotchX1 = 0;
+    this.nasalNotchX2 = 0;
+    this.nasalNotchY1 = 0;
+    this.nasalNotchY2 = 0;
 
     this.noiseSeed = 0x6d2b79f5;
     this.jitterState = 0;
@@ -102,6 +130,7 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
         moraicN: false,
       },
       karaoke: event.karaoke || DEFAULT_KARAOKE,
+      resonance: event.resonance || DEFAULT_RESONANCE,
       startFrame: Math.max(currentFrame, Math.round(event.when * sampleRate)),
       endFrame: Math.max(currentFrame + 1, Math.round((event.when + event.duration) * sampleRate)),
       transitionFromHz: null,
@@ -115,11 +144,36 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     return this.noiseSeed / 4294967296 * 2 - 1;
   }
 
+  prepareNasalNotch(resonance) {
+    const frequency = Math.max(0, resonance.nasalZeroHz || 0);
+    if (frequency <= 0 || resonance.nasalZeroMix <= 0) {
+      this.nasalNotchB0 = 1;
+      this.nasalNotchB1 = 0;
+      this.nasalNotchB2 = 0;
+      this.nasalNotchA1 = 0;
+      this.nasalNotchA2 = 0;
+      return;
+    }
+
+    const safeFrequency = Math.min(sampleRate * 0.42, Math.max(120, frequency));
+    const q = Math.max(0.5, Math.min(8, resonance.nasalZeroQ || 2.2));
+    const w0 = 2 * Math.PI * safeFrequency / sampleRate;
+    const alpha = Math.sin(w0) / (2 * q);
+    const cos = Math.cos(w0);
+    const a0 = 1 + alpha;
+    this.nasalNotchB0 = 1 / a0;
+    this.nasalNotchB1 = -2 * cos / a0;
+    this.nasalNotchB2 = 1 / a0;
+    this.nasalNotchA1 = -2 * cos / a0;
+    this.nasalNotchA2 = (1 - alpha) / a0;
+  }
+
   prepareActive(event) {
     const carry = event.articulate ? 0.78 : 0.975;
     for (let index = 0; index < 5; index += 1) {
       this.formantY1[index] *= carry;
       this.formantY2[index] *= carry;
+      this.formantGainScale[index] = 1;
     }
     this.presenceY1 *= carry;
     this.presenceY2 *= carry;
@@ -141,6 +195,7 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       Math.min(0.95, (10 ** (event.style.radiationGainDb / 20) - 1) * 0.52),
     );
 
+    this.prepareNasalNotch(event.resonance || DEFAULT_RESONANCE);
     this.delaySamples = Math.max(
       1,
       Math.min(
@@ -219,8 +274,17 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     return progress * (event.phoneme.moraicN ? 0.58 : 0.24);
   }
 
+  harmonicCollision(frequency, bandwidth, resonance) {
+    const f0 = Math.max(20, this.currentHz);
+    const harmonic = Math.max(1, Math.min(18, Math.round(frequency / f0)));
+    const harmonicHz = harmonic * f0;
+    const threshold = Math.max(22, bandwidth * Math.max(0.2, resonance.collisionThresholdRatio));
+    return clamp01(1 - Math.abs(harmonicHz - frequency) / threshold);
+  }
+
   updateFormantCoefficients(event, elapsed, noteDuration) {
     const phoneme = event.phoneme;
+    const resonance = event.resonance || DEFAULT_RESONANCE;
     const onsetSpan = Math.max(
       0.018,
       phoneme.closureSeconds
@@ -236,7 +300,12 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     const noteProgress = smoothstep(elapsed / Math.max(0.001, noteDuration));
     const centering = event.phrase.centeringStart
       + (event.phrase.centeringEnd - event.phrase.centeringStart) * noteProgress;
+    const phraseEnergy = event.phrase.energyStart
+      + (event.phrase.energyEnd - event.phrase.energyStart) * noteProgress;
     const anticipation = this.coarticulationMix(event, elapsed, noteDuration);
+    const vibratoResonance = 1
+      + Math.sin(2 * Math.PI * this.vibratoPhase)
+        * Math.max(0, Math.min(0.03, resonance.vibratoResonanceDepth));
 
     for (let index = 0; index < 5; index += 1) {
       const band = event.formants[index];
@@ -250,10 +319,28 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       if (band.nextHz !== null && anticipation > 0) {
         currentTarget += (band.nextHz - currentTarget) * anticipation;
       }
-
       currentTarget += (neutral - currentTarget) * centering;
 
-      const r = Math.exp(-Math.PI * Math.max(20, band.bandwidth) / sampleRate);
+      const articulationWidth = (1 - onsetMix) * (event.articulate ? 0.72 : 0.18);
+      const transitionWidth = anticipation * 0.55;
+      const energyWidth = Math.abs(phraseEnergy - 0.96) * 0.6;
+      let bandwidth = band.bandwidth * (
+        1 + Math.max(0, resonance.bandwidthMotion) * (articulationWidth + transitionWidth + energyWidth)
+      );
+
+      const collision = this.harmonicCollision(currentTarget, bandwidth, resonance);
+      bandwidth *= 1 + collision * Math.max(0, resonance.collisionBandwidthBoost);
+
+      const gainFloor = Math.max(0.65, Math.min(0.98, resonance.collisionGainFloor));
+      const collisionGain = 1 - collision * (1 - gainFloor);
+      const energyGain = 1 + (phraseEnergy - 0.96) * Math.max(0, resonance.gainMotion);
+      const transitionGain = 1 - anticipation * Math.max(0, resonance.gainMotion) * 0.28;
+      this.formantGainScale[index] = Math.max(
+        0.62,
+        Math.min(1.16, collisionGain * energyGain * transitionGain * vibratoResonance),
+      );
+
+      const r = Math.exp(-Math.PI * Math.max(20, bandwidth) / sampleRate);
       const angle = 2 * Math.PI
         * Math.min(sampleRate * 0.45, Math.max(60, currentTarget))
         / sampleRate;
@@ -281,6 +368,20 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     this.presenceY2 = this.presenceY1;
     this.presenceY1 = y;
     return y * gain;
+  }
+
+  nasalAntiFormant(input, mix) {
+    if (mix <= 0) return input;
+    const y = this.nasalNotchB0 * input
+      + this.nasalNotchB1 * this.nasalNotchX1
+      + this.nasalNotchB2 * this.nasalNotchX2
+      - this.nasalNotchA1 * this.nasalNotchY1
+      - this.nasalNotchA2 * this.nasalNotchY2;
+    this.nasalNotchX2 = this.nasalNotchX1;
+    this.nasalNotchX1 = input;
+    this.nasalNotchY2 = this.nasalNotchY1;
+    this.nasalNotchY1 = y;
+    return input + (y - input) * clamp01(mix);
   }
 
   envelopeFor(event, frame) {
@@ -426,6 +527,7 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       + (active.phrase.energyEnd - active.phrase.energyStart) * noteProgress;
     const style = active.style;
     const karaoke = active.karaoke || DEFAULT_KARAOKE;
+    const resonance = active.resonance || DEFAULT_RESONANCE;
 
     if (this.coefficientCountdown <= 0) {
       this.updateFormantCoefficients(active, elapsed, noteDuration);
@@ -463,8 +565,6 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       targetHz = onsetHz * (active.targetHz / onsetHz) ** mix;
     }
 
-    // Karaoke-score phrasing: sparse scoops/falls decorate boundaries without
-    // moving the sustained center pitch away from the written melody.
     const scoopWindow = Math.min(0.11, noteDuration * 0.3);
     const scoopProgress = smoothstep(elapsed / Math.max(0.001, scoopWindow));
     const scoopCents = -Math.max(0, karaoke.scoopCents) * (1 - scoopProgress);
@@ -523,16 +623,40 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     this.phase += this.currentHz / sampleRate;
     this.phase -= Math.floor(this.phase);
 
+    const releaseProgress = smoothstep((phraseProgress - 0.7) / 0.3);
+    const highPitchAmount = clamp01((this.currentHz - 420) / 520);
+    const energyAmount = Math.max(-1, Math.min(1, (phraseEnergy - 0.95) / 0.14));
+    const dynamicOpenQuotient = Math.max(
+      0.46,
+      Math.min(
+        0.82,
+        style.glottalOpenQuotient
+          - energyAmount * Math.max(0, resonance.energyClosureDepth)
+          + releaseProgress * Math.max(0, resonance.releaseOpenBoost)
+          + highPitchAmount * Math.max(0, resonance.highPitchOpenBoost),
+      ),
+    );
+    const dynamicSpeedQuotient = Math.max(
+      0.48,
+      Math.min(
+        0.84,
+        style.glottalSpeedQuotient
+          + energyAmount * Math.max(0, resonance.speedEnergyBoost)
+          - releaseProgress * 0.012,
+      ),
+    );
+
     const flow = this.glottalFlow(
       this.phase,
-      style.glottalOpenQuotient,
-      style.glottalSpeedQuotient,
+      dynamicOpenQuotient,
+      dynamicSpeedQuotient,
     );
     const derivative = flow - this.previousFlow;
     this.previousFlow = flow;
 
     const highPitchSoftening = clamp01((this.currentHz - 520) / 520);
-    const derivativeMix = 7.2 - highPitchSoftening * 1.15;
+    const releaseSoftening = releaseProgress * 0.46;
+    const derivativeMix = 7.2 - highPitchSoftening * 1.28 - releaseSoftening;
     const rawSource = flow * (0.54 + highPitchSoftening * 0.035)
       + derivative * derivativeMix;
     this.sourceState += (rawSource - this.sourceState) * 0.62;
@@ -555,14 +679,17 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     const tractSource = coupledSource * articulation.sourceGain;
     let vocal = 0;
     for (let index = 0; index < Math.min(5, active.formants.length); index += 1) {
-      vocal += this.resonator(tractSource, active.formants[index].gain, index);
+      const gainScale = this.formantGainScale[index] || 1;
+      vocal += this.resonator(tractSource, active.formants[index].gain * gainScale, index);
     }
     vocal += this.presence(tractSource, style.presenceGain);
 
     this.nasalState += (tractSource - this.nasalState) * 0.055;
     if (articulation.nasalMix > 0) {
-      vocal = vocal * (1 - articulation.nasalMix * 0.32)
-        + this.nasalState * articulation.nasalMix * 0.28;
+      const antiMix = articulation.nasalMix * Math.max(0, Math.min(0.5, resonance.nasalZeroMix));
+      vocal = this.nasalAntiFormant(vocal, antiMix);
+      vocal = vocal * (1 - articulation.nasalMix * 0.3)
+        + this.nasalState * articulation.nasalMix * 0.27;
     }
 
     const highpassed = this.radiationAlpha
@@ -583,9 +710,8 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       * phraseBreath
       * breathEnvelope;
 
-    const openQuotient = Math.max(0.1, style.glottalOpenQuotient);
-    const glottalOpen = this.phase < openQuotient
-      ? Math.sin(Math.PI * clamp01(this.phase / openQuotient)) ** 2
+    const glottalOpen = this.phase < dynamicOpenQuotient
+      ? Math.sin(Math.PI * clamp01(this.phase / dynamicOpenQuotient)) ** 2
       : 0;
     const aspiration = (noise - this.jitterState)
       * style.breathLevel
