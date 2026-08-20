@@ -1,5 +1,6 @@
 import type { PitchClass } from '../core/music';
 import type { AutoComposition } from './AutoComposer';
+import type { ArrangementBar, BassPattern, ChordPattern } from './GenreArrangement';
 import { genreStyle, type GenreStyleProfile } from './GenreStyle';
 import { vocalActiveAtStep, type VocalEvent, type VocalStyle } from './VocalGenerator';
 import { buildVocalPhraseControls, neutralPhraseControl, type VocalPhraseControl } from './VocalPhraseModel';
@@ -17,6 +18,44 @@ function midiToHz(midi: number): number {
 
 function midiForPitchClass(pitch: PitchClass, octave: number): number {
   return 12 * (octave + 1) + pitch;
+}
+
+function fifthPitch(root: PitchClass): PitchClass {
+  return ((root + 7) % 12) as PitchClass;
+}
+
+function chordTrigger(pattern: ChordPattern, localStep: number): boolean {
+  if (pattern === 'sustain') return localStep === 0;
+  if (pattern === 'pulse') return localStep % 4 === 0;
+  if (pattern === 'offbeat-stabs') return localStep === 2 || localStep === 6 || localStep === 10 || localStep === 14;
+  return localStep % 2 === 0;
+}
+
+function chordDurationSteps(pattern: ChordPattern): number {
+  if (pattern === 'sustain') return 15.5;
+  if (pattern === 'pulse') return 3.3;
+  if (pattern === 'offbeat-stabs') return 1.55;
+  if (pattern === 'power-pulse') return 1.55;
+  return 1.45;
+}
+
+function bassTrigger(pattern: BassPattern, localStep: number): boolean {
+  if (pattern === 'root-pulse' || pattern === 'root-fifth') return localStep === 0 || localStep === 8;
+  if (pattern === 'syncopated-808') return localStep === 0 || localStep === 6 || localStep === 10 || localStep === 14;
+  return localStep % 2 === 0;
+}
+
+function bassPitch(pattern: BassPattern, root: PitchClass, localStep: number): PitchClass {
+  if (pattern === 'root-fifth') return localStep === 8 ? fifthPitch(root) : root;
+  if (pattern === 'eighth-drive' || pattern === 'ostinato') return localStep % 4 === 2 ? fifthPitch(root) : root;
+  if (pattern === 'syncopated-808') return localStep === 10 ? fifthPitch(root) : root;
+  return root;
+}
+
+function bassDurationSteps(pattern: BassPattern): number {
+  if (pattern === 'root-pulse' || pattern === 'root-fifth') return 3.25;
+  if (pattern === 'syncopated-808') return 2.15;
+  return 1.5;
 }
 
 export class ComposeAudio {
@@ -67,8 +106,8 @@ export class ComposeAudio {
       vocalHighpass.frequency.value = 68;
       vocalHighpass.Q.value = 0.48;
 
-      // Presence Reset stays neutral. Genre character must come from synthesis,
-      // arrangement and articulation rather than restoring fixed presence boosts.
+      // Presence Reset stays neutral. Genre character comes from source,
+      // arrangement and articulation rather than a fixed presence shelf.
       vocalPresence.type = 'peaking';
       vocalPresence.frequency.value = 2480;
       vocalPresence.Q.value = 0.62;
@@ -220,14 +259,14 @@ export class ComposeAudio {
     const osc = this.context.createOscillator();
     const filter = this.context.createBiquadFilter();
     const gain = this.context.createGain();
-    osc.type = profile.genre === 'rock' ? 'square' : 'sawtooth';
+    osc.type = profile.genre === 'rock' ? 'square' : profile.genre === 'k-pop' ? 'sine' : 'sawtooth';
     osc.frequency.value = midiToHz(midiForPitchClass(pitch, 2));
     filter.type = 'lowpass';
-    const startCutoff = profile.genre === 'k-pop' ? 720 : profile.genre === 'rock' ? 520 : 610;
-    const endCutoff = profile.genre === 'k-pop' ? 138 : profile.genre === 'rock' ? 190 : 165;
+    const startCutoff = profile.genre === 'k-pop' ? 320 : profile.genre === 'rock' ? 520 : 610;
+    const endCutoff = profile.genre === 'k-pop' ? 92 : profile.genre === 'rock' ? 190 : 165;
     filter.frequency.setValueAtTime(startCutoff, start);
     filter.frequency.exponentialRampToValueAtTime(endCutoff, start + Math.min(0.28, duration));
-    filter.Q.value = profile.genre === 'k-pop' ? 4.8 : 3.6;
+    filter.Q.value = profile.genre === 'k-pop' ? 2.4 : 3.6;
     const drive = clamp(profile.bassDrive, 0.5, 1.25);
     gain.gain.setValueAtTime(0.0001, start);
     gain.gain.exponentialRampToValueAtTime(0.105 * drive * clamp(velocity, 0.2, 1), start + 0.008);
@@ -254,9 +293,7 @@ export class ComposeAudio {
     const filter = this.context.createBiquadFilter();
     osc.type = profile.genre === 'game-music'
       ? (profile.id === 'puzzle' ? 'sine' : 'triangle')
-      : profile.genre === 'rock'
-        ? 'triangle'
-        : 'triangle';
+      : 'triangle';
     osc.frequency.value = midiToHz(midiForPitchClass(pitch, octave));
     filter.type = 'lowpass';
     filter.frequency.value = profile.genre === 'k-pop'
@@ -339,6 +376,55 @@ export class ComposeAudio {
     }
   }
 
+  private scheduleChordPattern(
+    composition: AutoComposition,
+    bar: number,
+    localStep: number,
+    when: number,
+    stepSeconds: number,
+    profile: GenreStyleProfile,
+    state: ArrangementBar,
+  ): void {
+    const chord = composition.chords[bar]?.chord;
+    if (!chord || !chordTrigger(state.chordPattern, localStep)) return;
+
+    let tones: readonly PitchClass[] = chord.tones;
+    if (state.chordPattern === 'power-pulse') tones = [chord.root, fifthPitch(chord.root)];
+    if (state.chordPattern === 'arpeggio-pulse') {
+      const index = Math.floor(localStep / 2) % Math.max(1, chord.tones.length);
+      tones = [chord.tones[index] ?? chord.root];
+    }
+
+    this.playChord(
+      tones,
+      chord.tension,
+      stepSeconds * chordDurationSteps(state.chordPattern),
+      when,
+      profile,
+    );
+  }
+
+  private scheduleBassPattern(
+    composition: AutoComposition,
+    bar: number,
+    localStep: number,
+    when: number,
+    stepSeconds: number,
+    profile: GenreStyleProfile,
+    state: ArrangementBar,
+  ): void {
+    const chord = composition.chords[bar]?.chord;
+    if (!chord || !bassTrigger(state.bassPattern, localStep)) return;
+    const velocity = (localStep === 0 ? 0.9 : 0.7) * state.energy;
+    this.playBass(
+      bassPitch(state.bassPattern, chord.root, localStep),
+      stepSeconds * bassDurationSteps(state.bassPattern),
+      velocity,
+      when,
+      profile,
+    );
+  }
+
   scheduleStep(
     composition: AutoComposition,
     step: number,
@@ -350,20 +436,15 @@ export class ComposeAudio {
     const stepSeconds = 60 / composition.settings.bpm / 4;
     const bar = Math.floor(step / 16);
     const localStep = step % 16;
+    const state = composition.arrangement[bar] ?? composition.arrangement[0];
     const vocalsAtStep = vocalLine.filter((vocal) => vocal.step === step);
     const vocalActive = vocalActiveAtStep(vocalLine, step) && this.vocalWorklet.status === 'ready';
 
     this.scheduleVocalDucking(vocalActive, when);
 
-    if (localStep === 0) {
-      const chord = composition.chords[bar]?.chord;
-      if (chord) {
-        this.playChord(chord.tones, chord.tension, stepSeconds * 15.5, when, profile);
-        this.playBass(chord.root, stepSeconds * 3.4, 0.9, when, profile);
-      }
-    } else if (localStep === 8) {
-      const chord = composition.chords[bar]?.chord;
-      if (chord) this.playBass(chord.root, stepSeconds * 2.5, 0.64, when, profile);
+    if (state) {
+      this.scheduleChordPattern(composition, bar, localStep, when, stepSeconds, profile, state);
+      this.scheduleBassPattern(composition, bar, localStep, when, stepSeconds, profile, state);
     }
 
     for (const drum of composition.drums) {
@@ -378,10 +459,11 @@ export class ComposeAudio {
     for (const vocal of vocalsAtStep) {
       const duration = stepSeconds * vocal.durationSteps * 0.98;
       const phraseControl = this.phraseControlFor(vocalLine, vocal);
+      const sectionEnergy = state?.energy ?? 1;
       const styledPhrase: VocalPhraseControl = {
         ...phraseControl,
-        energyStart: clamp(phraseControl.energyStart * profile.vocalEnergy, 0.72, 1.18),
-        energyEnd: clamp(phraseControl.energyEnd * profile.vocalEnergy, 0.72, 1.18),
+        energyStart: clamp(phraseControl.energyStart * profile.vocalEnergy * sectionEnergy, 0.7, 1.18),
+        energyEnd: clamp(phraseControl.energyEnd * profile.vocalEnergy * sectionEnergy, 0.7, 1.18),
       };
       const workletEvent = vocalEventToWorklet(vocal, vocalStyle, when, duration, styledPhrase);
       workletEvent.phoneme = {
@@ -389,7 +471,7 @@ export class ComposeAudio {
         noiseMix: clamp(workletEvent.phoneme.noiseMix * profile.vocalArticulation, 0, 1),
         aspirationMix: clamp(workletEvent.phoneme.aspirationMix * (2 - profile.vocalArticulation * 0.72), 0, 0.5),
       };
-      workletEvent.velocity = clamp(workletEvent.velocity * profile.vocalEnergy, 0.3, 1);
+      workletEvent.velocity = clamp(workletEvent.velocity * profile.vocalEnergy * sectionEnergy, 0.3, 1);
       this.vocalWorklet.schedule(workletEvent);
     }
   }
