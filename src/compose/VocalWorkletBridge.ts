@@ -1,5 +1,6 @@
 import type { VocalEvent, VocalStyle } from './VocalGenerator';
 import { phonemeTimingFor, type JapanesePhonemeTiming } from './JapanesePhoneme';
+import { karaokeSingingControlFor, type KaraokeSingingControl } from './KaraokeSinging';
 import { VOCAL_STYLE_MODELS, formantsFor, onsetFormantFrequency } from './VocalModel';
 import { neutralPhraseControl, type VocalPhraseControl } from './VocalPhraseModel';
 
@@ -16,6 +17,7 @@ export interface VocalWorkletEvent {
   phraseStart: boolean;
   phraseEnd: boolean;
   phoneme: JapanesePhonemeTiming;
+  karaoke: KaraokeSingingControl;
   phrase: {
     progressStart: number;
     progressEnd: number;
@@ -75,10 +77,12 @@ export function vocalEventToWorklet(
   const nextBands = event.nextVowel === null ? null : formantsFor(event.nextVowel, style);
   const targetHz = midiToHz(midiForPitchClass(event.pitch, event.octave));
   const phoneme = phonemeTimingFor(event.syllable);
+  const normalizedDuration = Math.max(0.11, duration);
+  const karaoke = karaokeSingingControlFor(event, normalizedDuration, phraseControl);
 
   return {
     when,
-    duration: Math.max(0.11, duration),
+    duration: normalizedDuration,
     targetHz,
     glideFromHz: event.glideFromMidi === null ? null : midiToHz(event.glideFromMidi),
     velocity: event.velocity,
@@ -87,6 +91,7 @@ export function vocalEventToWorklet(
     phraseStart: event.phraseStart,
     phraseEnd: event.phraseEnd,
     phoneme,
+    karaoke,
     phrase: {
       progressStart: phraseControl.progressStart,
       progressEnd: phraseControl.progressEnd,
