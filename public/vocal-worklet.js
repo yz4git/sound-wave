@@ -40,6 +40,16 @@ const DEFAULT_RESONANCE = Object.freeze({
   nasalZeroMix: 0,
 });
 
+const DEFAULT_SPECTRAL = Object.freeze({
+  timeSmoothingMs: 28,
+  transitionSmoothingMs: 9,
+  frequencySmoothing: 0.1,
+  transitionProtectionSeconds: 0.06,
+  spectralTiltDepth: 0.01,
+  vibratoEnvelopeDepth: 0.005,
+  trajectoryDepth: 0.9,
+});
+
 class SoundWaveVocalProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
@@ -58,6 +68,15 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     this.formantInput = new Float64Array(5);
     this.formantGainScale = new Float64Array(5);
     this.formantGainScale.fill(1);
+
+    // v20.8 keeps a continuous spectral-envelope state across connected notes.
+    this.spectralFrequencyState = new Float64Array(5);
+    this.spectralBandwidthState = new Float64Array(5);
+    this.spectralGainState = new Float64Array(5);
+    this.spectralTargetFrequency = new Float64Array(5);
+    this.spectralTargetBandwidth = new Float64Array(5);
+    this.spectralRawGain = new Float64Array(5);
+    this.spectralInitialized = new Uint8Array(5);
 
     this.presenceY1 = 0;
     this.presenceY2 = 0;
@@ -109,6 +128,7 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       this.envelopeState = 0;
       this.outputState = 0;
       this.lastEventEndFrame = -1;
+      this.spectralInitialized.fill(0);
       return;
     }
 
@@ -131,6 +151,7 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       },
       karaoke: event.karaoke || DEFAULT_KARAOKE,
       resonance: event.resonance || DEFAULT_RESONANCE,
+      spectral: event.spectral || DEFAULT_SPECTRAL,
       startFrame: Math.max(currentFrame, Math.round(event.when * sampleRate)),
       endFrame: Math.max(currentFrame + 1, Math.round((event.when + event.duration) * sampleRate)),
       transitionFromHz: null,
@@ -218,6 +239,7 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
         || gapFrames <= Math.round(sampleRate * 0.045);
 
       this.active = next;
+      if (!nearContinuous) this.spectralInitialized.fill(0);
 
       if (nearContinuous) {
         next.transitionFromHz = Math.max(20, this.currentHz);
@@ -282,9 +304,17 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     return clamp01(1 - Math.abs(harmonicHz - frequency) / threshold);
   }
 
+  spectralSmoothingAlpha(milliseconds) {
+    const safeMs = Math.max(2, Math.min(80, milliseconds || 24));
+    const seconds = safeMs / 1000;
+    const updateSeconds = 16 / sampleRate;
+    return 1 - Math.exp(-updateSeconds / seconds);
+  }
+
   updateFormantCoefficients(event, elapsed, noteDuration) {
     const phoneme = event.phoneme;
     const resonance = event.resonance || DEFAULT_RESONANCE;
+    const spectral = event.spectral || DEFAULT_SPECTRAL;
     const onsetSpan = Math.max(
       0.018,
       phoneme.closureSeconds
@@ -303,10 +333,26 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     const phraseEnergy = event.phrase.energyStart
       + (event.phrase.energyEnd - event.phrase.energyStart) * noteProgress;
     const anticipation = this.coarticulationMix(event, elapsed, noteDuration);
+    const transitionProtected = elapsed < Math.max(0.02, spectral.transitionProtectionSeconds || 0.06);
+    const sustainStart = Math.max(0.02, spectral.transitionProtectionSeconds || 0.06);
+    const sustainProgress = smoothstep(
+      (elapsed - sustainStart) / Math.max(0.001, noteDuration - sustainStart),
+    );
+    const trajectoryDepth = Math.max(0.6, Math.min(1.12, spectral.trajectoryDepth || 0.9));
+    const energyTilt = Math.max(-1, Math.min(1, (phraseEnergy - 0.95) / 0.16));
+    const spectralTilt = energyTilt
+      * Math.max(0, Math.min(0.03, spectral.spectralTiltDepth || 0.01))
+      * sustainProgress
+      * trajectoryDepth;
+    const vibratoEnvelope = 1
+      + Math.sin(2 * Math.PI * this.vibratoPhase)
+        * Math.max(0, Math.min(0.015, spectral.vibratoEnvelopeDepth || 0.005))
+        * sustainProgress;
     const vibratoResonance = 1
       + Math.sin(2 * Math.PI * this.vibratoPhase)
         * Math.max(0, Math.min(0.03, resonance.vibratoResonanceDepth));
 
+    // Pass 1: calculate the instantaneous spectral-envelope targets.
     for (let index = 0; index < 5; index += 1) {
       const band = event.formants[index];
       if (!band) continue;
@@ -323,7 +369,7 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
 
       const articulationWidth = (1 - onsetMix) * (event.articulate ? 0.72 : 0.18);
       const transitionWidth = anticipation * 0.55;
-      const energyWidth = Math.abs(phraseEnergy - 0.96) * 0.6;
+      const energyWidth = Math.abs(phraseEnergy - 0.96) * 0.6 * trajectoryDepth;
       let bandwidth = band.bandwidth * (
         1 + Math.max(0, resonance.bandwidthMotion) * (articulationWidth + transitionWidth + energyWidth)
       );
@@ -333,17 +379,62 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
 
       const gainFloor = Math.max(0.65, Math.min(0.98, resonance.collisionGainFloor));
       const collisionGain = 1 - collision * (1 - gainFloor);
-      const energyGain = 1 + (phraseEnergy - 0.96) * Math.max(0, resonance.gainMotion);
+      const energyGain = 1 + (phraseEnergy - 0.96) * Math.max(0, resonance.gainMotion) * trajectoryDepth;
       const transitionGain = 1 - anticipation * Math.max(0, resonance.gainMotion) * 0.28;
-      this.formantGainScale[index] = Math.max(
-        0.62,
-        Math.min(1.16, collisionGain * energyGain * transitionGain * vibratoResonance),
-      );
+      const upperWeight = index / 4;
+      const tiltGain = 1 + spectralTilt * upperWeight;
 
-      const r = Math.exp(-Math.PI * Math.max(20, bandwidth) / sampleRate);
-      const angle = 2 * Math.PI
-        * Math.min(sampleRate * 0.45, Math.max(60, currentTarget))
-        / sampleRate;
+      this.spectralTargetFrequency[index] = currentTarget;
+      this.spectralTargetBandwidth[index] = bandwidth;
+      this.spectralRawGain[index] = Math.max(
+        0.62,
+        Math.min(
+          1.16,
+          collisionGain * energyGain * transitionGain * vibratoResonance * vibratoEnvelope * tiltGain,
+        ),
+      );
+    }
+
+    // Pass 2: time smoothing plus a small frequency-axis FIR across neighbouring
+    // formant gain targets, approximating VocaListener2's time-frequency smoothing.
+    const baseFrequencyMix = Math.max(0, Math.min(0.24, spectral.frequencySmoothing || 0.1));
+    const frequencyMix = transitionProtected ? baseFrequencyMix * 0.3 : baseFrequencyMix;
+    const smoothingMs = transitionProtected
+      ? spectral.transitionSmoothingMs
+      : spectral.timeSmoothingMs;
+    const alpha = this.spectralSmoothingAlpha(smoothingMs);
+
+    for (let index = 0; index < 5; index += 1) {
+      const band = event.formants[index];
+      if (!band) continue;
+
+      const previousGain = index > 0 ? this.spectralRawGain[index - 1] : this.spectralRawGain[index];
+      const nextGain = index < 4 ? this.spectralRawGain[index + 1] : this.spectralRawGain[index];
+      const neighborGain = (previousGain + this.spectralRawGain[index] + nextGain) / 3;
+      const gainTarget = this.spectralRawGain[index] * (1 - frequencyMix) + neighborGain * frequencyMix;
+      const frequencyTarget = this.spectralTargetFrequency[index];
+      const bandwidthTarget = this.spectralTargetBandwidth[index];
+
+      if (!this.spectralInitialized[index]) {
+        this.spectralFrequencyState[index] = frequencyTarget;
+        this.spectralBandwidthState[index] = bandwidthTarget;
+        this.spectralGainState[index] = gainTarget;
+        this.spectralInitialized[index] = 1;
+      } else {
+        this.spectralFrequencyState[index] += (frequencyTarget - this.spectralFrequencyState[index]) * alpha;
+        this.spectralBandwidthState[index] += (bandwidthTarget - this.spectralBandwidthState[index]) * alpha;
+        this.spectralGainState[index] += (gainTarget - this.spectralGainState[index]) * Math.min(1, alpha * 1.18);
+      }
+
+      const smoothedFrequency = Math.min(
+        sampleRate * 0.45,
+        Math.max(60, this.spectralFrequencyState[index]),
+      );
+      const smoothedBandwidth = Math.max(20, this.spectralBandwidthState[index]);
+      this.formantGainScale[index] = Math.max(0.62, Math.min(1.16, this.spectralGainState[index]));
+
+      const r = Math.exp(-Math.PI * smoothedBandwidth / sampleRate);
+      const angle = 2 * Math.PI * smoothedFrequency / sampleRate;
       this.formantCoefficient[index] = 2 * r * Math.cos(angle);
       this.formantR2[index] = r * r;
       this.formantInput[index] = 1 - r;
