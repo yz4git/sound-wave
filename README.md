@@ -58,11 +58,13 @@ Generated layers:
 - **Melody** — strong beats prefer chord tones; weaker subdivisions use nearby scale tones
 - **Bass** — follows generated chord roots and reinforces phrase structure
 - **Drums** — locally generated kick/snare/hat/clap pattern follows meter and density
-- **Vocal v4** — one persistent `AudioWorkletProcessor` generates the glottal source sample-by-sample and keeps phase, pitch, five formant resonators, singing presence, lip-radiation state, jitter/shimmer and short-delay doubling continuous across note boundaries
-- **Vocal Presence Mix** — the singer now has a dedicated 86 Hz high-pass → 2.7 kHz presence EQ → 6.2 kHz air shelf → vocal compressor → makeup-gain chain, while accompaniment/drums are slightly recessed and the guide melody falls to 8% on sung notes
-- **Projection boost** — the worklet raises vocal body/presence, articulation level and output density, then applies lightweight soft saturation before the vocal bus
+- **Vocal v17 natural retune** — one persistent `AudioWorkletProcessor` still generates the continuous glottal/source-filter singer, but the previous presence-focused processing has been reduced so the voice remains audible without sounding permanently hyped
+- **Natural vibrato timing** — short notes stay essentially straight; longer notes earn a delayed, gradual 5–6 Hz vibrato instead of receiving an immediate wide wobble
+- **Natural phrase coverage** — only short gaps up to three sequencer steps are bridged, and held vowels stop exactly at the next note boundary rather than overlapping it
+- **Mono-safe vocal image** — the old same-signal short-delay doubling is disabled by default because it could create comb-filter coloration on iPhone speakers
+- **Gentler vocal chain** — presence EQ, air boost, compression, makeup gain, saturation and arrangement ducking are all reduced from the v15/v16 presence-maximized settings
 - **No per-note vocal OscillatorNode** — note events are sent to the worklet as timing/pitch/articulation parameters instead of creating a new oscillator and filter graph for every sung note
-- **Legato / melisma** — adjacent sung notes keep the current stream alive and glide from the previous pitch while retaining vocal-tract filter history
+- **Legato / melisma** — adjacent sung notes keep the current stream alive, use shorter pitch glides and smoothly carry envelope/filter state instead of hard retriggering
 - phrase starts/endings control articulation, breath and release without resetting the glottal phase
 - the final bar always returns to tonic so the eight-bar phrase has a clear resolution
 
@@ -145,4 +147,4 @@ Rules:
 - `npm run validate:prod` verifies the production artifact and continuous vocal worklet
 - service-worker navigation is network-first while hashed Vite assets are cache-first
 - `vocal-worklet.js` is a local PWA core asset so offline AUTO COMPOSE can initialize the singer
-- current cache generation: `sound-wave-v15-vocal-presence`
+- current cache generation: `sound-wave-v17-vocal-natural`
