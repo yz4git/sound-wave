@@ -1,4 +1,4 @@
-const CACHE = 'sound-wave-v12-vocal-v2';
+const CACHE = 'sound-wave-v13-vocal-v3';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', (event) => {
