@@ -1,4 +1,5 @@
 import type { VocalEvent, VocalStyle } from './VocalGenerator';
+import { phonemeTimingFor, type JapanesePhonemeTiming } from './JapanesePhoneme';
 import { VOCAL_STYLE_MODELS, formantsFor, onsetFormantFrequency } from './VocalModel';
 import { neutralPhraseControl, type VocalPhraseControl } from './VocalPhraseModel';
 
@@ -14,6 +15,7 @@ export interface VocalWorkletEvent {
   articulate: boolean;
   phraseStart: boolean;
   phraseEnd: boolean;
+  phoneme: JapanesePhonemeTiming;
   phrase: {
     progressStart: number;
     progressEnd: number;
@@ -24,7 +26,13 @@ export interface VocalWorkletEvent {
     aspirationDepth: number;
     sourceTractCoupling: number;
   };
-  formants: { startHz: number; targetHz: number; bandwidth: number; gain: number }[];
+  formants: {
+    startHz: number;
+    targetHz: number;
+    nextHz: number | null;
+    bandwidth: number;
+    gain: number;
+  }[];
   style: {
     glottalOpenQuotient: number;
     glottalSpeedQuotient: number;
@@ -64,7 +72,10 @@ export function vocalEventToWorklet(
 ): VocalWorkletEvent {
   const model = VOCAL_STYLE_MODELS[style];
   const bands = formantsFor(event.vowel, style);
+  const nextBands = event.nextVowel === null ? null : formantsFor(event.nextVowel, style);
   const targetHz = midiToHz(midiForPitchClass(event.pitch, event.octave));
+  const phoneme = phonemeTimingFor(event.syllable);
+
   return {
     when,
     duration: Math.max(0.11, duration),
@@ -75,6 +86,7 @@ export function vocalEventToWorklet(
     articulate: event.articulate,
     phraseStart: event.phraseStart,
     phraseEnd: event.phraseEnd,
+    phoneme,
     phrase: {
       progressStart: phraseControl.progressStart,
       progressEnd: phraseControl.progressEnd,
@@ -88,6 +100,7 @@ export function vocalEventToWorklet(
     formants: bands.map((band, index) => ({
       startHz: onsetFormantFrequency(event.syllable, index, band.frequency),
       targetHz: band.frequency,
+      nextHz: nextBands?.[index]?.frequency ?? null,
       bandwidth: band.bandwidth,
       gain: band.gain,
     })),
