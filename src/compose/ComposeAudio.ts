@@ -56,28 +56,28 @@ export class ComposeAudio {
 
       this.master.gain.value = 0.72;
       this.musicBus.gain.value = 0.55;
-      this.vocalBus.gain.value = 0.96;
+      this.vocalBus.gain.value = 0.98;
       this.drumBus.gain.value = 0.7;
 
       vocalHighpass.type = 'highpass';
-      vocalHighpass.frequency.value = 74;
-      vocalHighpass.Q.value = 0.5;
+      vocalHighpass.frequency.value = 68;
+      vocalHighpass.Q.value = 0.48;
 
       vocalPresence.type = 'peaking';
-      vocalPresence.frequency.value = 2580;
-      vocalPresence.Q.value = 0.68;
-      vocalPresence.gain.value = 1.9;
+      vocalPresence.frequency.value = 2480;
+      vocalPresence.Q.value = 0.62;
+      vocalPresence.gain.value = 1.55;
 
       vocalAir.type = 'highshelf';
-      vocalAir.frequency.value = 6800;
-      vocalAir.gain.value = 0.35;
+      vocalAir.frequency.value = 7200;
+      vocalAir.gain.value = 0.55;
 
-      vocalCompressor.threshold.value = -25;
-      vocalCompressor.knee.value = 18;
-      vocalCompressor.ratio.value = 2.2;
-      vocalCompressor.attack.value = 0.014;
-      vocalCompressor.release.value = 0.24;
-      vocalMakeup.gain.value = 1.1;
+      vocalCompressor.threshold.value = -26;
+      vocalCompressor.knee.value = 20;
+      vocalCompressor.ratio.value = 2;
+      vocalCompressor.attack.value = 0.018;
+      vocalCompressor.release.value = 0.3;
+      vocalMakeup.gain.value = 1.08;
 
       this.compressor.threshold.value = -9;
       this.compressor.knee.value = 12;
@@ -118,9 +118,9 @@ export class ComposeAudio {
   private scheduleVocalDucking(active: boolean, when: number): void {
     if (!this.context || !this.musicBus || !this.drumBus) return;
     const start = Math.max(this.context.currentTime, when);
-    const musicTarget = active ? 0.42 : 0.55;
-    const drumTarget = active ? 0.6 : 0.7;
-    const timeConstant = active ? 0.035 : 0.11;
+    const musicTarget = active ? 0.44 : 0.55;
+    const drumTarget = active ? 0.62 : 0.7;
+    const timeConstant = active ? 0.05 : 0.14;
     this.musicBus.gain.setTargetAtTime(musicTarget, start, timeConstant);
     this.drumBus.gain.setTargetAtTime(drumTarget, start, timeConstant);
   }
@@ -289,7 +289,7 @@ export class ComposeAudio {
     }
     for (const note of composition.melody) {
       if (note.step === step) {
-        const melodyVelocity = vocalActive ? note.velocity * 0.1 : note.velocity * 0.9;
+        const melodyVelocity = vocalActive ? note.velocity * 0.085 : note.velocity * 0.9;
         this.playMelody(note.pitch, note.octave, stepSeconds * note.durationSteps * 0.88, melodyVelocity, when);
       }
     }
