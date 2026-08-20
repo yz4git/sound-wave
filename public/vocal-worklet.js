@@ -140,7 +140,8 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     const legato = !event.articulate;
     const attack = Math.max(0.004, legato ? 0.008 : event.style.attackSeconds);
     const release = Math.max(0.018, event.phraseEnd ? event.style.releaseSeconds * 1.28 : legato ? 0.045 : event.style.releaseSeconds);
-    const attackGain = Math.min(1, elapsed / attack);
+    const rawAttackGain = Math.min(1, elapsed / attack);
+    const attackGain = legato ? 0.8 + rawAttackGain * 0.2 : rawAttackGain;
     const releaseGain = Math.min(1, remaining / release);
     const shaped = Math.sin(Math.min(1, Math.max(0, attackGain)) * Math.PI * 0.5)
       * Math.sin(Math.min(1, Math.max(0, releaseGain)) * Math.PI * 0.5);
