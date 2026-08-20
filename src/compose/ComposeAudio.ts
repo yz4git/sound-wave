@@ -1,5 +1,6 @@
 import type { PitchClass } from '../core/music';
 import type { AutoComposition } from './AutoComposer';
+import { genreStyle, type GenreStyleProfile } from './GenreStyle';
 import { vocalActiveAtStep, type VocalEvent, type VocalStyle } from './VocalGenerator';
 import { buildVocalPhraseControls, neutralPhraseControl, type VocalPhraseControl } from './VocalPhraseModel';
 import {
@@ -66,9 +67,8 @@ export class ComposeAudio {
       vocalHighpass.frequency.value = 68;
       vocalHighpass.Q.value = 0.48;
 
-      // Vocal v20.1 Presence Reset: keep the nodes in the stable graph but make
-      // the legacy vocal-enhancement stages sonically neutral. This exposes the
-      // Human Phrase Model without a fixed presence/air contour layered on top.
+      // Presence Reset stays neutral. Genre character must come from synthesis,
+      // arrangement and articulation rather than restoring fixed presence boosts.
       vocalPresence.type = 'peaking';
       vocalPresence.frequency.value = 2480;
       vocalPresence.Q.value = 0.62;
@@ -132,9 +132,6 @@ export class ComposeAudio {
   private scheduleVocalDucking(active: boolean, when: number): void {
     if (!this.context || !this.musicBus || !this.drumBus) return;
     const start = Math.max(this.context.currentTime, when);
-    // Presence Reset leaves only a tiny amount of arrangement breathing. The
-    // singer must earn its place from synthesis rather than deep sidechain-like
-    // attenuation of the accompaniment.
     const musicTarget = active ? 0.53 : 0.55;
     const drumTarget = active ? 0.69 : 0.7;
     const timeConstant = active ? 0.06 : 0.14;
@@ -155,49 +152,85 @@ export class ComposeAudio {
     return buffer;
   }
 
-  playChord(tones: readonly PitchClass[], tension: number, duration: number, when: number): void {
+  private chordOscillatorType(profile: GenreStyleProfile, index: number): OscillatorType {
+    if (profile.genre === 'rock') return index === 0 ? 'sawtooth' : 'triangle';
+    if (profile.genre === 'game-music' && (profile.id === 'battle' || profile.id === 'boss-battle')) {
+      return index === 0 ? 'triangle' : 'sawtooth';
+    }
+    if (profile.genre === 'k-pop') return index === 0 ? 'triangle' : 'sine';
+    return index === 0 ? 'triangle' : 'sine';
+  }
+
+  playChord(
+    tones: readonly PitchClass[],
+    tension: number,
+    duration: number,
+    when: number,
+    profile: GenreStyleProfile,
+  ): void {
     if (!this.context || !this.musicBus) return;
     const start = Math.max(this.context.currentTime, when);
     const group = this.context.createGain();
     const filter = this.context.createBiquadFilter();
+    const drive = clamp(profile.chordDrive, 0.55, 1.25);
+    const rockShort = profile.genre === 'rock' ? 0.72 : 1;
+    const kpopShort = profile.genre === 'k-pop' ? 0.8 : 1;
+    const sustainScale = rockShort * kpopShort;
+    const peak = 0.11 * drive;
     group.gain.setValueAtTime(0.0001, start);
-    group.gain.exponentialRampToValueAtTime(0.11, start + 0.03);
-    group.gain.exponentialRampToValueAtTime(0.032, start + Math.max(0.12, duration * 0.65));
-    group.gain.exponentialRampToValueAtTime(0.0001, start + Math.max(0.2, duration));
+    group.gain.exponentialRampToValueAtTime(peak, start + (profile.genre === 'rock' ? 0.016 : 0.03));
+    group.gain.exponentialRampToValueAtTime(Math.max(0.018, 0.032 * drive), start + Math.max(0.1, duration * 0.65 * sustainScale));
+    group.gain.exponentialRampToValueAtTime(0.0001, start + Math.max(0.18, duration * sustainScale));
     filter.type = 'lowpass';
-    filter.frequency.value = 1050 + clamp(tension, 0, 1) * 2450;
-    filter.Q.value = 0.7 + tension * 1.3;
+    const brightness = profile.genre === 'rock'
+      ? 1550
+      : profile.genre === 'k-pop'
+        ? 2200
+        : profile.genre === 'game-music'
+          ? 2050
+          : 1750;
+    filter.frequency.value = brightness + clamp(tension, 0, 1) * 2200;
+    filter.Q.value = 0.65 + tension * 1.15;
     group.connect(filter);
     filter.connect(this.musicBus);
 
     tones.forEach((pitch, index) => {
       const osc = this.context!.createOscillator();
       const voiceGain = this.context!.createGain();
-      osc.type = index === 0 ? 'triangle' : 'sine';
+      osc.type = this.chordOscillatorType(profile, index);
       osc.frequency.value = midiToHz(midiForPitchClass(pitch, index === 0 ? 3 : 4));
-      osc.detune.value = index % 2 === 0 ? -4 : 4;
-      voiceGain.gain.value = index === 0 ? 0.7 : 0.44;
+      osc.detune.value = profile.genre === 'rock' ? (index % 2 === 0 ? -2 : 2) : (index % 2 === 0 ? -4 : 4);
+      voiceGain.gain.value = index === 0 ? 0.68 : 0.42;
       osc.connect(voiceGain);
       voiceGain.connect(group);
       osc.start(start);
-      osc.stop(start + duration + 0.06);
+      osc.stop(start + duration * sustainScale + 0.08);
     });
   }
 
-  playBass(pitch: PitchClass, duration: number, velocity: number, when: number): void {
+  playBass(
+    pitch: PitchClass,
+    duration: number,
+    velocity: number,
+    when: number,
+    profile: GenreStyleProfile,
+  ): void {
     if (!this.context || !this.musicBus) return;
     const start = Math.max(this.context.currentTime, when);
     const osc = this.context.createOscillator();
     const filter = this.context.createBiquadFilter();
     const gain = this.context.createGain();
-    osc.type = 'sawtooth';
+    osc.type = profile.genre === 'rock' ? 'square' : 'sawtooth';
     osc.frequency.value = midiToHz(midiForPitchClass(pitch, 2));
     filter.type = 'lowpass';
-    filter.frequency.setValueAtTime(590, start);
-    filter.frequency.exponentialRampToValueAtTime(165, start + Math.min(0.28, duration));
-    filter.Q.value = 4;
+    const startCutoff = profile.genre === 'k-pop' ? 720 : profile.genre === 'rock' ? 520 : 610;
+    const endCutoff = profile.genre === 'k-pop' ? 138 : profile.genre === 'rock' ? 190 : 165;
+    filter.frequency.setValueAtTime(startCutoff, start);
+    filter.frequency.exponentialRampToValueAtTime(endCutoff, start + Math.min(0.28, duration));
+    filter.Q.value = profile.genre === 'k-pop' ? 4.8 : 3.6;
+    const drive = clamp(profile.bassDrive, 0.5, 1.25);
     gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(0.11 * clamp(velocity, 0.2, 1), start + 0.008);
+    gain.gain.exponentialRampToValueAtTime(0.105 * drive * clamp(velocity, 0.2, 1), start + 0.008);
     gain.gain.exponentialRampToValueAtTime(0.0001, start + Math.max(0.12, duration));
     osc.connect(filter);
     filter.connect(gain);
@@ -206,19 +239,37 @@ export class ComposeAudio {
     osc.stop(start + duration + 0.03);
   }
 
-  playMelody(pitch: PitchClass, octave: number, duration: number, velocity: number, when: number): void {
+  playMelody(
+    pitch: PitchClass,
+    octave: number,
+    duration: number,
+    velocity: number,
+    when: number,
+    profile: GenreStyleProfile,
+  ): void {
     if (!this.context || !this.musicBus) return;
     const start = Math.max(this.context.currentTime, when);
     const osc = this.context.createOscillator();
     const gain = this.context.createGain();
     const filter = this.context.createBiquadFilter();
-    osc.type = 'triangle';
+    osc.type = profile.genre === 'game-music'
+      ? (profile.id === 'puzzle' ? 'sine' : 'triangle')
+      : profile.genre === 'rock'
+        ? 'triangle'
+        : 'triangle';
     osc.frequency.value = midiToHz(midiForPitchClass(pitch, octave));
     filter.type = 'lowpass';
-    filter.frequency.value = 2700;
-    filter.Q.value = 0.5;
+    filter.frequency.value = profile.genre === 'k-pop'
+      ? 3400
+      : profile.genre === 'game-music'
+        ? 3150
+        : profile.genre === 'rock'
+          ? 2350
+          : 2850;
+    filter.Q.value = profile.genre === 'k-pop' ? 0.7 : 0.5;
+    const drive = clamp(profile.melodyDrive, 0.55, 1.25);
     gain.gain.setValueAtTime(0.0001, start);
-    gain.gain.exponentialRampToValueAtTime(0.065 * clamp(velocity, 0.2, 1), start + 0.006);
+    gain.gain.exponentialRampToValueAtTime(0.062 * drive * clamp(velocity, 0.2, 1), start + 0.006);
     gain.gain.exponentialRampToValueAtTime(0.0001, start + Math.max(0.06, duration));
     osc.connect(filter);
     filter.connect(gain);
@@ -227,7 +278,12 @@ export class ComposeAudio {
     osc.stop(start + duration + 0.025);
   }
 
-  playDrum(voice: 'kick' | 'snare' | 'hat' | 'clap', velocity: number, when: number): void {
+  playDrum(
+    voice: 'kick' | 'snare' | 'hat' | 'clap',
+    velocity: number,
+    when: number,
+    profile: GenreStyleProfile,
+  ): void {
     if (!this.context || !this.drumBus) return;
     const start = Math.max(this.context.currentTime, when);
     const level = clamp(velocity, 0.1, 1);
@@ -236,14 +292,17 @@ export class ComposeAudio {
       const osc = this.context.createOscillator();
       const gain = this.context.createGain();
       osc.type = 'sine';
-      osc.frequency.setValueAtTime(145, start);
-      osc.frequency.exponentialRampToValueAtTime(46, start + 0.14);
-      gain.gain.setValueAtTime(0.28 * level, start);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.18);
+      const startHz = profile.genre === 'k-pop' ? 165 : profile.genre === 'rock' ? 132 : 145;
+      const endHz = profile.genre === 'k-pop' ? 42 : profile.genre === 'rock' ? 50 : 46;
+      const decay = profile.genre === 'k-pop' ? 0.16 : profile.genre === 'rock' ? 0.13 : 0.18;
+      osc.frequency.setValueAtTime(startHz, start);
+      osc.frequency.exponentialRampToValueAtTime(endHz, start + Math.min(decay, 0.16));
+      gain.gain.setValueAtTime(0.27 * level, start);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + decay);
       osc.connect(gain);
       gain.connect(this.drumBus);
       osc.start(start);
-      osc.stop(start + 0.2);
+      osc.stop(start + decay + 0.02);
       return;
     }
 
@@ -266,12 +325,17 @@ export class ComposeAudio {
       source.stop(start + offset + burstDuration + 0.02);
     };
 
-    if (voice === 'hat') burst(0, 0.05, 6500, 0.09);
-    else if (voice === 'snare') burst(0, 0.14, 1800, 0.18);
-    else {
-      burst(0, 0.05, 2500, 0.11);
-      burst(0.026, 0.07, 3000, 0.072);
-      burst(0.052, 0.08, 3400, 0.054);
+    if (voice === 'hat') {
+      const frequency = profile.genre === 'rock' ? 5900 : profile.genre === 'k-pop' ? 7600 : 6500;
+      burst(0, profile.genre === 'rock' ? 0.06 : 0.05, frequency, 0.09);
+    } else if (voice === 'snare') {
+      const frequency = profile.genre === 'rock' ? 1650 : profile.genre === 'k-pop' ? 2100 : 1800;
+      burst(0, profile.genre === 'rock' ? 0.16 : 0.14, frequency, 0.18);
+    } else {
+      const base = profile.genre === 'k-pop' ? 3000 : 2500;
+      burst(0, 0.05, base, 0.11);
+      burst(0.026, 0.07, base + 500, 0.072);
+      burst(0.052, 0.08, base + 900, 0.054);
     }
   }
 
@@ -282,6 +346,7 @@ export class ComposeAudio {
     vocalLine: readonly VocalEvent[] = [],
     vocalStyle: VocalStyle = 'warm',
   ): void {
+    const profile = genreStyle(composition.settings.genre, composition.settings.subgenre);
     const stepSeconds = 60 / composition.settings.bpm / 4;
     const bar = Math.floor(step / 16);
     const localStep = step % 16;
@@ -293,27 +358,39 @@ export class ComposeAudio {
     if (localStep === 0) {
       const chord = composition.chords[bar]?.chord;
       if (chord) {
-        this.playChord(chord.tones, chord.tension, stepSeconds * 15.5, when);
-        this.playBass(chord.root, stepSeconds * 3.4, 0.9, when);
+        this.playChord(chord.tones, chord.tension, stepSeconds * 15.5, when, profile);
+        this.playBass(chord.root, stepSeconds * 3.4, 0.9, when, profile);
       }
     } else if (localStep === 8) {
       const chord = composition.chords[bar]?.chord;
-      if (chord) this.playBass(chord.root, stepSeconds * 2.5, 0.64, when);
+      if (chord) this.playBass(chord.root, stepSeconds * 2.5, 0.64, when, profile);
     }
 
     for (const drum of composition.drums) {
-      if (drum.step === step) this.playDrum(drum.voice, drum.velocity, when);
+      if (drum.step === step) this.playDrum(drum.voice, drum.velocity, when, profile);
     }
     for (const note of composition.melody) {
       if (note.step === step) {
         const melodyVelocity = vocalActive ? note.velocity * 0.45 : note.velocity * 0.9;
-        this.playMelody(note.pitch, note.octave, stepSeconds * note.durationSteps * 0.88, melodyVelocity, when);
+        this.playMelody(note.pitch, note.octave, stepSeconds * note.durationSteps * 0.88, melodyVelocity, when, profile);
       }
     }
     for (const vocal of vocalsAtStep) {
       const duration = stepSeconds * vocal.durationSteps * 0.98;
       const phraseControl = this.phraseControlFor(vocalLine, vocal);
-      this.vocalWorklet.schedule(vocalEventToWorklet(vocal, vocalStyle, when, duration, phraseControl));
+      const styledPhrase: VocalPhraseControl = {
+        ...phraseControl,
+        energyStart: clamp(phraseControl.energyStart * profile.vocalEnergy, 0.72, 1.18),
+        energyEnd: clamp(phraseControl.energyEnd * profile.vocalEnergy, 0.72, 1.18),
+      };
+      const workletEvent = vocalEventToWorklet(vocal, vocalStyle, when, duration, styledPhrase);
+      workletEvent.phoneme = {
+        ...workletEvent.phoneme,
+        noiseMix: clamp(workletEvent.phoneme.noiseMix * profile.vocalArticulation, 0, 1),
+        aspirationMix: clamp(workletEvent.phoneme.aspirationMix * (2 - profile.vocalArticulation * 0.72), 0, 0.5),
+      };
+      workletEvent.velocity = clamp(workletEvent.velocity * profile.vocalEnergy, 0.3, 1);
+      this.vocalWorklet.schedule(workletEvent);
     }
   }
 }
