@@ -97,8 +97,60 @@ The processor also keeps all short-delay and modulation buffers fixed-size to av
 
 `vocal-worklet.js` lives in `public/`, is copied by Vite to `dist/vocal-worklet.js`, and is included in the PWA core cache. AUTO COMPOSE therefore does not need a network connection or remote synthesis endpoint to initialize the singer after the app has been cached.
 
-`npm run validate:prod` now verifies that the worklet exists, registers the expected processor, and contains no `createOscillator()` call.
+`npm run validate:prod` verifies that the worklet exists, registers the expected processor, and contains no `createOscillator()` call.
+
+## Vocal v20 — Human Phrase Model
+
+Vocal v20 changes the control unit above the continuous AudioWorklet from isolated note expression toward phrase expression. The note scheduler still supplies exact pitches and timings, but a separate pure `VocalPhraseModel` now derives continuous phrase-level control trajectories and sends them with every vocal event.
+
+### Phrase controller
+
+`src/compose/VocalPhraseModel.ts` groups adjacent vocal events by phrase boundaries and calculates:
+
+- normalized phrase progress for each event
+- a gentle amplitude arch: softer entry, modest mid-phrase crest, softer release
+- late-phrase vowel centralization amount
+- pitch-synchronous aspiration depth
+- a deliberately weak source–tract coupling coefficient
+
+`ComposeAudio` caches this control map for the current vocal-line object, so the phrase analysis is not repeated for every audio sample or every scheduled note.
+
+### Phrase-level dynamics
+
+The worklet interpolates phrase energy inside each note instead of treating note velocity as the only amplitude control. The curve remains intentionally shallow so composition dynamics still matter, but note boundaries no longer define the whole loudness shape.
+
+### Dynamic vowel release
+
+The five formant targets are no longer perfectly static through the entire phrase. During the final part of a phrase they move by at most a small amount toward neutral reference resonances. This simulates the common tendency for a released vowel to relax rather than holding an exact synthetic target until silence.
+
+The existing 16-sample coefficient-refresh interval remains unchanged for mobile efficiency.
+
+### Pitch-synchronous aspiration
+
+A new aspiration component gates a small amount of noise with the open portion of the same continuous glottal cycle. This means breath energy is partly synchronized with phonation instead of being only independent broadband noise. The original onset/release breath components remain, but the synchronized component is intentionally subtle.
+
+### Weak source–tract coupling
+
+The previous F1 resonator state is fed back into the next glottal excitation at a tightly clamped level below 0.05. This is not a full physical vocal-fold model; it is a lightweight interaction term designed to reduce the perfectly separated "oscillator then filter" character without risking resonator self-oscillation.
+
+### Phrase-aware vibrato
+
+Long-note vibrato is now additionally gated by phrase position. Early phrase notes stay straighter even when individually long; vibrato becomes available later in the phrase and remains continuous in phase across note boundaries.
+
+### Validation
+
+The production validator now requires the Human Phrase Model markers `sourceTractCoupling`, `aspirationDepth`, vowel-centering controls and phrase-energy control to be present in `dist/vocal-worklet.js`. Unit tests cover phrase-arch bounds, vowel-centering bounds, mapping every generated vocal event to a phrase control, and passing those controls through `VocalWorkletBridge`.
+
+## Next v20 stages
+
+The Phrase Model is deliberately the foundation rather than the final humanization pass. The next compatible stages are:
+
+1. Japanese-style phoneme timing for `k/t/s/h/f/p/b/g/z` families and moraic `n`.
+2. Continuous consonant-to-vowel and vowel-to-vowel trajectories rather than only onset-to-target formant interpolation.
+3. Phrase-level breath budgeting so aspiration, onset breath and release breath share one continuous respiratory envelope.
+4. Interval-aware portamento curves and consonant-dependent F0 suppression.
+5. Optional lightweight generated room response after the dry vocal chain.
 
 ## Scope
 
-This remains a procedural synthetic singer, not a neural singing-voice model, a downloaded voicebank, or an impersonation system. Vocal v4 specifically targets continuity, expressive phrasing, deterministic local generation, and predictable mobile cost while preserving the privacy/locality goal.
+This remains a procedural synthetic singer, not a neural singing-voice model, a downloaded voicebank, or an impersonation system. Vocal v20 targets human-like phrase continuity and physically motivated interactions while preserving deterministic local generation, privacy, predictable mobile cost, and the existing no-per-note-oscillator architecture.
