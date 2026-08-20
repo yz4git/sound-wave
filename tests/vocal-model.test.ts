@@ -8,17 +8,17 @@ import {
 } from '../src/compose/VocalModel';
 
 describe('local vocal model', () => {
-  it('uses singing-like vibrato rates with restrained natural modulation', () => {
+  it('uses restrained soft-pop modulation instead of wide constant vibrato', () => {
     for (const model of Object.values(VOCAL_STYLE_MODELS)) {
-      expect(model.vibratoRateHz).toBeGreaterThanOrEqual(5);
-      expect(model.vibratoRateHz).toBeLessThanOrEqual(7);
-      expect(model.vibratoDepthCents).toBeGreaterThanOrEqual(18);
-      expect(model.vibratoDepthCents).toBeLessThanOrEqual(32);
-      expect(model.vibratoDelaySeconds).toBeGreaterThanOrEqual(0.18);
+      expect(model.vibratoRateHz).toBeGreaterThanOrEqual(4.8);
+      expect(model.vibratoRateHz).toBeLessThanOrEqual(5.6);
+      expect(model.vibratoDepthCents).toBeGreaterThanOrEqual(10);
+      expect(model.vibratoDepthCents).toBeLessThanOrEqual(18);
+      expect(model.vibratoDelaySeconds).toBeGreaterThanOrEqual(0.3);
       expect(model.jitterCents).toBeGreaterThan(0);
-      expect(model.jitterCents).toBeLessThan(3);
+      expect(model.jitterCents).toBeLessThan(1.5);
       expect(model.shimmerDepth).toBeGreaterThan(0);
-      expect(model.shimmerDepth).toBeLessThan(0.03);
+      expect(model.shimmerDepth).toBeLessThan(0.015);
       expect(model.doubleLevel).toBe(0);
     }
   });
@@ -30,6 +30,13 @@ describe('local vocal model', () => {
       expect(bands[index]!.frequency).toBeGreaterThan(bands[index - 1]!.frequency);
       expect(bands[index]!.bandwidth).toBeGreaterThan(0);
     }
+  });
+
+  it('uses broadened resonances to avoid narrow metallic formant peaks', () => {
+    const bands = formantsFor('a', 'warm');
+    expect(bands[0]!.bandwidth).toBeGreaterThanOrEqual(100);
+    expect(bands[4]!.bandwidth).toBeGreaterThanOrEqual(280);
+    expect(bands[4]!.gain).toBeLessThan(0.06);
   });
 
   it('derives a rich tilted spectrum from a glottal pulse shape', () => {
@@ -49,9 +56,9 @@ describe('local vocal model', () => {
     }
   });
 
-  it('moves consonant onsets toward vowel targets', () => {
+  it('moves soft consonant onsets toward vowel targets', () => {
     const target = formantsFor('a', 'warm')[2]!.frequency;
-    expect(onsetFormantFrequency('ra', 2, target)).toBeLessThan(target);
+    expect(onsetFormantFrequency('na', 2, target)).toBeLessThan(target);
     expect(onsetFormantFrequency('ah', 2, target)).toBe(target);
   });
 
