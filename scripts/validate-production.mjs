@@ -38,6 +38,15 @@ for (const required of ['service-worker.js', 'manifest.webmanifest', 'icon.svg',
   if (!existsSync(join(distDir, required))) fail(`dist/${required} is missing`);
 }
 
+const entryJavaScript = jsRefs
+  .map((name) => readFileSync(join(distDir, 'assets', name), 'utf8'))
+  .join('\n');
+for (const genreFeature of ['AUTO COMPOSE v2', 'J-POP', 'ROCK', 'K-POP', 'GAME MUSIC']) {
+  if (!entryJavaScript.includes(genreFeature)) {
+    fail(`production bundle is missing Auto Compose Genre Style Engine feature: ${genreFeature}`);
+  }
+}
+
 const vocalWorklet = readFileSync(join(distDir, 'vocal-worklet.js'), 'utf8');
 try {
   // Parse only; unresolved AudioWorklet globals are valid at runtime and are not executed here.
@@ -87,4 +96,4 @@ for (const resonanceFeature of [
   }
 }
 
-console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact + Human Phrase Model + Japanese phoneme/coarticulation + karaoke-score phrasing + dynamic resonance/glottal AudioWorklet`);
+console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact + Auto Compose Genre Style Engine + Human Phrase Model + Japanese phoneme/coarticulation + karaoke-score phrasing + dynamic resonance/glottal AudioWorklet`);
