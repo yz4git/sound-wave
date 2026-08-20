@@ -1,5 +1,6 @@
 import type { PitchClass } from '../core/music';
 import type { AutoComposition, CompositionNote } from './AutoComposer';
+import { genreStyle, type GenreStyleProfile } from './GenreStyle';
 
 export type VocalStyle = 'warm' | 'bright' | 'airy';
 export type VocalVowel = 'a' | 'e' | 'i' | 'o' | 'u';
@@ -24,9 +25,6 @@ interface VocalToken {
   vowel: VocalVowel;
 }
 
-// These are non-lexical mora sequences. v20.4 deliberately broadens the
-// consonant inventory so the local engine exercises Japanese-style stop,
-// fricative, voiced-obstruent and moraic-n timing without using fixed lyrics.
 const PHRASES: readonly (readonly VocalToken[])[] = [
   [
     { syllable: 'na', vowel: 'a' },
@@ -73,13 +71,12 @@ const PHRASES: readonly (readonly VocalToken[])[] = [
   [
     { syllable: 'ga', vowel: 'a' },
     { syllable: 'za', vowel: 'a' },
-    // Moraic n has no oral vowel nucleus. `u` is only a formant-carrier fallback;
-    // the worklet's N profile replaces the nucleus with nasal resonance and
-    // anticipates the following vowel through nextVowel.
     { syllable: 'n', vowel: 'u' },
     { syllable: 'ke', vowel: 'e' },
   ],
 ] as const;
+
+const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
 function randomSource(seed: number): () => number {
   let value = seed >>> 0;
@@ -89,25 +86,19 @@ function randomSource(seed: number): () => number {
   };
 }
 
-function keepForVocal(note: CompositionNote, random: () => number): boolean {
+function keepForVocal(note: CompositionNote, random: () => number, profile: GenreStyleProfile): boolean {
   const localStep = note.step % 16;
-  if (localStep % 4 === 0) return true;
-  if (note.durationSteps >= 2 && localStep % 2 === 0) return true;
-  if (localStep % 2 === 0) return random() < 0.74;
-  return random() < 0.28;
+  const densityFactor = clamp(profile.melodyDensity + profile.densityBias, 0.48, 1.35);
+  if (localStep % 4 === 0) return random() < clamp(0.78 + densityFactor * 0.16, 0.72, 0.98);
+  if (note.durationSteps >= 2 && localStep % 2 === 0) return random() < clamp(0.72 + profile.longNoteChance * 0.22, 0.66, 0.94);
+  if (localStep % 2 === 0) return random() < clamp(0.44 + densityFactor * 0.24, 0.42, 0.82);
+  return random() < clamp(0.08 + profile.syncopation * 0.38 + (densityFactor - 0.8) * 0.08, 0.05, 0.46);
 }
 
 function midiFor(pitch: PitchClass, octave: number): number {
   return 12 * (octave + 1) + pitch;
 }
 
-/**
- * AUTO COMPOSE deliberately lets the instrumental melody hop between octaves,
- * but a human singer should not inherit those arbitrary register jumps. Keep
- * the local vocal in octaves 4-5 and choose the octave nearest to the previous
- * sung pitch. For a pitch-class sequence this bounds adjacent register motion
- * to six semitones or less whenever either octave is available.
- */
 function vocalOctaveFor(pitch: PitchClass, sourceOctave: number, previousEvent: VocalEvent | null): number {
   const source = Math.max(4, Math.min(5, sourceOctave));
   if (!previousEvent) return source;
@@ -167,11 +158,6 @@ function connectShortGaps(line: VocalEvent[]): void {
   if (finalEvent) finalEvent.phraseEnd = true;
 }
 
-/**
- * Plan anticipatory vowel movement after phrase/gap normalization. Each event
- * only looks to the immediately following event in the same connected phrase;
- * long rests never pull the current vowel toward a future phrase.
- */
 function planNextVowels(line: VocalEvent[]): void {
   for (let index = 0; index < line.length; index += 1) {
     const event = line[index]!;
@@ -186,21 +172,28 @@ function planNextVowels(line: VocalEvent[]): void {
 
 export function generateVocalLine(composition: AutoComposition, seed = composition.settings.seed ^ 0x51f15e): VocalEvent[] {
   const random = randomSource(seed >>> 0);
+  const profile = genreStyle(composition.settings.genre, composition.settings.subgenre);
   const fallbackPhrase = PHRASES[0]!;
   const phrase = PHRASES[Math.floor(random() * PHRASES.length)] ?? fallbackPhrase;
   const vocal: VocalEvent[] = [];
   let syllableIndex = 0;
   let activeToken: VocalToken | null = null;
   let previousEvent: VocalEvent | null = null;
+  const melismaChance = clamp(
+    0.26 + (1 - profile.vocalArticulation) * 0.5 + profile.longNoteChance * 0.26,
+    0.16,
+    0.64,
+  );
 
   for (const note of composition.melody) {
-    if (!keepForVocal(note, random)) continue;
+    if (!keepForVocal(note, random, profile)) continue;
 
     const octave = vocalOctaveFor(note.pitch, note.octave, previousEvent);
     const gap = previousEvent ? note.step - previousEvent.step : Number.POSITIVE_INFINITY;
     const closeToPrevious = previousEvent !== null && gap <= Math.max(3, previousEvent.durationSteps + 1);
-    const continueMelisma = closeToPrevious && (random() < 0.5 || vocal.length % 7 === 5);
-    const phraseStart = previousEvent === null || gap > 4;
+    const continueMelisma = closeToPrevious && (random() < melismaChance || vocal.length % 9 === 6);
+    const phraseGap = profile.genre === 'k-pop' || profile.genre === 'rock' ? 4 : 5;
+    const phraseStart = previousEvent === null || gap > phraseGap;
     let articulate = phraseStart || !continueMelisma;
 
     if (!activeToken || articulate) {
@@ -212,11 +205,14 @@ export function generateVocalLine(composition: AutoComposition, seed = compositi
     if (phraseStart && previousEvent) previousEvent.phraseEnd = true;
 
     const baseVelocity = note.velocity * (phraseStart ? 0.94 : 0.9) * vowelVelocityScale(activeToken.vowel);
+    const extensionChance = clamp(0.08 + profile.longNoteChance * 0.48, 0.08, 0.44);
+    const extraDuration = random() < extensionChance ? 1 : 0;
+    const maxDuration = profile.longNoteChance > 0.58 ? 4 : 3;
     const event: VocalEvent = {
       step: note.step,
       pitch: note.pitch,
       octave,
-      durationSteps: Math.max(1, Math.min(3, note.durationSteps + (random() > 0.82 ? 1 : 0))),
+      durationSteps: Math.max(1, Math.min(maxDuration, note.durationSteps + extraDuration)),
       velocity: Math.max(0.42, Math.min(0.86, baseVelocity)),
       syllable: articulate ? activeToken.syllable : activeToken.vowel,
       vowel: activeToken.vowel,
