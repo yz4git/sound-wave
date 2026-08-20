@@ -14,6 +14,16 @@ function smootherstep(value) {
   return x * x * x * (x * (x * 6 - 15) + 10);
 }
 
+const DEFAULT_KARAOKE = Object.freeze({
+  pitchStability: 0.86,
+  straightHoldRatio: 0.88,
+  vibratoGain: 0.18,
+  scoopCents: 0,
+  fallCents: 0,
+  dynamicGain: 1,
+  longTone: false,
+});
+
 class SoundWaveVocalProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
@@ -91,6 +101,7 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
         coarticulationLead: 0.2,
         moraicN: false,
       },
+      karaoke: event.karaoke || DEFAULT_KARAOKE,
       startFrame: Math.max(currentFrame, Math.round(event.when * sampleRate)),
       endFrame: Math.max(currentFrame + 1, Math.round((event.when + event.duration) * sampleRate)),
       transitionFromHz: null,
@@ -169,7 +180,9 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
   }
 
   onsetCents(event) {
-    const extent = event.style.onsetPitchCents || 0;
+    const karaoke = event.karaoke || DEFAULT_KARAOKE;
+    const stabilityScale = 1 - clamp01(karaoke.pitchStability) * 0.72;
+    const extent = (event.style.onsetPitchCents || 0) * stabilityScale;
     let hash = 2166136261;
     const text = `${event.syllable}:${event.startFrame}`;
     for (let index = 0; index < text.length; index += 1) {
@@ -412,6 +425,7 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     const phraseEnergy = active.phrase.energyStart
       + (active.phrase.energyEnd - active.phrase.energyStart) * noteProgress;
     const style = active.style;
+    const karaoke = active.karaoke || DEFAULT_KARAOKE;
 
     if (this.coefficientCountdown <= 0) {
       this.updateFormantCoefficients(active, elapsed, noteDuration);
@@ -449,30 +463,62 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       targetHz = onsetHz * (active.targetHz / onsetHz) ** mix;
     }
 
+    // Karaoke-score phrasing: sparse scoops/falls decorate boundaries without
+    // moving the sustained center pitch away from the written melody.
+    const scoopWindow = Math.min(0.11, noteDuration * 0.3);
+    const scoopProgress = smoothstep(elapsed / Math.max(0.001, scoopWindow));
+    const scoopCents = -Math.max(0, karaoke.scoopCents) * (1 - scoopProgress);
+    const fallWindow = Math.min(0.1, noteDuration * 0.24);
+    const fallProgress = smoothstep(
+      (fallWindow - remaining) / Math.max(0.001, fallWindow),
+    );
+    const fallCents = -Math.max(0, karaoke.fallCents) * fallProgress;
+    targetHz *= 2 ** ((scoopCents + fallCents) / 1200);
+
     const noise = this.randomSigned();
     this.jitterState += (noise - this.jitterState) * 0.00095;
     this.shimmerState += (noise - this.shimmerState) * 0.0007;
 
     this.advanceModulation(style.vibratoRateHz);
-    const vibratoEligibility = clamp01((noteDuration - 0.55) / 0.55);
-    const phraseVibratoEligibility = smoothstep((phraseProgress - 0.42) / 0.38);
-    const vibratoDelay = Math.min(style.vibratoDelaySeconds, noteDuration * 0.62);
-    const vibratoRise = clamp01((elapsed - vibratoDelay) / 0.26);
+    const straightHoldRatio = Math.max(0.2, Math.min(0.96, karaoke.straightHoldRatio));
+    const straightEnd = noteDuration * straightHoldRatio;
+    const vibratoDelay = Math.max(
+      Math.min(style.vibratoDelaySeconds, noteDuration * 0.75),
+      straightEnd,
+    );
+    const vibratoRise = smoothstep(
+      (elapsed - vibratoDelay) / Math.max(0.08, noteDuration - vibratoDelay),
+    );
+    const durationEligibility = karaoke.longTone
+      ? 1
+      : clamp01((noteDuration - 0.55) / 0.55);
+    const phraseVibratoEligibility = 0.65
+      + smoothstep((phraseProgress - 0.42) / 0.38) * 0.35;
     const vibratoWave = Math.sin(2 * Math.PI * this.vibratoPhase);
     const vibratoCents = vibratoWave
       * style.vibratoDepthCents
       * vibratoRise
-      * vibratoEligibility
-      * phraseVibratoEligibility;
-    const driftCents = Math.sin(2 * Math.PI * this.driftPhase) * 0.55;
-    const jitterCents = this.jitterState * style.jitterCents;
+      * durationEligibility
+      * phraseVibratoEligibility
+      * Math.max(0, Math.min(1, karaoke.vibratoGain));
+
+    const instability = 1 - clamp01(karaoke.pitchStability);
+    const driftCents = Math.sin(2 * Math.PI * this.driftPhase)
+      * 0.55
+      * (0.22 + instability * 0.78);
+    const jitterCents = this.jitterState
+      * style.jitterCents
+      * (0.18 + instability * 0.82);
 
     const desiredHz = targetHz
       * 2 ** ((vibratoCents + driftCents + jitterCents) / 1200);
     const safeDesiredHz = Number.isFinite(desiredHz)
       ? Math.max(20, Math.min(2200, desiredHz))
       : active.targetHz;
-    this.currentHz += (safeDesiredHz - this.currentHz) * 0.035;
+    const pitchFollow = elapsed < glideDuration
+      ? 0.035
+      : 0.044 + clamp01(karaoke.pitchStability) * 0.008;
+    this.currentHz += (safeDesiredHz - this.currentHz) * pitchFollow;
 
     this.phase += this.currentHz / sampleRate;
     this.phase -= Math.floor(this.phase);
@@ -560,13 +606,15 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       + vibratoWave
         * style.intensityModDepth
         * vibratoRise
-        * vibratoEligibility
-        * phraseVibratoEligibility;
+        * durationEligibility
+        * phraseVibratoEligibility
+        * Math.max(0, Math.min(1, karaoke.vibratoGain));
     const shimmer = 1 + this.shimmerState * style.shimmerDepth;
 
     const targetEnvelope = this.envelopeFor(active, frame)
       * Math.max(0.3, Math.min(1, active.velocity))
-      * phraseEnergy;
+      * phraseEnergy
+      * Math.max(0.85, Math.min(1.12, karaoke.dynamicGain));
     const envelopeRate = targetEnvelope > this.envelopeState
       ? active.articulate
         ? 0.0055
