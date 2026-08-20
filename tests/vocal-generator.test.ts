@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { defaultComposeSettings, generateComposition } from '../src/compose/AutoComposer';
 import { generateVocalLine, vocalActiveAtStep, vocalSyllableAtStep } from '../src/compose/VocalGenerator';
 
+function midiFor(pitch: number, octave: number): number {
+  return 12 * (octave + 1) + pitch;
+}
+
 describe('local vocal generation', () => {
   it('is deterministic for the same composition and seed', () => {
     const composition = generateComposition({ ...defaultComposeSettings(1234), seed: 1234 });
@@ -16,6 +20,24 @@ describe('local vocal generation', () => {
     expect(line.every((event) => melodySteps.has(event.step))).toBe(true);
     expect(line.every((event) => ['a', 'e', 'i', 'o', 'u'].includes(event.vowel))).toBe(true);
     expect(line.every((event) => event.durationSteps >= 1 && event.durationSteps <= 3)).toBe(true);
+  });
+
+  it('keeps the sung register continuous instead of inheriting random melody octave flips', () => {
+    for (const seed of [1, 42, 99, 2468, 98765, 314159]) {
+      const composition = generateComposition({ ...defaultComposeSettings(seed), seed, density: 1 });
+      const line = generateVocalLine(composition, seed ^ 0x55aa);
+      expect(line.length).toBeGreaterThan(1);
+      expect(line.every((event) => event.octave === 4 || event.octave === 5)).toBe(true);
+
+      for (let index = 1; index < line.length; index += 1) {
+        const previous = line[index - 1]!;
+        const current = line[index]!;
+        const interval = Math.abs(
+          midiFor(current.pitch, current.octave) - midiFor(previous.pitch, previous.octave),
+        );
+        expect(interval).toBeLessThanOrEqual(6);
+      }
+    }
   });
 
   it('uses mostly soft pop consonants for articulated syllables', () => {
