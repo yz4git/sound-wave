@@ -1,3 +1,5 @@
+import type { ArrangementBar } from './GenreArrangement';
+import type { GenreStyleProfile } from './GenreStyle';
 import type { VocalEvent, VocalStyle } from './VocalGenerator';
 import { phonemeTimingFor, type JapanesePhonemeTiming } from './JapanesePhoneme';
 import { karaokeSingingControlFor, type KaraokeSingingControl } from './KaraokeSinging';
@@ -92,6 +94,9 @@ export function vocalEventToWorklet(
   when: number,
   duration: number,
   phraseControl: VocalPhraseControl = neutralPhraseControl(event),
+  producerProfile?: GenreStyleProfile,
+  producerState?: ArrangementBar,
+  localStep: number = event.step % 16,
 ): VocalWorkletEvent {
   const model = VOCAL_STYLE_MODELS[style];
   const bands = formantsFor(event.vowel, style);
@@ -101,9 +106,9 @@ export function vocalEventToWorklet(
   const producerTuning = producerTuningFor(
     event,
     phraseControl,
-    undefined,
-    undefined,
-    event.step % 16,
+    producerProfile,
+    producerState,
+    localStep,
     normalizedDuration,
   );
   const rawPhoneme = phonemeTimingFor(event.syllable);
@@ -126,9 +131,6 @@ export function vocalEventToWorklet(
   const baseResonance = vocalResonanceControlFor(event, phraseControl);
   const plannedExpression = vocaloidExpressionFor(event, phoneme, normalizedDuration, phraseControl);
 
-  // VOCALOID-producer practice often handles consonant timing independently of
-  // the score note. Add a very small role-aware lead on top of the v20.7
-  // phoneme pre-roll, while preserving the original musical Note-Off.
   const requestedPreRoll = plannedExpression.consonantPreRollSeconds
     + producerTuning.timingLeadSeconds;
   const appliedPreRoll = Math.min(requestedPreRoll, Math.max(0, when));
@@ -141,10 +143,6 @@ export function vocalEventToWorklet(
   const baseSpectral = spectralEnvelopeControlFor(event, normalizedDuration, phraseControl, vocaloid);
   const sourceFilter = sourceFilterCouplingFor(event, targetHz, phraseControl, baseSpectral);
 
-  // v20.9 lets filter motion feed back into source-shaping controls without
-  // adding a second resonator or fixed presence contour. The existing v20.8
-  // worklet remains the single DSP stream; these bounded controls alter its
-  // glottal shape, source-tract feedback, aspiration and envelope motion.
   const spectral: VocalSpectralEnvelopeControl = {
     ...baseSpectral,
     frequencySmoothing: clamp(
