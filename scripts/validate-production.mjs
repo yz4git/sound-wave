@@ -93,6 +93,24 @@ for (const sourceFilterFeature of [
     fail(`production bundle is missing v20.9 dynamic source-filter coupling: ${sourceFilterFeature}`);
   }
 }
+for (const producerTuningFeature of [
+  'timingLeadSeconds',
+  'consonantLengthScale',
+  'dynamicsStartScale',
+  'dynamicsEndScale',
+  'attackTimeScale',
+  'airScale',
+  'mouthScale',
+  'articulationScale',
+  'scoopCentsAdd',
+  'fallCentsAdd',
+  'vibratoScale',
+  'jitterScale',
+]) {
+  if (!entryJavaScript.includes(producerTuningFeature)) {
+    fail(`production bundle is missing v21.0 producer tuning grammar: ${producerTuningFeature}`);
+  }
+}
 
 const vocalWorklet = readFileSync(join(distDir, 'vocal-worklet.js'), 'utf8');
 try {
@@ -157,4 +175,4 @@ for (const spectralWorkletFeature of [
   }
 }
 
-console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact + Genre Style/Arrangement Grammar + VOCALOID-informed score-aligned expression + v20.8 spectral-envelope trajectory + v20.9 dynamic source-filter coupling + Human Phrase Model + Japanese phoneme/coarticulation + karaoke-score phrasing + dynamic resonance/glottal AudioWorklet`);
+console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact + Genre Style/Arrangement Grammar + VOCALOID-informed score-aligned expression + v20.8 spectral-envelope trajectory + v20.9 dynamic source-filter coupling + v21.0 producer tuning grammar + Human Phrase Model + Japanese phoneme/coarticulation + karaoke-score phrasing + dynamic resonance/glottal AudioWorklet`);
