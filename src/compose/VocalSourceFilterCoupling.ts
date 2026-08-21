@@ -45,7 +45,8 @@ export function sourceFilterCouplingFor(
   const phraseEnergy = clamp((phrase.energyStart + phrase.energyEnd) * 0.5, 0.78, 1.12);
   const energy = clamp((phraseEnergy - 0.94) / 0.16, -1, 1);
   const highPitch = clamp((targetHz - 420) / 620, 0, 1);
-  const phraseRelease = event.phraseEnd ? 1 : clamp((phrase.progressEnd - 0.72) / 0.28, 0, 1);
+  const latePhrase = clamp((phrase.progressEnd - 0.78) / 0.22, 0, 1);
+  const phraseRelease = event.phraseEnd ? 1 : latePhrase * 0.35;
   const spectralMotion = clamp((spectral.trajectoryDepth - 0.72) / 0.36, 0, 1);
 
   return {
