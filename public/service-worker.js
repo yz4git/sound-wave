@@ -1,4 +1,4 @@
-const CACHE = 'sound-wave-auto-compose-v4-production-suite';
+const CACHE = 'sound-wave-auto-compose-v4-karaoke-lyrics-panel';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon.svg', './vocal-worklet.js'];
 
 self.addEventListener('install', (event) => {
