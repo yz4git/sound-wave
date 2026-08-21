@@ -26,6 +26,7 @@ import {
   type VoiceCharacterSettings,
 } from './VoiceCharacter';
 import { activeVocalEnsembleFor } from './VocalEnsemble';
+import { vocalDirectorControlFor, type VocalDirectorControl } from './VocalDirector';
 
 export type VocalWorkletStatus = 'idle' | 'loading' | 'ready' | 'unavailable';
 
@@ -47,6 +48,7 @@ export interface VocalWorkletEvent {
   sourceFilter: VocalSourceFilterCouplingControl;
   producerTuning: ProducerTuningControl;
   voiceCharacter: VoiceCharacterControl;
+  vocalDirector: VocalDirectorControl;
   ensemble: {
     label: 'LEAD' | 'DOUBLE' | 'HARMONY' | 'STACKED';
     harmonyTargetHz: number | null;
@@ -118,6 +120,7 @@ export function vocalEventToWorklet(
   const targetHz = midiToHz(midiForPitchClass(event.pitch, event.octave));
   const normalizedDuration = Math.max(0.11, duration);
   const voiceCharacter = voiceCharacterFor(voiceCharacterSettings);
+  const vocalDirector = vocalDirectorControlFor(producerProfile);
   const producerTuning = producerTuningFor(
     event,
     phraseControl,
@@ -136,7 +139,10 @@ export function vocalEventToWorklet(
     fricationSeconds: rawPhoneme.fricationSeconds * consonantScale,
     voicingDelaySeconds: rawPhoneme.voicingDelaySeconds * consonantScale,
     noiseMix: clamp(
-      rawPhoneme.noiseMix * producerTuning.articulationScale * voiceCharacter.articulationScale,
+      rawPhoneme.noiseMix
+        * producerTuning.articulationScale
+        * voiceCharacter.articulationScale
+        * vocalDirector.articulationScale,
       0,
       1,
     ),
@@ -144,10 +150,21 @@ export function vocalEventToWorklet(
   const baseKaraoke = karaokeSingingControlFor(event, normalizedDuration, phraseControl);
   const karaoke: KaraokeSingingControl = {
     ...baseKaraoke,
-    scoopCents: clamp(baseKaraoke.scoopCents + producerTuning.scoopCentsAdd, 0, 14),
-    fallCents: clamp(baseKaraoke.fallCents + producerTuning.fallCentsAdd, 0, 12),
+    scoopCents: clamp(
+      baseKaraoke.scoopCents + producerTuning.scoopCentsAdd + vocalDirector.scoopCentsAdd,
+      0,
+      14,
+    ),
+    fallCents: clamp(
+      baseKaraoke.fallCents + producerTuning.fallCentsAdd + vocalDirector.fallCentsAdd,
+      0,
+      12,
+    ),
     vibratoGain: clamp(
-      baseKaraoke.vibratoGain * producerTuning.vibratoScale * voiceCharacter.vibratoScale,
+      baseKaraoke.vibratoGain
+        * producerTuning.vibratoScale
+        * voiceCharacter.vibratoScale
+        * vocalDirector.vibratoScale,
       0,
       1,
     ),
@@ -225,7 +242,9 @@ export function vocalEventToWorklet(
     * vocaloid.aspirationScale
     * (1 + sourceFilter.aspirationCoupling * 0.18)
     * producerTuning.airScale
-    * voiceCharacter.breathScale;
+    * voiceCharacter.breathScale
+    * vocalDirector.airScale;
+  const ensembleScale = vocalDirector.ensembleScale;
 
   return {
     when: scheduledWhen,
@@ -245,12 +264,13 @@ export function vocalEventToWorklet(
     sourceFilter,
     producerTuning,
     voiceCharacter,
+    vocalDirector,
     ensemble: {
       label: ensembleControl.label,
       harmonyTargetHz: ensembleControl.harmony === null
         ? null
         : midiToHz(midiForPitchClass(ensembleControl.harmony.event.pitch, ensembleControl.harmony.event.octave)),
-      harmonyGainScale: ensembleControl.harmony?.gainScale ?? 0,
+      harmonyGainScale: clamp((ensembleControl.harmony?.gainScale ?? 0) * ensembleScale, 0, 0.56),
     },
     phrase: {
       progressStart: phraseControl.progressStart,
@@ -259,7 +279,8 @@ export function vocalEventToWorklet(
         phraseControl.energyStart
           * vocaloid.energyStartScale
           * producerTuning.dynamicsStartScale
-          * voiceCharacter.dynamicsScale,
+          * voiceCharacter.dynamicsScale
+          * vocalDirector.dynamicsScale,
         0.7,
         1.2,
       ),
@@ -267,7 +288,8 @@ export function vocalEventToWorklet(
         phraseControl.energyEnd
           * vocaloid.energyEndScale
           * producerTuning.dynamicsEndScale
-          * voiceCharacter.dynamicsScale,
+          * voiceCharacter.dynamicsScale
+          * vocalDirector.dynamicsScale,
         0.7,
         1.2,
       ),
@@ -278,7 +300,8 @@ export function vocalEventToWorklet(
           * vocaloid.aspirationScale
           * (1 + sourceFilter.aspirationCoupling * 0.1)
           * producerTuning.airScale
-          * voiceCharacter.breathScale,
+          * voiceCharacter.breathScale
+          * vocalDirector.airScale,
         0.045,
         0.16,
       ),
@@ -310,20 +333,26 @@ export function vocalEventToWorklet(
       vibratoDepthCents: model.vibratoDepthCents,
       vibratoDelaySeconds: model.vibratoDelaySeconds,
       intensityModDepth: model.intensityModDepth,
-      jitterCents: model.jitterCents * producerTuning.jitterScale * voiceCharacter.jitterScale,
+      jitterCents: model.jitterCents
+        * producerTuning.jitterScale
+        * voiceCharacter.jitterScale
+        * vocalDirector.jitterScale,
       shimmerDepth: model.shimmerDepth,
       presenceFrequency: model.presenceFrequency,
       presenceGain: model.presenceGain,
       breathLevel: dynamicBreathLevel,
-      attackSeconds: model.attackSeconds * producerTuning.attackTimeScale * voiceCharacter.attackScale,
-      releaseSeconds: model.releaseSeconds,
+      attackSeconds: model.attackSeconds
+        * producerTuning.attackTimeScale
+        * voiceCharacter.attackScale
+        * vocalDirector.attackScale,
+      releaseSeconds: model.releaseSeconds * vocalDirector.releaseScale,
       onsetPitchCents: model.onsetPitchCents * vocaloid.transitionPreservation,
       radiationFrequency: model.radiationFrequency,
       radiationGainDb: model.radiationGainDb,
       doubleDelaySeconds: ensembleControl.doubleLevel > 0
         ? ensembleControl.doubleDelaySeconds
         : model.doubleDelaySeconds,
-      doubleLevel: clamp(ensembleControl.doubleLevel, 0, 0.22),
+      doubleLevel: clamp(ensembleControl.doubleLevel * ensembleScale, 0, 0.22),
     },
   };
 }
