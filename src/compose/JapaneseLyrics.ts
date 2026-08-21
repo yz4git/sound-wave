@@ -115,6 +115,26 @@ function vocalAllowed(composition: FullSongComposition, event: VocalEvent): bool
   return (section?.vocalScale ?? 1) > 0.24;
 }
 
+function replanPhraseBoundaries(line: readonly VocalEvent[]): VocalEvent[] {
+  const planned = line.map((event) => ({ ...event }));
+  for (let index = 0; index < planned.length; index += 1) {
+    const current = planned[index]!;
+    const previous = planned[index - 1];
+    if (!previous) {
+      current.phraseStart = true;
+      continue;
+    }
+    const gap = current.step - previous.step;
+    if (gap > Math.max(5, previous.durationSteps + 2)) {
+      previous.phraseEnd = true;
+      current.phraseStart = true;
+    }
+  }
+  const final = planned.at(-1);
+  if (final) final.phraseEnd = true;
+  return planned;
+}
+
 function chooseTemplate(
   bank: readonly LyricLineTemplate[],
   hook: boolean,
@@ -146,7 +166,7 @@ export function applyJapaneseLyrics(
   vocalLine: readonly VocalEvent[],
   theme: JapaneseLyricsTheme = lyricsThemeFor(profile),
 ): JapaneseLyricsResult {
-  const filteredVocal = vocalLine.filter((event) => vocalAllowed(composition, event));
+  const filteredVocal = replanPhraseBoundaries(vocalLine.filter((event) => vocalAllowed(composition, event)));
   const phrases = splitPhrases(filteredVocal);
   const bank = LINES[theme];
   const events: JapaneseLyricVocalEvent[] = [];
