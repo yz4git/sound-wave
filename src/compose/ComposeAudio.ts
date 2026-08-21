@@ -9,6 +9,12 @@ import {
   vocalEventToWorklet,
   type VocalWorkletStatus,
 } from './VocalWorkletBridge';
+import { mixMasterControlFor, type MixMasterControl } from './MixMaster';
+import {
+  arrangementInstrumentAccents,
+  type ArrangementInstrument,
+} from './ArrangementInstruments';
+import { WavCapture } from './SongExport';
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
@@ -62,11 +68,15 @@ export class ComposeAudio {
   private context: AudioContext | null = null;
   private master: GainNode | null = null;
   private musicBus: GainNode | null = null;
+  private bassBus: GainNode | null = null;
   private vocalBus: GainNode | null = null;
   private drumBus: GainNode | null = null;
+  private stereoWidthSend: GainNode | null = null;
   private compressor: DynamicsCompressorNode | null = null;
+  private limiter: DynamicsCompressorNode | null = null;
   private noise: AudioBuffer | null = null;
   private readonly vocalWorklet = new VocalWorkletBridge();
+  private readonly wavCapture = new WavCapture();
   private phraseControlLine: readonly VocalEvent[] | null = null;
   private phraseControls: ReadonlyMap<number, VocalPhraseControl> = new Map<number, VocalPhraseControl>();
 
@@ -87,9 +97,12 @@ export class ComposeAudio {
       this.context = new AudioContext({ latencyHint: 'interactive' });
       this.master = this.context.createGain();
       this.musicBus = this.context.createGain();
+      this.bassBus = this.context.createGain();
       this.vocalBus = this.context.createGain();
       this.drumBus = this.context.createGain();
+      this.stereoWidthSend = this.context.createGain();
       this.compressor = this.context.createDynamicsCompressor();
+      this.limiter = this.context.createDynamicsCompressor();
 
       const vocalHighpass = this.context.createBiquadFilter();
       const vocalPresence = this.context.createBiquadFilter();
@@ -98,25 +111,24 @@ export class ComposeAudio {
       const vocalMakeup = this.context.createGain();
 
       this.master.gain.value = 0.72;
-      this.musicBus.gain.value = 0.55;
+      this.musicBus.gain.value = 0.52;
+      this.bassBus.gain.value = 0.6;
       this.vocalBus.gain.value = 0.98;
-      this.drumBus.gain.value = 0.7;
+      this.drumBus.gain.value = 0.68;
+      this.stereoWidthSend.gain.value = 0.08;
 
       vocalHighpass.type = 'highpass';
       vocalHighpass.frequency.value = 68;
       vocalHighpass.Q.value = 0.48;
 
-      // Presence Reset stays neutral. Genre character comes from source,
-      // arrangement and articulation rather than a fixed presence shelf.
+      // Presence Reset remains neutral: clarity comes from source and mix movement.
       vocalPresence.type = 'peaking';
       vocalPresence.frequency.value = 2480;
       vocalPresence.Q.value = 0.62;
       vocalPresence.gain.value = 0;
-
       vocalAir.type = 'highshelf';
       vocalAir.frequency.value = 7200;
       vocalAir.gain.value = 0;
-
       vocalCompressor.threshold.value = 0;
       vocalCompressor.knee.value = 0;
       vocalCompressor.ratio.value = 1;
@@ -124,13 +136,20 @@ export class ComposeAudio {
       vocalCompressor.release.value = 0.25;
       vocalMakeup.gain.value = 1;
 
-      this.compressor.threshold.value = -9;
-      this.compressor.knee.value = 12;
-      this.compressor.ratio.value = 2.2;
-      this.compressor.attack.value = 0.008;
-      this.compressor.release.value = 0.22;
+      // Gentle glue compressor, followed by a peak-only limiter.
+      this.compressor.threshold.value = -10;
+      this.compressor.knee.value = 10;
+      this.compressor.ratio.value = 1.8;
+      this.compressor.attack.value = 0.012;
+      this.compressor.release.value = 0.24;
+      this.limiter.threshold.value = -2.4;
+      this.limiter.knee.value = 0;
+      this.limiter.ratio.value = 20;
+      this.limiter.attack.value = 0.002;
+      this.limiter.release.value = 0.08;
 
       this.musicBus.connect(this.master);
+      this.bassBus.connect(this.master);
       this.vocalBus.connect(vocalHighpass);
       vocalHighpass.connect(vocalPresence);
       vocalPresence.connect(vocalAir);
@@ -138,8 +157,33 @@ export class ComposeAudio {
       vocalCompressor.connect(vocalMakeup);
       vocalMakeup.connect(this.master);
       this.drumBus.connect(this.master);
+
+      // Lightweight Haas-style widening on music only; lead vocal stays centered.
+      const widthLeftDelay = this.context.createDelay(0.03);
+      const widthRightDelay = this.context.createDelay(0.03);
+      const widthLeftPan = this.context.createStereoPanner();
+      const widthRightPan = this.context.createStereoPanner();
+      const widthLeftGain = this.context.createGain();
+      const widthRightGain = this.context.createGain();
+      widthLeftDelay.delayTime.value = 0.0045;
+      widthRightDelay.delayTime.value = 0.009;
+      widthLeftPan.pan.value = -0.82;
+      widthRightPan.pan.value = 0.82;
+      widthLeftGain.gain.value = 0.5;
+      widthRightGain.gain.value = 0.5;
+      this.musicBus.connect(this.stereoWidthSend);
+      this.stereoWidthSend.connect(widthLeftDelay);
+      this.stereoWidthSend.connect(widthRightDelay);
+      widthLeftDelay.connect(widthLeftPan);
+      widthRightDelay.connect(widthRightPan);
+      widthLeftPan.connect(widthLeftGain);
+      widthRightPan.connect(widthRightGain);
+      widthLeftGain.connect(this.master);
+      widthRightGain.connect(this.master);
+
       this.master.connect(this.compressor);
-      this.compressor.connect(this.context.destination);
+      this.compressor.connect(this.limiter);
+      this.limiter.connect(this.context.destination);
       this.noise = this.makeNoiseBuffer();
 
       const moduleUrl = new URL('vocal-worklet.js', document.baseURI).toString();
@@ -160,6 +204,21 @@ export class ComposeAudio {
     this.vocalWorklet.clear();
   }
 
+  beginWavCapture(): boolean {
+    if (!this.context || !this.limiter) return false;
+    this.wavCapture.start(this.context, this.limiter);
+    return true;
+  }
+
+  finishWavCapture(): Blob | null {
+    if (!this.context) return null;
+    return this.wavCapture.finish();
+  }
+
+  cancelWavCapture(): void {
+    this.wavCapture.cancel();
+  }
+
   private phraseControlFor(line: readonly VocalEvent[], event: VocalEvent): VocalPhraseControl {
     if (this.phraseControlLine !== line) {
       this.phraseControlLine = line;
@@ -168,14 +227,15 @@ export class ComposeAudio {
     return this.phraseControls.get(event.step) ?? neutralPhraseControl(event);
   }
 
-  private scheduleVocalDucking(active: boolean, when: number): void {
-    if (!this.context || !this.musicBus || !this.drumBus) return;
+  private scheduleMixMaster(control: MixMasterControl, when: number): void {
+    if (!this.context || !this.master || !this.musicBus || !this.bassBus || !this.drumBus || !this.vocalBus || !this.stereoWidthSend) return;
     const start = Math.max(this.context.currentTime, when);
-    const musicTarget = active ? 0.53 : 0.55;
-    const drumTarget = active ? 0.69 : 0.7;
-    const timeConstant = active ? 0.06 : 0.14;
-    this.musicBus.gain.setTargetAtTime(musicTarget, start, timeConstant);
-    this.drumBus.gain.setTargetAtTime(drumTarget, start, timeConstant);
+    this.musicBus.gain.setTargetAtTime(control.musicGain, start, 0.055);
+    this.bassBus.gain.setTargetAtTime(control.bassGain, start, control.lowEndDuck < 1 ? 0.018 : 0.08);
+    this.drumBus.gain.setTargetAtTime(control.drumGain, start, 0.05);
+    this.vocalBus.gain.setTargetAtTime(control.vocalGain, start, 0.07);
+    this.stereoWidthSend.gain.setTargetAtTime(control.stereoWidth, start, 0.12);
+    this.master.gain.setTargetAtTime(0.72 * control.masterDrive, start, 0.12);
   }
 
   private makeNoiseBuffer(): AudioBuffer | null {
@@ -193,9 +253,7 @@ export class ComposeAudio {
 
   private chordOscillatorType(profile: GenreStyleProfile, index: number): OscillatorType {
     if (profile.genre === 'rock') return index === 0 ? 'sawtooth' : 'triangle';
-    if (profile.genre === 'game-music' && (profile.id === 'battle' || profile.id === 'boss-battle')) {
-      return index === 0 ? 'triangle' : 'sawtooth';
-    }
+    if (profile.genre === 'game-music' && (profile.id === 'battle' || profile.id === 'boss-battle')) return index === 0 ? 'triangle' : 'sawtooth';
     if (profile.genre === 'k-pop') return index === 0 ? 'triangle' : 'sine';
     return index === 0 ? 'triangle' : 'sine';
   }
@@ -221,13 +279,7 @@ export class ComposeAudio {
     group.gain.exponentialRampToValueAtTime(Math.max(0.018, 0.032 * drive), start + Math.max(0.1, duration * 0.65 * sustainScale));
     group.gain.exponentialRampToValueAtTime(0.0001, start + Math.max(0.18, duration * sustainScale));
     filter.type = 'lowpass';
-    const brightness = profile.genre === 'rock'
-      ? 1550
-      : profile.genre === 'k-pop'
-        ? 2200
-        : profile.genre === 'game-music'
-          ? 2050
-          : 1750;
+    const brightness = profile.genre === 'rock' ? 1550 : profile.genre === 'k-pop' ? 2200 : profile.genre === 'game-music' ? 2050 : 1750;
     filter.frequency.value = brightness + clamp(tension, 0, 1) * 2200;
     filter.Q.value = 0.65 + tension * 1.15;
     group.connect(filter);
@@ -254,7 +306,7 @@ export class ComposeAudio {
     when: number,
     profile: GenreStyleProfile,
   ): void {
-    if (!this.context || !this.musicBus) return;
+    if (!this.context || !this.bassBus) return;
     const start = Math.max(this.context.currentTime, when);
     const osc = this.context.createOscillator();
     const filter = this.context.createBiquadFilter();
@@ -273,7 +325,7 @@ export class ComposeAudio {
     gain.gain.exponentialRampToValueAtTime(0.0001, start + Math.max(0.12, duration));
     osc.connect(filter);
     filter.connect(gain);
-    gain.connect(this.musicBus);
+    gain.connect(this.bassBus);
     osc.start(start);
     osc.stop(start + duration + 0.03);
   }
@@ -291,18 +343,10 @@ export class ComposeAudio {
     const osc = this.context.createOscillator();
     const gain = this.context.createGain();
     const filter = this.context.createBiquadFilter();
-    osc.type = profile.genre === 'game-music'
-      ? (profile.id === 'puzzle' ? 'sine' : 'triangle')
-      : 'triangle';
+    osc.type = profile.genre === 'game-music' ? (profile.id === 'puzzle' ? 'sine' : 'triangle') : 'triangle';
     osc.frequency.value = midiToHz(midiForPitchClass(pitch, octave));
     filter.type = 'lowpass';
-    filter.frequency.value = profile.genre === 'k-pop'
-      ? 3400
-      : profile.genre === 'game-music'
-        ? 3150
-        : profile.genre === 'rock'
-          ? 2350
-          : 2850;
+    filter.frequency.value = profile.genre === 'k-pop' ? 3400 : profile.genre === 'game-music' ? 3150 : profile.genre === 'rock' ? 2350 : 2850;
     filter.Q.value = profile.genre === 'k-pop' ? 0.7 : 0.5;
     const drive = clamp(profile.melodyDrive, 0.55, 1.25);
     gain.gain.setValueAtTime(0.0001, start);
@@ -313,6 +357,54 @@ export class ComposeAudio {
     gain.connect(this.musicBus);
     osc.start(start);
     osc.stop(start + duration + 0.025);
+  }
+
+  private instrumentOscillator(instrument: ArrangementInstrument): OscillatorType {
+    if (instrument === 'piano' || instrument === 'pad' || instrument === 'arp') return 'triangle';
+    if (instrument === 'strings' || instrument === 'brass' || instrument === 'synth-pad') return 'sawtooth';
+    if (instrument === 'rhythm-guitar' || instrument === 'synth-lead') return 'square';
+    if (instrument === 'lead-guitar' || instrument === 'pluck') return 'triangle';
+    return 'sine';
+  }
+
+  private playArrangementAccent(
+    instrument: ArrangementInstrument,
+    tones: readonly PitchClass[],
+    octave: number,
+    duration: number,
+    gainValue: number,
+    toneIndex: number,
+    when: number,
+  ): void {
+    if (!this.context || !this.musicBus || tones.length === 0) return;
+    const start = Math.max(this.context.currentTime, when);
+    const osc = this.context.createOscillator();
+    const filter = this.context.createBiquadFilter();
+    const gain = this.context.createGain();
+    const pitch = tones[Math.abs(Math.round(toneIndex)) % tones.length] ?? tones[0]!;
+    osc.type = this.instrumentOscillator(instrument);
+    osc.frequency.value = midiToHz(midiForPitchClass(pitch, octave));
+    filter.type = instrument === 'rhythm-guitar' || instrument === 'lead-guitar' ? 'bandpass' : 'lowpass';
+    const bright = instrument === 'strings' || instrument === 'brass' || instrument === 'synth-lead' ? 4200
+      : instrument === 'pluck' || instrument === 'arp' ? 3600
+        : instrument === 'rhythm-guitar' || instrument === 'lead-guitar' ? 1850
+          : 2600;
+    filter.frequency.value = bright;
+    filter.Q.value = instrument === 'rhythm-guitar' || instrument === 'lead-guitar' ? 1.1 : 0.7;
+    const slow = instrument === 'pad' || instrument === 'strings' || instrument === 'synth-pad';
+    const attack = slow ? 0.1 : instrument === 'brass' ? 0.025 : 0.008;
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.003, gainValue), start + attack);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + Math.max(attack + 0.04, duration));
+    if (instrument === 'fx-rise') {
+      osc.frequency.setValueAtTime(900, start);
+      osc.frequency.exponentialRampToValueAtTime(4200, start + Math.max(0.08, duration));
+    }
+    osc.connect(filter);
+    filter.connect(gain);
+    gain.connect(this.musicBus);
+    osc.start(start);
+    osc.stop(start + duration + 0.04);
   }
 
   playDrum(
@@ -387,21 +479,13 @@ export class ComposeAudio {
   ): void {
     const chord = composition.chords[bar]?.chord;
     if (!chord || !chordTrigger(state.chordPattern, localStep)) return;
-
     let tones: readonly PitchClass[] = chord.tones;
     if (state.chordPattern === 'power-pulse') tones = [chord.root, fifthPitch(chord.root)];
     if (state.chordPattern === 'arpeggio-pulse') {
       const index = Math.floor(localStep / 2) % Math.max(1, chord.tones.length);
       tones = [chord.tones[index] ?? chord.root];
     }
-
-    this.playChord(
-      tones,
-      chord.tension,
-      stepSeconds * chordDurationSteps(state.chordPattern),
-      when,
-      profile,
-    );
+    this.playChord(tones, chord.tension, stepSeconds * chordDurationSteps(state.chordPattern), when, profile);
   }
 
   private scheduleBassPattern(
@@ -425,6 +509,30 @@ export class ComposeAudio {
     );
   }
 
+  private scheduleArrangementInstruments(
+    composition: AutoComposition,
+    bar: number,
+    localStep: number,
+    when: number,
+    stepSeconds: number,
+    profile: GenreStyleProfile,
+    state: ArrangementBar,
+  ): void {
+    const chord = composition.chords[bar]?.chord;
+    if (!chord) return;
+    for (const accent of arrangementInstrumentAccents(profile, state, localStep)) {
+      this.playArrangementAccent(
+        accent.instrument,
+        chord.tones,
+        accent.octave,
+        stepSeconds * accent.durationSteps,
+        accent.gain * clamp(state.energy, 0.65, 1.15),
+        accent.toneIndex,
+        when,
+      );
+    }
+  }
+
   scheduleStep(
     composition: AutoComposition,
     step: number,
@@ -439,12 +547,13 @@ export class ComposeAudio {
     const state = composition.arrangement[bar] ?? composition.arrangement[0];
     const vocalsAtStep = vocalLine.filter((vocal) => vocal.step === step);
     const vocalActive = vocalActiveAtStep(vocalLine, step) && this.vocalWorklet.status === 'ready';
-
-    this.scheduleVocalDucking(vocalActive, when);
+    const kickActive = composition.drums.some((drum) => drum.step === step && drum.voice === 'kick');
+    this.scheduleMixMaster(mixMasterControlFor(profile, state, vocalActive, kickActive), when);
 
     if (state) {
       this.scheduleChordPattern(composition, bar, localStep, when, stepSeconds, profile, state);
       this.scheduleBassPattern(composition, bar, localStep, when, stepSeconds, profile, state);
+      this.scheduleArrangementInstruments(composition, bar, localStep, when, stepSeconds, profile, state);
     }
 
     for (const drum of composition.drums) {
@@ -465,16 +574,7 @@ export class ComposeAudio {
         energyStart: clamp(phraseControl.energyStart * profile.vocalEnergy * sectionEnergy, 0.7, 1.18),
         energyEnd: clamp(phraseControl.energyEnd * profile.vocalEnergy * sectionEnergy, 0.7, 1.18),
       };
-      const workletEvent = vocalEventToWorklet(
-        vocal,
-        vocalStyle,
-        when,
-        duration,
-        styledPhrase,
-        profile,
-        state,
-        localStep,
-      );
+      const workletEvent = vocalEventToWorklet(vocal, vocalStyle, when, duration, styledPhrase, profile, state, localStep);
       workletEvent.phoneme = {
         ...workletEvent.phoneme,
         noiseMix: clamp(workletEvent.phoneme.noiseMix * profile.vocalArticulation, 0, 1),
