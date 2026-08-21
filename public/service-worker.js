@@ -1,4 +1,4 @@
-const CACHE = 'sound-wave-v21-0-producer-tuning-grammar';
+const CACHE = 'sound-wave-v21-0-producer-tuning-grammar-r2';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon.svg', './vocal-worklet.js'];
 
 self.addEventListener('install', (event) => {
