@@ -1,5 +1,5 @@
 import type { ArrangementBar } from './GenreArrangement';
-import type { GenreStyleProfile } from './GenreStyle';
+import { genreStyle, type GenreStyleProfile } from './GenreStyle';
 import type { VocalEvent } from './VocalGenerator';
 import type { VocalPhraseControl } from './VocalPhraseModel';
 
@@ -34,6 +34,7 @@ export interface ProducerTuningControl {
   role: 'plain' | 'phrase-head' | 'long-tone' | 'phrase-tail' | 'hook';
 }
 
+const DEFAULT_PROFILE = genreStyle('j-pop', 'mainstream');
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
 function deterministicUnit(step: number, salt: number): number {
@@ -44,8 +45,11 @@ function deterministicUnit(step: number, salt: number): number {
   return value / 4294967296;
 }
 
-function isHookSection(state: ArrangementBar | undefined): boolean {
-  return state?.section === 'chorus' || state?.section === 'drop' || state?.section === 'climax';
+function isHookSection(state: ArrangementBar | undefined, step: number): boolean {
+  if (state) return state.section === 'chorus' || state.section === 'drop' || state.section === 'climax';
+  // All current 8-bar grammars reach their main hook/climax around bars 4-5.
+  const barInCycle = Math.floor(step / 16) % 8;
+  return barInCycle === 4 || barInCycle === 5 || barInCycle === 7;
 }
 
 function genreBias(profile: GenreStyleProfile): {
@@ -117,22 +121,22 @@ function genreBias(profile: GenreStyleProfile): {
 }
 
 /**
- * Practical producer-style tuning grammar.  It deliberately selects only a
+ * Practical producer-style tuning grammar. It deliberately selects only a
  * subset of notes for ornaments so the singer does not sound over-edited.
  */
 export function producerTuningFor(
   event: VocalEvent,
   phrase: VocalPhraseControl,
-  profile: GenreStyleProfile,
-  state: ArrangementBar | undefined,
-  localStep: number,
-  durationSeconds: number,
+  profile: GenreStyleProfile = DEFAULT_PROFILE,
+  state?: ArrangementBar,
+  localStep: number = event.step % 16,
+  durationSeconds: number = Math.max(0.11, event.durationSteps * 0.12),
 ): ProducerTuningControl {
   const bias = genreBias(profile);
   const strongBeat = localStep % 4 === 0;
   const phraseHead = event.phraseStart;
   const phraseTail = event.phraseEnd;
-  const hook = isHookSection(state);
+  const hook = isHookSection(state, event.step);
   const longTone = durationSeconds >= 0.58 || event.durationSteps >= 3;
   const dense = (state?.vocalDensityScale ?? 1) > 1.02;
   const energy = clamp(state?.energy ?? 1, 0.55, 1.2);
