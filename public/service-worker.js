@@ -1,4 +1,4 @@
-const CACHE = 'sound-wave-auto-compose-v3-full-song-ensemble-japanese-lyrics';
+const CACHE = 'sound-wave-auto-compose-v4-production-suite';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon.svg', './vocal-worklet.js'];
 
 self.addEventListener('install', (event) => {
