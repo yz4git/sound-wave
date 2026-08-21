@@ -138,7 +138,7 @@ export function vocalEnsembleFor(
       harmony: addHarmony
         ? { event: diatonicHarmony(event, tonality, 4, pick > 0.28), gainScale: 0.3 }
         : null,
-      label: addHarmony ? 'HARMONY' : 'LEAD',
+      label: addHarmony ? 'HARMONY' : 'DOUBLE',
     };
   }
 
@@ -151,7 +151,7 @@ export function vocalEnsembleFor(
     harmony: addHarmony
       ? { event: diatonicHarmony(event, tonality, 2, false), gainScale: ballad ? 0.34 : finalHook ? 0.42 : 0.35 }
       : null,
-    label: addHarmony ? (finalHook ? 'STACKED' : 'HARMONY') : 'LEAD',
+    label: addHarmony ? (finalHook ? 'STACKED' : 'HARMONY') : 'DOUBLE',
   };
 }
 
