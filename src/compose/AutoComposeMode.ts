@@ -19,15 +19,9 @@ import {
   validSubgenre,
   type GenreId,
 } from './GenreStyle';
-import {
-  applyJapaneseLyrics,
-  type JapaneseLyricsTheme,
-  type JapaneseLyricVocalEvent,
-} from './JapaneseLyrics';
-import {
-  generateVocalLine,
-  type VocalStyle,
-} from './VocalGenerator';
+import type { JapaneseLyricsTheme, JapaneseLyricVocalEvent } from './JapaneseLyrics';
+import { applyJapaneseLyricsV2 } from './JapaneseLyricsV2';
+import { generateVocalLine, type VocalStyle } from './VocalGenerator';
 import {
   activeVocalEnsembleFor,
   setActiveVocalEnsembleComposition,
@@ -38,6 +32,23 @@ import {
   validVoiceCharacterPreset,
   type VoiceCharacterPreset,
 } from './VoiceCharacter';
+import {
+  VOCAL_DIRECTOR_PRESETS,
+  setActiveVocalDirector,
+  validVocalDirectorPreset,
+  vocalDirectorControlFor,
+  type VocalDirectorPreset,
+} from './VocalDirector';
+import {
+  createSongProjectSnapshot,
+  downloadBlob,
+  exportLyricsText,
+  exportProjectJson,
+  generatedSongTitle,
+  saveFavoriteSong,
+} from './SongExport';
+import { arrangementInstrumentLabel } from './ArrangementInstruments';
+import { mixMasterControlFor, mixMasterDbSummary } from './MixMaster';
 
 const STORAGE_KEY = 'sound-wave-auto-compose-v1';
 const VOCAL_STORAGE_KEY = 'sound-wave-auto-vocal-v1';
@@ -45,11 +56,10 @@ const MODES: readonly Mode[] = ['major', 'minor', 'dorian', 'phrygian', 'mixolyd
 const PITCHES: readonly PitchClass[] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 const VOCAL_STYLES: readonly VocalStyle[] = ['warm', 'bright', 'airy'];
 const VOICE_CHARACTER_LABELS: Record<VoiceCharacterPreset, string> = {
-  soft: 'SOFT',
-  natural: 'NATURAL',
-  clear: 'CLEAR',
-  airy: 'AIRY',
-  power: 'POWER',
+  soft: 'SOFT', natural: 'NATURAL', clear: 'CLEAR', airy: 'AIRY', power: 'POWER',
+};
+const VOCAL_DIRECTOR_LABELS: Record<VocalDirectorPreset, string> = {
+  auto: 'AUTO', cute: 'CUTE', cool: 'COOL', emotional: 'EMOTIONAL', sad: 'SAD', energetic: 'ENERGETIC', intimate: 'INTIMATE',
 };
 
 export class AutoComposeMode {
@@ -63,12 +73,16 @@ export class AutoComposeMode {
   private vocalStyle: VocalStyle;
   private voiceCharacter: VoiceCharacterPreset;
   private voiceTone: number;
+  private vocalDirector: VocalDirectorPreset;
   private active = false;
   private playing = false;
   private nextStep = 0;
   private nextStepTime = 0;
   private schedulerId = 0;
   private visualStep = 0;
+  private scheduledStepCount = 0;
+  private wavRecording = false;
+  private wavStopTimer = 0;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -78,7 +92,9 @@ export class AutoComposeMode {
     this.vocalStyle = vocal.style;
     this.voiceCharacter = vocal.character;
     this.voiceTone = vocal.tone;
+    this.vocalDirector = vocal.director;
     setActiveVoiceCharacter({ preset: this.voiceCharacter, tone: this.voiceTone });
+    setActiveVocalDirector(this.vocalDirector);
     this.composition = generateFullSongComposition(this.settings);
     this.settings = this.composition.settings;
     this.rebuildVocalLine();
@@ -105,13 +121,8 @@ export class AutoComposeMode {
     this.root.setAttribute('aria-hidden', 'true');
   }
 
-  suspendAudio(): void {
-    this.audio.suspend();
-  }
-
-  resumeAudio(): void {
-    if (this.active) this.audio.resume();
-  }
+  suspendAudio(): void { this.audio.suspend(); }
+  resumeAudio(): void { if (this.active) this.audio.resume(); }
 
   private loadSettings(): AutoComposeSettings {
     const fallback = defaultFullSongSettings();
@@ -122,9 +133,7 @@ export class AutoComposeMode {
       const tonic = PITCHES.includes(parsed.tonic as PitchClass) ? parsed.tonic as PitchClass : fallback.tonic;
       const mode = MODES.includes(parsed.mode as Mode) ? parsed.mode as Mode : fallback.mode;
       const genre: GenreId = validGenre(parsed.genre) ? parsed.genre : fallback.genre;
-      const subgenre = validSubgenre(genre, parsed.subgenre)
-        ? parsed.subgenre as string
-        : defaultSubgenreFor(genre);
+      const subgenre = validSubgenre(genre, parsed.subgenre) ? parsed.subgenre as string : defaultSubgenreFor(genre);
       return {
         tonic,
         mode,
@@ -135,9 +144,7 @@ export class AutoComposeMode {
         genre,
         subgenre,
       };
-    } catch {
-      return fallback;
-    }
+    } catch { return fallback; }
   }
 
   private loadVocalSettings(): {
@@ -145,36 +152,25 @@ export class AutoComposeMode {
     style: VocalStyle;
     character: VoiceCharacterPreset;
     tone: number;
+    director: VocalDirectorPreset;
   } {
     const recommended = genreStyle(this.settings.genre, this.settings.subgenre).recommendedVocalStyle;
     try {
       const raw = localStorage.getItem(VOCAL_STORAGE_KEY);
-      if (!raw) return { enabled: true, style: recommended, character: 'natural', tone: 0 };
-      const parsed = JSON.parse(raw) as {
-        enabled?: unknown;
-        style?: unknown;
-        character?: unknown;
-        tone?: unknown;
-      };
-      const style = VOCAL_STYLES.includes(parsed.style as VocalStyle)
-        ? parsed.style as VocalStyle
-        : recommended;
-      const character = validVoiceCharacterPreset(parsed.character)
-        ? parsed.character
-        : 'natural';
+      if (!raw) return { enabled: true, style: recommended, character: 'natural', tone: 0, director: 'auto' };
+      const parsed = JSON.parse(raw) as { enabled?: unknown; style?: unknown; character?: unknown; tone?: unknown; director?: unknown };
+      const style = VOCAL_STYLES.includes(parsed.style as VocalStyle) ? parsed.style as VocalStyle : recommended;
+      const character = validVoiceCharacterPreset(parsed.character) ? parsed.character : 'natural';
       const tone = Math.max(-1, Math.min(1, Number(parsed.tone) || 0));
-      return { enabled: parsed.enabled !== false, style, character, tone };
+      const director = validVocalDirectorPreset(parsed.director) ? parsed.director : 'auto';
+      return { enabled: parsed.enabled !== false, style, character, tone, director };
     } catch {
-      return { enabled: true, style: recommended, character: 'natural', tone: 0 };
+      return { enabled: true, style: recommended, character: 'natural', tone: 0, director: 'auto' };
     }
   }
 
   private saveSettings(): void {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(this.settings));
-    } catch {
-      // Storage may be unavailable in private/restricted Safari contexts.
-    }
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(this.settings)); } catch { /* restricted Safari */ }
   }
 
   private saveVocalSettings(): void {
@@ -184,34 +180,31 @@ export class AutoComposeMode {
         style: this.vocalStyle,
         character: this.voiceCharacter,
         tone: this.voiceTone,
+        director: this.vocalDirector,
       }));
-    } catch {
-      // Storage may be unavailable in private/restricted Safari contexts.
-    }
+    } catch { /* restricted Safari */ }
   }
 
   private genreOptions(): string {
-    return GENRE_DEFINITIONS
-      .map((genre) => `<option value="${genre.id}">${genre.label}</option>`)
-      .join('');
+    return GENRE_DEFINITIONS.map((genre) => `<option value="${genre.id}">${genre.label}</option>`).join('');
   }
 
   private subgenreOptions(genre: GenreId): string {
-    return genreDefinition(genre).subgenres
-      .map((style) => `<option value="${style.id}">${style.label}</option>`)
-      .join('');
+    return genreDefinition(genre).subgenres.map((style) => `<option value="${style.id}">${style.label}</option>`).join('');
   }
 
   private characterOptions(): string {
-    return VOICE_CHARACTER_PRESETS
-      .map((preset) => `<option value="${preset}">${VOICE_CHARACTER_LABELS[preset]}</option>`)
-      .join('');
+    return VOICE_CHARACTER_PRESETS.map((preset) => `<option value="${preset}">${VOICE_CHARACTER_LABELS[preset]}</option>`).join('');
+  }
+
+  private directorOptions(): string {
+    return VOCAL_DIRECTOR_PRESETS.map((preset) => `<option value="${preset}">${VOCAL_DIRECTOR_LABELS[preset]}</option>`).join('');
   }
 
   private rebuildVocalLine(): void {
     const profile = genreStyle(this.settings.genre, this.settings.subgenre);
     const rawVocal = generateVocalLine(this.composition);
-    const lyrics = applyJapaneseLyrics(this.composition, profile, rawVocal);
+    const lyrics = applyJapaneseLyricsV2(this.composition, profile, rawVocal);
     this.vocalLine = lyrics.events;
     this.lyricsTheme = lyrics.theme;
     setActiveVocalEnsembleComposition(this.composition);
@@ -223,9 +216,9 @@ export class AutoComposeMode {
     this.root.innerHTML = `
       <header class="compose-header">
         <div>
-          <span class="compose-kicker">AUTO COMPOSE v3 · FULL SONG · VOCAL ENSEMBLE · JAPANESE LYRICS</span>
+          <span class="compose-kicker">AUTO COMPOSE v4 · MIX/MASTER · LYRICS v2 · INSTRUMENTS v2 · VOCAL DIRECTOR · EXPORT</span>
           <h1>AUTO COMPOSE</h1>
-          <p>Generate a complete song with genre-aware sections, vocal stacks and original Japanese lyrics.</p>
+          <p>Generate, arrange, sing, mix and export a complete song on this device.</p>
         </div>
         <div class="compose-transport">
           <button type="button" id="compose-play">▶ PLAY</button>
@@ -244,6 +237,7 @@ export class AutoComposeMode {
           <span class="compose-vocal-inline">
             <button type="button" id="compose-vocal-toggle">ON</button>
             <select id="compose-voice-character">${this.characterOptions()}</select>
+            <select id="compose-vocal-director" aria-label="Vocal Director">${this.directorOptions()}</select>
           </span>
         </label>
         <label class="compose-tone-control"><span id="compose-tone-label">TONE 0</span><input id="compose-voice-tone" type="range" min="-50" max="50" step="1" /></label>
@@ -252,19 +246,25 @@ export class AutoComposeMode {
         <div class="compose-now">
           <span id="compose-title">FULL SONG</span>
           <strong id="compose-chord">INTRO</strong>
-          <small id="compose-theory">FULL SONG STRUCTURE</small>
+          <small id="compose-theory">PRODUCTION SUITE</small>
         </div>
         <div class="compose-style-strip"><b id="compose-style-name">STYLE</b><span id="compose-style-description"></span></div>
         <div class="compose-vocal-strip"><b>VOCAL</b><span id="compose-vocal-now">AUDIOWORKLET SINGER · INITIALIZING</span></div>
         <div class="compose-progress"><i id="compose-progress-fill"></i></div>
         <div id="compose-chords" class="compose-chords compose-sections" aria-label="Full song sections"></div>
         <div class="compose-roll-wrap">
-          <span class="compose-roll-label">FULL SONG · MELODY + JAPANESE VOCAL</span>
+          <span class="compose-roll-label">FULL SONG · ARRANGEMENT + JAPANESE LYRICS v2</span>
           <div id="compose-roll" class="compose-roll"></div>
         </div>
-        <div class="compose-explain">
-          <b>FULL SONG v3</b>
-          <span>Structure · genre-aware vocal double/harmony · original Japanese mora lyrics · ${this.settings.bars} bars.</span>
+        <div class="compose-explain compose-export-bar">
+          <b id="compose-song-name">SONG</b>
+          <span id="compose-export-status">READY TO EXPORT</span>
+          <div class="compose-export-actions">
+            <button type="button" id="compose-favorite">☆ SAVE</button>
+            <button type="button" id="compose-export-json">JSON</button>
+            <button type="button" id="compose-export-lyrics">LYRICS</button>
+            <button type="button" id="compose-export-wav">WAV</button>
+          </div>
         </div>
       </section>
     `;
@@ -276,10 +276,12 @@ export class AutoComposeMode {
     this.required<HTMLInputElement>('#compose-bpm').value = String(this.settings.bpm);
     this.required<HTMLInputElement>('#compose-density').value = String(Math.round(this.settings.density * 100));
     this.required<HTMLSelectElement>('#compose-voice-character').value = this.voiceCharacter;
+    this.required<HTMLSelectElement>('#compose-vocal-director').value = this.vocalDirector;
     this.required<HTMLInputElement>('#compose-voice-tone').value = String(Math.round(this.voiceTone * 50));
     this.syncControlLabels();
     this.syncVocalControl();
     this.syncStyleInfo();
+    this.syncExportSummary();
   }
 
   private required<T extends Element>(selector: string): T {
@@ -291,22 +293,16 @@ export class AutoComposeMode {
   private bindEvents(): void {
     this.required<HTMLButtonElement>('#compose-play').addEventListener('pointerdown', (event) => {
       event.preventDefault();
-      if (this.playing) this.stop();
-      else void this.play();
+      if (this.playing) this.stop(); else void this.play();
     }, { passive: false });
-
     this.required<HTMLButtonElement>('#compose-regenerate').addEventListener('pointerdown', (event) => {
-      event.preventDefault();
-      this.regenerate();
+      event.preventDefault(); this.regenerate();
     }, { passive: false });
-
     this.required<HTMLButtonElement>('#compose-vocal-toggle').addEventListener('pointerdown', (event) => {
       event.preventDefault();
       this.vocalEnabled = !this.vocalEnabled;
       if (!this.vocalEnabled) this.audio.clearVocalStream();
-      this.saveVocalSettings();
-      this.syncVocalControl();
-      this.updateVisual(this.visualStep);
+      this.saveVocalSettings(); this.syncVocalControl(); this.updateVisual(this.visualStep);
     }, { passive: false });
 
     this.required<HTMLSelectElement>('#compose-voice-character').addEventListener('change', (event) => {
@@ -314,15 +310,19 @@ export class AutoComposeMode {
       if (!validVoiceCharacterPreset(value)) return;
       this.voiceCharacter = value;
       setActiveVoiceCharacter({ preset: this.voiceCharacter, tone: this.voiceTone });
-      this.saveVocalSettings();
-      this.updateVisual(this.visualStep);
+      this.saveVocalSettings(); this.syncExportSummary(); this.updateVisual(this.visualStep);
     });
-
+    this.required<HTMLSelectElement>('#compose-vocal-director').addEventListener('change', (event) => {
+      const value = (event.target as HTMLSelectElement).value;
+      if (!validVocalDirectorPreset(value)) return;
+      this.vocalDirector = value;
+      setActiveVocalDirector(value);
+      this.saveVocalSettings(); this.syncStyleInfo(); this.syncExportSummary(); this.updateVisual(this.visualStep);
+    });
     this.required<HTMLInputElement>('#compose-voice-tone').addEventListener('input', (event) => {
       this.voiceTone = Math.max(-1, Math.min(1, Number((event.target as HTMLInputElement).value) / 50));
       setActiveVoiceCharacter({ preset: this.voiceCharacter, tone: this.voiceTone });
-      this.syncControlLabels();
-      this.updateVisual(this.visualStep);
+      this.syncControlLabels(); this.updateVisual(this.visualStep);
     });
     this.required<HTMLInputElement>('#compose-voice-tone').addEventListener('change', () => this.saveVocalSettings());
 
@@ -331,44 +331,59 @@ export class AutoComposeMode {
       if (!validGenre(value)) return;
       const subgenre = defaultSubgenreFor(value);
       this.settings = { ...this.settings, genre: value, subgenre };
-      this.syncSubgenreOptions();
-      this.applyStyleDefaults();
-      this.rebuildFromControls();
+      this.syncSubgenreOptions(); this.applyStyleDefaults(); this.rebuildFromControls();
     });
-
     this.required<HTMLSelectElement>('#compose-subgenre').addEventListener('change', (event) => {
       const subgenre = (event.target as HTMLSelectElement).value;
       if (!validSubgenre(this.settings.genre, subgenre)) return;
       this.settings = { ...this.settings, subgenre };
-      this.applyStyleDefaults();
-      this.rebuildFromControls();
+      this.applyStyleDefaults(); this.rebuildFromControls();
     });
-
     this.required<HTMLSelectElement>('#compose-key').addEventListener('change', (event) => {
-      this.settings = { ...this.settings, tonic: Number((event.target as HTMLSelectElement).value) as PitchClass };
-      this.rebuildFromControls();
+      this.settings = { ...this.settings, tonic: Number((event.target as HTMLSelectElement).value) as PitchClass }; this.rebuildFromControls();
     });
     this.required<HTMLSelectElement>('#compose-mode').addEventListener('change', (event) => {
-      this.settings = { ...this.settings, mode: (event.target as HTMLSelectElement).value as Mode };
-      this.rebuildFromControls();
+      this.settings = { ...this.settings, mode: (event.target as HTMLSelectElement).value as Mode }; this.rebuildFromControls();
     });
     this.required<HTMLInputElement>('#compose-bpm').addEventListener('input', (event) => {
-      this.settings = { ...this.settings, bpm: Number((event.target as HTMLInputElement).value) };
-      this.syncControlLabels();
+      this.settings = { ...this.settings, bpm: Number((event.target as HTMLInputElement).value) }; this.syncControlLabels();
     });
     this.required<HTMLInputElement>('#compose-bpm').addEventListener('change', () => this.rebuildFromControls());
     this.required<HTMLInputElement>('#compose-density').addEventListener('input', (event) => {
-      this.settings = { ...this.settings, density: Number((event.target as HTMLInputElement).value) / 100 };
-      this.syncControlLabels();
+      this.settings = { ...this.settings, density: Number((event.target as HTMLInputElement).value) / 100 }; this.syncControlLabels();
     });
     this.required<HTMLInputElement>('#compose-density').addEventListener('change', () => this.rebuildFromControls());
+
+    this.required<HTMLButtonElement>('#compose-favorite').addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      const count = saveFavoriteSong(this.songSnapshot());
+      this.required<HTMLElement>('#compose-export-status').textContent = `SAVED · ${count} FAVORITE${count === 1 ? '' : 'S'}`;
+    }, { passive: false });
+    this.required<HTMLButtonElement>('#compose-export-json').addEventListener('pointerdown', (event) => {
+      event.preventDefault(); exportProjectJson(this.songSnapshot());
+      this.required<HTMLElement>('#compose-export-status').textContent = 'PROJECT JSON EXPORTED';
+    }, { passive: false });
+    this.required<HTMLButtonElement>('#compose-export-lyrics').addEventListener('pointerdown', (event) => {
+      event.preventDefault(); exportLyricsText(this.songSnapshot());
+      this.required<HTMLElement>('#compose-export-status').textContent = 'LYRICS TXT EXPORTED';
+    }, { passive: false });
+    this.required<HTMLButtonElement>('#compose-export-wav').addEventListener('pointerdown', (event) => {
+      event.preventDefault(); void this.exportWav();
+    }, { passive: false });
     this.root.addEventListener('contextmenu', (event) => event.preventDefault());
+  }
+
+  private songSnapshot() {
+    return createSongProjectSnapshot(this.composition, this.vocalLine, this.lyricsTheme, {
+      character: this.voiceCharacter,
+      tone: this.voiceTone,
+      director: this.vocalDirector,
+    });
   }
 
   private syncSubgenreOptions(): void {
     const select = this.required<HTMLSelectElement>('#compose-subgenre');
-    select.innerHTML = this.subgenreOptions(this.settings.genre);
-    select.value = this.settings.subgenre;
+    select.innerHTML = this.subgenreOptions(this.settings.genre); select.value = this.settings.subgenre;
   }
 
   private applyStyleDefaults(): void {
@@ -378,10 +393,7 @@ export class AutoComposeMode {
     this.settings = { ...this.settings, bpm };
     this.vocalStyle = style.recommendedVocalStyle;
     this.required<HTMLInputElement>('#compose-bpm').value = String(bpm);
-    this.audio.clearVocalStream();
-    this.saveVocalSettings();
-    this.syncControlLabels();
-    this.syncStyleInfo();
+    this.audio.clearVocalStream(); this.saveVocalSettings(); this.syncControlLabels(); this.syncStyleInfo();
   }
 
   private syncControlLabels(): void {
@@ -395,19 +407,27 @@ export class AutoComposeMode {
   private syncStyleInfo(): void {
     const style = genreStyle(this.settings.genre, this.settings.subgenre);
     const genre = genreDefinition(this.settings.genre);
+    const director = vocalDirectorControlFor(style, this.vocalDirector).resolvedPreset.toUpperCase();
     this.required<HTMLElement>('#compose-style-name').textContent = `${genre.label} · ${style.label}`;
-    this.required<HTMLElement>('#compose-style-description').textContent = `${style.description} · ${this.settings.bars} BAR FULL SONG · ${this.lyricsTheme.toUpperCase()} LYRICS`;
-    this.required<HTMLElement>('#compose-theory').textContent = `FULL SONG · ${Math.round(style.melodyDensity * 100)}% MELODY · ${this.voiceCharacter.toUpperCase()}`;
+    this.required<HTMLElement>('#compose-style-description').textContent = `${style.description} · ${this.settings.bars} BAR FULL SONG · ${this.lyricsTheme.toUpperCase()} STORY LYRICS`;
+    this.required<HTMLElement>('#compose-theory').textContent = `MIX/MASTER · INSTRUMENTS v2 · DIRECTOR ${director}`;
   }
 
   private syncVocalControl(): void {
     const button = this.required<HTMLButtonElement>('#compose-vocal-toggle');
     const character = this.required<HTMLSelectElement>('#compose-voice-character');
+    const director = this.required<HTMLSelectElement>('#compose-vocal-director');
     const tone = this.required<HTMLInputElement>('#compose-voice-tone');
-    button.textContent = this.vocalEnabled ? 'ON' : 'OFF';
-    button.classList.toggle('active', this.vocalEnabled);
-    character.disabled = !this.vocalEnabled;
-    tone.disabled = !this.vocalEnabled;
+    button.textContent = this.vocalEnabled ? 'ON' : 'OFF'; button.classList.toggle('active', this.vocalEnabled);
+    character.disabled = !this.vocalEnabled; director.disabled = !this.vocalEnabled; tone.disabled = !this.vocalEnabled;
+  }
+
+  private syncExportSummary(): void {
+    const title = generatedSongTitle(this.lyricsTheme, this.settings.seed);
+    const titleElement = this.root.querySelector<HTMLElement>('#compose-song-name');
+    if (titleElement) titleElement.textContent = title;
+    const status = this.root.querySelector<HTMLElement>('#compose-export-status');
+    if (status && !this.wavRecording) status.textContent = `SEED ${this.settings.seed >>> 0} · JSON / LYRICS / WAV`;
   }
 
   private rebuildFromControls(): void {
@@ -415,10 +435,7 @@ export class AutoComposeMode {
     this.stop();
     this.composition = generateFullSongComposition(this.settings);
     this.settings = this.composition.settings;
-    this.rebuildVocalLine();
-    this.saveSettings();
-    this.syncStyleInfo();
-    this.renderComposition();
+    this.rebuildVocalLine(); this.saveSettings(); this.syncStyleInfo(); this.renderComposition(); this.syncExportSummary();
     if (wasPlaying && this.active) void this.play();
   }
 
@@ -428,40 +445,31 @@ export class AutoComposeMode {
   }
 
   private renderComposition(): void {
-    this.required<HTMLElement>('#compose-title').textContent = this.composition.title;
+    this.required<HTMLElement>('#compose-title').textContent = generatedSongTitle(this.lyricsTheme, this.settings.seed);
     this.syncStyleInfo();
     const sections = this.required<HTMLElement>('#compose-chords');
     sections.replaceChildren();
     for (const section of this.composition.songSections) {
       const cell = document.createElement('div');
-      cell.className = 'compose-chord-cell compose-section-cell';
-      cell.dataset.composeSection = String(section.index);
+      cell.className = 'compose-chord-cell compose-section-cell'; cell.dataset.composeSection = String(section.index);
       const shift = section.keyShiftSemitones > 0 ? ` · +${section.keyShiftSemitones} KEY` : '';
       cell.innerHTML = `<span>${section.label}</span><b>${section.bars} BARS</b><em>${Math.round(section.energyScale * 100)}%${shift}</em>`;
       sections.append(cell);
     }
-
     const roll = this.required<HTMLElement>('#compose-roll');
     roll.replaceChildren();
     const length = compositionLengthSteps(this.composition);
     for (const note of this.composition.melody) {
       const dot = document.createElement('i');
-      dot.className = 'compose-note';
-      dot.style.left = `${note.step / length * 100}%`;
-      dot.style.bottom = `${12 + (note.pitch / 11) * 72}%`;
-      dot.style.width = `${Math.max(0.25, note.durationSteps / length * 100)}%`;
-      dot.dataset.step = String(note.step);
-      roll.append(dot);
+      dot.className = 'compose-note'; dot.style.left = `${note.step / length * 100}%`;
+      dot.style.bottom = `${12 + (note.pitch / 11) * 72}%`; dot.style.width = `${Math.max(0.25, note.durationSteps / length * 100)}%`;
+      dot.dataset.step = String(note.step); roll.append(dot);
     }
     for (const vocal of this.vocalLine) {
       const marker = document.createElement('i');
-      marker.className = 'compose-vocal-note';
-      marker.style.left = `${vocal.step / length * 100}%`;
-      marker.style.bottom = `${12 + (vocal.pitch / 11) * 72}%`;
-      marker.style.width = `${Math.max(0.3, vocal.durationSteps / length * 100)}%`;
-      marker.dataset.vocalStep = String(vocal.step);
-      marker.title = `${vocal.lyric} · ${vocal.lyricLine}`;
-      roll.append(marker);
+      marker.className = 'compose-vocal-note'; marker.style.left = `${vocal.step / length * 100}%`;
+      marker.style.bottom = `${12 + (vocal.pitch / 11) * 72}%`; marker.style.width = `${Math.max(0.3, vocal.durationSteps / length * 100)}%`;
+      marker.dataset.vocalStep = String(vocal.step); marker.title = `${vocal.lyric} · ${vocal.lyricLine}`; roll.append(marker);
     }
     this.updateVisual(0);
   }
@@ -469,34 +477,29 @@ export class AutoComposeMode {
   private async play(): Promise<void> {
     await this.audio.unlock();
     if (!this.active) return;
-    setActiveVocalEnsembleComposition(this.composition);
-    this.audio.clearVocalStream();
-    this.playing = true;
-    this.nextStep = 0;
-    this.visualStep = 0;
+    setActiveVocalEnsembleComposition(this.composition); setActiveVocalDirector(this.vocalDirector);
+    this.audio.clearVocalStream(); this.playing = true; this.nextStep = 0; this.visualStep = 0; this.scheduledStepCount = 0;
     this.nextStepTime = this.audio.currentTime + 0.07;
     this.required<HTMLButtonElement>('#compose-play').textContent = '■ STOP';
-    this.required<HTMLButtonElement>('#compose-play').classList.add('playing');
-    this.startScheduler();
+    this.required<HTMLButtonElement>('#compose-play').classList.add('playing'); this.startScheduler();
   }
 
   private stop(): void {
     this.playing = false;
-    if (this.schedulerId) window.clearInterval(this.schedulerId);
-    this.schedulerId = 0;
+    if (this.schedulerId) window.clearInterval(this.schedulerId); this.schedulerId = 0;
+    if (this.wavStopTimer) window.clearTimeout(this.wavStopTimer); this.wavStopTimer = 0;
+    if (this.wavRecording) { this.audio.cancelWavCapture(); this.wavRecording = false; }
     this.audio.clearVocalStream();
     const playButton = this.root.querySelector<HTMLButtonElement>('#compose-play');
-    if (playButton) {
-      playButton.textContent = '▶ PLAY';
-      playButton.classList.remove('playing');
-    }
+    if (playButton) { playButton.textContent = '▶ PLAY'; playButton.classList.remove('playing'); }
+    const wavButton = this.root.querySelector<HTMLButtonElement>('#compose-export-wav');
+    if (wavButton) wavButton.textContent = 'WAV';
     this.updateVisual(0);
   }
 
   private startScheduler(): void {
     if (this.schedulerId) window.clearInterval(this.schedulerId);
-    this.schedulerId = window.setInterval(() => this.scheduleAhead(), 25);
-    this.scheduleAhead();
+    this.schedulerId = window.setInterval(() => this.scheduleAhead(), 25); this.scheduleAhead();
   }
 
   private scheduleAhead(): void {
@@ -505,22 +508,43 @@ export class AutoComposeMode {
     const length = compositionLengthSteps(this.composition);
     const horizon = this.audio.currentTime + 0.12;
     while (this.nextStepTime <= horizon) {
+      if (this.wavRecording && this.scheduledStepCount >= length) break;
       const scheduledStep = this.nextStep;
       const when = this.nextStepTime;
-      this.audio.scheduleStep(
-        this.composition,
-        scheduledStep,
-        when,
-        this.vocalEnabled ? this.vocalLine : [],
-        this.vocalStyle,
-      );
+      this.audio.scheduleStep(this.composition, scheduledStep, when, this.vocalEnabled ? this.vocalLine : [], this.vocalStyle);
       const visualDelay = Math.max(0, (when - this.audio.currentTime) * 1000);
-      window.setTimeout(() => {
-        if (this.playing) this.updateVisual(scheduledStep);
-      }, visualDelay);
+      window.setTimeout(() => { if (this.playing) this.updateVisual(scheduledStep); }, visualDelay);
+      this.scheduledStepCount += 1;
       this.nextStep = (this.nextStep + 1) % length;
       this.nextStepTime += stepSeconds;
     }
+  }
+
+  private async exportWav(): Promise<void> {
+    await this.audio.unlock();
+    if (!this.active) return;
+    this.stop();
+    if (!this.audio.beginWavCapture()) {
+      this.required<HTMLElement>('#compose-export-status').textContent = 'WAV CAPTURE UNAVAILABLE'; return;
+    }
+    this.wavRecording = true;
+    this.required<HTMLButtonElement>('#compose-export-wav').textContent = '● REC';
+    this.required<HTMLElement>('#compose-export-status').textContent = 'RECORDING FULL SONG · KEEP APP ACTIVE';
+    await this.play();
+    const durationMs = compositionLengthSteps(this.composition) * compositionStepMs(this.composition) + 1200;
+    this.wavStopTimer = window.setTimeout(() => this.finishWavExport(), durationMs);
+  }
+
+  private finishWavExport(): void {
+    if (!this.wavRecording) return;
+    const blob = this.audio.finishWavCapture();
+    this.wavRecording = false;
+    if (this.wavStopTimer) window.clearTimeout(this.wavStopTimer); this.wavStopTimer = 0;
+    this.stop();
+    if (!blob) return;
+    const title = generatedSongTitle(this.lyricsTheme, this.settings.seed);
+    downloadBlob(blob, `${title}.wav`);
+    this.required<HTMLElement>('#compose-export-status').textContent = '16-BIT WAV EXPORTED';
   }
 
   private updateVisual(step: number): void {
@@ -536,8 +560,7 @@ export class AutoComposeMode {
       cell.classList.toggle('active', Number(cell.dataset.composeSection) === section?.index && this.playing);
     }
     for (const note of this.root.querySelectorAll<HTMLElement>('.compose-note')) {
-      const noteStep = Number(note.dataset.step);
-      note.classList.toggle('active', this.playing && Math.abs(noteStep - this.visualStep) <= 1);
+      const noteStep = Number(note.dataset.step); note.classList.toggle('active', this.playing && Math.abs(noteStep - this.visualStep) <= 1);
     }
     for (const vocal of this.root.querySelectorAll<HTMLElement>('.compose-vocal-note')) {
       const vocalStep = Number(vocal.dataset.vocalStep);
@@ -546,14 +569,14 @@ export class AutoComposeMode {
     }
 
     const vocalStatus = this.audio.vocalEngineStatus;
-    const lyricEvent = this.vocalEnabled && this.playing
-      ? this.vocalLine.find((event) => event.step === step)
-      : undefined;
+    const lyricEvent = this.vocalEnabled && this.playing ? this.vocalLine.find((event) => event.step === step) : undefined;
     const style = genreStyle(this.settings.genre, this.settings.subgenre);
+    const state = this.composition.arrangement[bar] ?? this.composition.arrangement[0];
     const tone = Math.round(this.voiceTone * 50);
     const toneText = `TONE ${tone > 0 ? '+' : ''}${tone}`;
     const characterText = this.voiceCharacter.toUpperCase();
     const ensemble = lyricEvent ? activeVocalEnsembleFor(lyricEvent).label : 'LEAD';
+    const director = vocalDirectorControlFor(style, this.vocalDirector).resolvedPreset.toUpperCase();
     this.required<HTMLElement>('#compose-vocal-now').textContent = !this.vocalEnabled
       ? 'OFF · INSTRUMENTAL ONLY'
       : vocalStatus === 'unavailable'
@@ -561,7 +584,12 @@ export class AutoComposeMode {
         : vocalStatus !== 'ready'
           ? 'AUDIOWORKLET SINGER · INITIALIZING'
           : lyricEvent
-            ? `${characterText} · ${ensemble} · “${lyricEvent.lyric}” · ${lyricEvent.lyricLine}`
-            : `${characterText} · ${toneText} · ${style.label.toUpperCase()} · ${sectionLabel}`;
+            ? `${characterText} · ${director} · ${ensemble} · “${lyricEvent.lyric}” · ${lyricEvent.lyricLine}`
+            : `${characterText} · ${toneText} · ${director} · ${sectionLabel}`;
+
+    const vocalActive = this.vocalLine.some((event) => step >= event.step && step < event.step + event.durationSteps);
+    const kickActive = this.composition.drums.some((drum) => drum.step === step && drum.voice === 'kick');
+    const mix = mixMasterControlFor(style, state, vocalActive, kickActive);
+    this.required<HTMLElement>('#compose-theory').textContent = `${mixMasterDbSummary(mix)} · ${arrangementInstrumentLabel(style, state)} · ${director}`;
   }
 }
