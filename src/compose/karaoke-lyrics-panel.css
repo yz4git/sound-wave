@@ -1,0 +1,140 @@
+.compose-stage {
+  grid-template-rows: auto auto auto auto 5px auto minmax(72px, 1fr) auto;
+}
+
+.compose-lyrics-panel {
+  --karaoke-progress: 0%;
+  min-height: 76px;
+  display: grid;
+  grid-template-rows: auto minmax(24px, auto) auto auto;
+  gap: 3px;
+  padding: 7px 10px 6px;
+  border: 1px solid rgba(255,109,159,.2);
+  border-radius: 10px;
+  background:
+    radial-gradient(circle at 50% -80%, rgba(255,109,159,.15), transparent 62%),
+    linear-gradient(180deg, rgba(24,23,41,.86), rgba(12,16,29,.94));
+  box-shadow: inset 0 0 20px rgba(255,109,159,.025);
+  overflow: hidden;
+}
+
+.compose-lyrics-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.compose-lyrics-head b {
+  color: #ff7ca9;
+  font-size: 6px;
+  letter-spacing: .18em;
+}
+.compose-lyrics-head span {
+  color: #65708b;
+  font-size: 6px;
+  font-weight: 800;
+  letter-spacing: .12em;
+}
+
+.compose-lyrics-current {
+  min-width: 0;
+  overflow: hidden;
+  text-align: center;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: clamp(14px, 2.35vw, 23px);
+  line-height: 1.16;
+  font-weight: 900;
+  letter-spacing: .035em;
+  background: linear-gradient(
+    90deg,
+    #ff8fba 0%,
+    #ffd0e1 var(--karaoke-progress),
+    #f2edf9 var(--karaoke-progress),
+    #b7b3c6 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 0 7px rgba(255,109,159,.08));
+  transition: filter 90ms ease;
+}
+.compose-lyrics-panel.singing .compose-lyrics-current {
+  filter: drop-shadow(0 0 10px rgba(255,109,159,.22));
+}
+
+.compose-lyrics-mora {
+  min-height: 13px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 2px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.compose-lyrics-mora span {
+  min-width: 8px;
+  color: #585f74;
+  font-size: 6px;
+  font-weight: 800;
+  text-align: center;
+  transition: color 65ms ease, transform 65ms ease, text-shadow 65ms ease;
+}
+.compose-lyrics-mora span.done { color: #a96f89; }
+.compose-lyrics-mora span.active {
+  color: #fff2f8;
+  transform: scale(1.22);
+  text-shadow: 0 0 7px rgba(255,109,159,.95), 0 0 14px rgba(255,109,159,.42);
+}
+
+.compose-lyrics-next {
+  min-height: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 14px;
+  padding: 0 4px;
+}
+.compose-lyrics-next span {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: #696579;
+  font-size: 7px;
+  font-weight: 750;
+  text-align: center;
+  letter-spacing: .02em;
+}
+.compose-lyrics-next span:first-child { color: #82788d; }
+
+.compose-lyrics-panel.muted {
+  opacity: .48;
+  filter: saturate(.55);
+}
+.compose-lyrics-panel.muted .compose-lyrics-current {
+  --karaoke-progress: 0%;
+}
+
+@media (max-width: 900px), (max-height: 460px) {
+  .compose-stage {
+    grid-template-rows: auto auto auto auto 4px auto minmax(56px, 1fr) auto;
+    gap: 4px;
+  }
+  .compose-lyrics-panel {
+    min-height: 58px;
+    grid-template-rows: auto minmax(18px, auto) auto auto;
+    gap: 1px;
+    padding: 4px 7px 3px;
+    border-radius: 8px;
+  }
+  .compose-lyrics-head b,
+  .compose-lyrics-head span { font-size: 5px; }
+  .compose-lyrics-current {
+    font-size: clamp(12px, 2.45vw, 18px);
+    line-height: 1.05;
+  }
+  .compose-lyrics-mora { min-height: 10px; gap: 1px; }
+  .compose-lyrics-mora span { min-width: 6px; font-size: 5px; }
+  .compose-lyrics-next { min-height: 9px; gap: 8px; }
+  .compose-lyrics-next span { font-size: 5px; }
+}
