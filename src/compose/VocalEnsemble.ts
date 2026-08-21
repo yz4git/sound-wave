@@ -2,6 +2,7 @@ import { scaleFor, type PitchClass, type Tonality } from '../core/music';
 import type { FullSongComposition } from './FullSongComposer';
 import { fullSongSectionAtStep } from './FullSongComposer';
 import type { GenreStyleProfile } from './GenreStyle';
+import { genreStyle } from './GenreStyle';
 import type { VocalEvent } from './VocalGenerator';
 
 export interface HarmonyVoice {
@@ -16,7 +17,17 @@ export interface VocalEnsembleControl {
   label: 'LEAD' | 'DOUBLE' | 'HARMONY' | 'STACKED';
 }
 
+let activeComposition: FullSongComposition | null = null;
+
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
+
+export function setActiveVocalEnsembleComposition(composition: FullSongComposition | null): void {
+  activeComposition = composition;
+}
+
+export function getActiveVocalEnsembleComposition(): FullSongComposition | null {
+  return activeComposition;
+}
 
 function deterministicUnit(step: number, salt: number): number {
   let value = Math.imul(step + 23 + salt * 149, 0x45d9f3b) >>> 0;
@@ -142,6 +153,14 @@ export function vocalEnsembleFor(
       : null,
     label: addHarmony ? (finalHook ? 'STACKED' : 'HARMONY') : 'LEAD',
   };
+}
+
+export function activeVocalEnsembleFor(event: VocalEvent): VocalEnsembleControl {
+  if (!activeComposition) {
+    return { doubleLevel: 0, doubleDelaySeconds: 0.012, harmony: null, label: 'LEAD' };
+  }
+  const profile = genreStyle(activeComposition.settings.genre, activeComposition.settings.subgenre);
+  return vocalEnsembleFor(activeComposition, profile, event);
 }
 
 export function scaleHarmonyVelocity(event: VocalEvent, gainScale: number): VocalEvent {
