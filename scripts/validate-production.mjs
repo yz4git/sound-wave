@@ -72,6 +72,9 @@ for (const directorFeature of ['EMOTIONAL', 'INTIMATE', 'ensembleScale', 'releas
 for (const exportFeature of ['sound-wave-song-v1', 'audio/wav', 'RIFF', 'PROJECT JSON EXPORTED']) {
   if (!entryJavaScript.includes(exportFeature)) fail(`production bundle is missing Song Export feature: ${exportFeature}`);
 }
+for (const karaokeLyricsFeature of ['KARAOKE LYRICS', 'compose-lyrics-panel', 'compose-lyrics-current', 'compose-lyrics-mora', 'karaoke-progress']) {
+  if (!entryJavaScript.includes(karaokeLyricsFeature)) fail(`production bundle is missing Karaoke Lyrics Panel feature: ${karaokeLyricsFeature}`);
+}
 
 const vocalWorklet = readFileSync(join(distDir, 'vocal-worklet.js'), 'utf8');
 try { new Function(vocalWorklet); } catch (error) {
@@ -98,4 +101,4 @@ for (const spectralWorkletFeature of ['DEFAULT_SPECTRAL', 'spectralSmoothingAlph
   if (!vocalWorklet.includes(spectralWorkletFeature)) fail(`vocal AudioWorklet is missing v20.8 spectral-envelope trajectory: ${spectralWorkletFeature}`);
 }
 
-console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Auto Compose v4 Production Suite + Mix/Master v1 + Japanese Lyrics v2 + Arrangement Instruments v2 + Vocal Director v1 + Project/WAV Export + Full Song + Vocal Ensemble + v20.x/v21.x vocal safety stack`);
+console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Auto Compose v4 Production Suite + Karaoke Lyrics Panel + Mix/Master v1 + Japanese Lyrics v2 + Arrangement Instruments v2 + Vocal Director v1 + Project/WAV Export + Full Song + Vocal Ensemble + v20.x/v21.x vocal safety stack`);
