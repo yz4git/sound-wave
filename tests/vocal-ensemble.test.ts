@@ -37,7 +37,8 @@ describe('Vocal Ensemble', () => {
 
     const verseControl = vocalEnsembleFor(composition, profile, eventAt((verse?.startBar ?? 0) * 16));
     const chorusStep = (chorus?.startBar ?? 0) * 16;
-    const chorusControls = Array.from({ length: 16 }, (_, index) =>
+    const hookLength = (chorus?.bars ?? 8) * 16;
+    const chorusControls = Array.from({ length: hookLength }, (_, index) =>
       vocalEnsembleFor(composition, profile, eventAt(chorusStep + index)));
     expect(verseControl.label).toBe('LEAD');
     expect(verseControl.doubleLevel).toBe(0);
@@ -53,7 +54,8 @@ describe('Vocal Ensemble', () => {
     const drop = composition.songSections.find((section) => section.kind === 'drop');
     const verseControl = vocalEnsembleFor(composition, profile, eventAt((verse?.startBar ?? 0) * 16));
     const dropStep = (drop?.startBar ?? 0) * 16;
-    const dropControls = Array.from({ length: 20 }, (_, index) => vocalEnsembleFor(composition, profile, eventAt(dropStep + index)));
+    const hookLength = (drop?.bars ?? 8) * 16;
+    const dropControls = Array.from({ length: hookLength }, (_, index) => vocalEnsembleFor(composition, profile, eventAt(dropStep + index)));
     expect(verseControl.doubleLevel).toBe(0);
     expect(dropControls.every((control) => control.doubleLevel >= 0.14)).toBe(true);
     expect(dropControls.some((control) => control.harmony !== null)).toBe(true);
