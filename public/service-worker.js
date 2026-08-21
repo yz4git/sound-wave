@@ -1,4 +1,4 @@
-const CACHE = 'sound-wave-v20-8-spectral-envelope-trajectory';
+const CACHE = 'sound-wave-v20-9-dynamic-source-filter-coupling';
 const CORE = ['./', './index.html', './manifest.webmanifest', './icon.svg', './vocal-worklet.js'];
 
 self.addEventListener('install', (event) => {
