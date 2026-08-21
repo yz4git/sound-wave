@@ -1,13 +1,15 @@
 import { pitchName, type Mode, type PitchClass } from '../core/music';
+import type { AutoComposeSettings } from './AutoComposer';
+import { ComposeAudio } from './ComposeAudio';
 import {
   compositionLengthSteps,
   compositionStepMs,
-  defaultComposeSettings,
-  generateComposition,
-  type AutoComposition,
-  type AutoComposeSettings,
-} from './AutoComposer';
-import { ComposeAudio } from './ComposeAudio';
+  defaultFullSongSettings,
+  fullSongSectionAtStep,
+  generateFullSongComposition,
+  normalizeFullSongBars,
+  type FullSongComposition,
+} from './FullSongComposer';
 import {
   GENRE_DEFINITIONS,
   defaultSubgenreFor,
@@ -18,11 +20,18 @@ import {
   type GenreId,
 } from './GenreStyle';
 import {
+  applyJapaneseLyrics,
+  type JapaneseLyricsTheme,
+  type JapaneseLyricVocalEvent,
+} from './JapaneseLyrics';
+import {
   generateVocalLine,
-  vocalSyllableAtStep,
-  type VocalEvent,
   type VocalStyle,
 } from './VocalGenerator';
+import {
+  activeVocalEnsembleFor,
+  setActiveVocalEnsembleComposition,
+} from './VocalEnsemble';
 import {
   VOICE_CHARACTER_PRESETS,
   setActiveVoiceCharacter,
@@ -47,8 +56,9 @@ export class AutoComposeMode {
   private readonly root: HTMLElement;
   private readonly audio = new ComposeAudio();
   private settings: AutoComposeSettings;
-  private composition: AutoComposition;
-  private vocalLine: VocalEvent[];
+  private composition: FullSongComposition;
+  private vocalLine: JapaneseLyricVocalEvent[] = [];
+  private lyricsTheme: JapaneseLyricsTheme = 'youth';
   private vocalEnabled: boolean;
   private vocalStyle: VocalStyle;
   private voiceCharacter: VoiceCharacterPreset;
@@ -69,8 +79,9 @@ export class AutoComposeMode {
     this.voiceCharacter = vocal.character;
     this.voiceTone = vocal.tone;
     setActiveVoiceCharacter({ preset: this.voiceCharacter, tone: this.voiceTone });
-    this.composition = generateComposition(this.settings);
-    this.vocalLine = generateVocalLine(this.composition);
+    this.composition = generateFullSongComposition(this.settings);
+    this.settings = this.composition.settings;
+    this.rebuildVocalLine();
     this.renderShell();
     this.bindEvents();
     this.renderComposition();
@@ -78,6 +89,7 @@ export class AutoComposeMode {
 
   async activate(): Promise<void> {
     this.active = true;
+    setActiveVocalEnsembleComposition(this.composition);
     this.root.classList.add('active');
     this.root.setAttribute('aria-hidden', 'false');
     await this.audio.unlock();
@@ -87,6 +99,7 @@ export class AutoComposeMode {
   deactivate(): void {
     this.active = false;
     this.stop();
+    setActiveVocalEnsembleComposition(null);
     this.audio.suspend();
     this.root.classList.remove('active');
     this.root.setAttribute('aria-hidden', 'true');
@@ -101,7 +114,7 @@ export class AutoComposeMode {
   }
 
   private loadSettings(): AutoComposeSettings {
-    const fallback = defaultComposeSettings();
+    const fallback = defaultFullSongSettings();
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return fallback;
@@ -117,7 +130,7 @@ export class AutoComposeMode {
         mode,
         bpm: Math.max(60, Math.min(190, Number(parsed.bpm) || fallback.bpm)),
         density: Math.max(0.15, Math.min(1, Number(parsed.density) || fallback.density)),
-        bars: 8,
+        bars: normalizeFullSongBars(parsed.bars),
         seed: Number(parsed.seed) >>> 0 || fallback.seed,
         genre,
         subgenre,
@@ -195,15 +208,24 @@ export class AutoComposeMode {
       .join('');
   }
 
+  private rebuildVocalLine(): void {
+    const profile = genreStyle(this.settings.genre, this.settings.subgenre);
+    const rawVocal = generateVocalLine(this.composition);
+    const lyrics = applyJapaneseLyrics(this.composition, profile, rawVocal);
+    this.vocalLine = lyrics.events;
+    this.lyricsTheme = lyrics.theme;
+    setActiveVocalEnsembleComposition(this.composition);
+  }
+
   private renderShell(): void {
     const keyOptions = PITCHES.map((pitch) => `<option value="${pitch}">${pitchName(pitch)}</option>`).join('');
     const modeOptions = MODES.map((mode) => `<option value="${mode}">${mode.toUpperCase()}</option>`).join('');
     this.root.innerHTML = `
       <header class="compose-header">
         <div>
-          <span class="compose-kicker">AUTO COMPOSE v2 · GENRE STYLE ENGINE · LOCAL VOCAL WORKLET</span>
+          <span class="compose-kicker">AUTO COMPOSE v3 · FULL SONG · VOCAL ENSEMBLE · JAPANESE LYRICS</span>
           <h1>AUTO COMPOSE</h1>
-          <p>Choose a genre and subgenre. Harmony, melody, rhythm, arrangement and vocal character adapt together on this device.</p>
+          <p>Generate a complete song with genre-aware sections, vocal stacks and original Japanese lyrics.</p>
         </div>
         <div class="compose-transport">
           <button type="button" id="compose-play">▶ PLAY</button>
@@ -228,21 +250,21 @@ export class AutoComposeMode {
       </section>
       <section class="compose-stage">
         <div class="compose-now">
-          <span id="compose-title">STYLE CURRENT</span>
-          <strong id="compose-chord">C · TONIC</strong>
-          <small id="compose-theory">GENRE STYLE ENGINE</small>
+          <span id="compose-title">FULL SONG</span>
+          <strong id="compose-chord">INTRO</strong>
+          <small id="compose-theory">FULL SONG STRUCTURE</small>
         </div>
         <div class="compose-style-strip"><b id="compose-style-name">STYLE</b><span id="compose-style-description"></span></div>
         <div class="compose-vocal-strip"><b>VOCAL</b><span id="compose-vocal-now">AUDIOWORKLET SINGER · INITIALIZING</span></div>
         <div class="compose-progress"><i id="compose-progress-fill"></i></div>
-        <div id="compose-chords" class="compose-chords" aria-label="Generated chord progression"></div>
+        <div id="compose-chords" class="compose-chords compose-sections" aria-label="Full song sections"></div>
         <div class="compose-roll-wrap">
-          <span class="compose-roll-label">MELODY + VOCAL</span>
+          <span class="compose-roll-label">FULL SONG · MELODY + JAPANESE VOCAL</span>
           <div id="compose-roll" class="compose-roll"></div>
         </div>
         <div class="compose-explain">
-          <b>VOICE CHARACTER</b>
-          <span>Pick SOFT / NATURAL / CLEAR / AIRY / POWER, then use TONE for darker ↔ brighter adjustment.</span>
+          <b>FULL SONG v3</b>
+          <span>Structure · genre-aware vocal double/harmony · original Japanese mora lyrics · ${this.settings.bars} bars.</span>
         </div>
       </section>
     `;
@@ -374,8 +396,8 @@ export class AutoComposeMode {
     const style = genreStyle(this.settings.genre, this.settings.subgenre);
     const genre = genreDefinition(this.settings.genre);
     this.required<HTMLElement>('#compose-style-name').textContent = `${genre.label} · ${style.label}`;
-    this.required<HTMLElement>('#compose-style-description').textContent = style.description;
-    this.required<HTMLElement>('#compose-theory').textContent = `SYNC ${Math.round(style.syncopation * 100)}% · MELODY ${Math.round(style.melodyDensity * 100)}% · VOICE ${this.voiceCharacter.toUpperCase()}`;
+    this.required<HTMLElement>('#compose-style-description').textContent = `${style.description} · ${this.settings.bars} BAR FULL SONG · ${this.lyricsTheme.toUpperCase()} LYRICS`;
+    this.required<HTMLElement>('#compose-theory').textContent = `FULL SONG · ${Math.round(style.melodyDensity * 100)}% MELODY · ${this.voiceCharacter.toUpperCase()}`;
   }
 
   private syncVocalControl(): void {
@@ -391,9 +413,9 @@ export class AutoComposeMode {
   private rebuildFromControls(): void {
     const wasPlaying = this.playing;
     this.stop();
-    this.composition = generateComposition(this.settings);
+    this.composition = generateFullSongComposition(this.settings);
     this.settings = this.composition.settings;
-    this.vocalLine = generateVocalLine(this.composition);
+    this.rebuildVocalLine();
     this.saveSettings();
     this.syncStyleInfo();
     this.renderComposition();
@@ -408,14 +430,15 @@ export class AutoComposeMode {
   private renderComposition(): void {
     this.required<HTMLElement>('#compose-title').textContent = this.composition.title;
     this.syncStyleInfo();
-    const chords = this.required<HTMLElement>('#compose-chords');
-    chords.replaceChildren();
-    for (const item of this.composition.chords) {
+    const sections = this.required<HTMLElement>('#compose-chords');
+    sections.replaceChildren();
+    for (const section of this.composition.songSections) {
       const cell = document.createElement('div');
-      cell.className = 'compose-chord-cell';
-      cell.dataset.composeBar = String(item.bar);
-      cell.innerHTML = `<span>BAR ${item.bar + 1}</span><b>${item.chord.label.replace(' · ', '<br>')}</b><em>${item.chord.function.toUpperCase()}</em>`;
-      chords.append(cell);
+      cell.className = 'compose-chord-cell compose-section-cell';
+      cell.dataset.composeSection = String(section.index);
+      const shift = section.keyShiftSemitones > 0 ? ` · +${section.keyShiftSemitones} KEY` : '';
+      cell.innerHTML = `<span>${section.label}</span><b>${section.bars} BARS</b><em>${Math.round(section.energyScale * 100)}%${shift}</em>`;
+      sections.append(cell);
     }
 
     const roll = this.required<HTMLElement>('#compose-roll');
@@ -426,7 +449,7 @@ export class AutoComposeMode {
       dot.className = 'compose-note';
       dot.style.left = `${note.step / length * 100}%`;
       dot.style.bottom = `${12 + (note.pitch / 11) * 72}%`;
-      dot.style.width = `${Math.max(0.6, note.durationSteps / length * 100)}%`;
+      dot.style.width = `${Math.max(0.25, note.durationSteps / length * 100)}%`;
       dot.dataset.step = String(note.step);
       roll.append(dot);
     }
@@ -435,9 +458,9 @@ export class AutoComposeMode {
       marker.className = 'compose-vocal-note';
       marker.style.left = `${vocal.step / length * 100}%`;
       marker.style.bottom = `${12 + (vocal.pitch / 11) * 72}%`;
-      marker.style.width = `${Math.max(0.8, vocal.durationSteps / length * 100)}%`;
+      marker.style.width = `${Math.max(0.3, vocal.durationSteps / length * 100)}%`;
       marker.dataset.vocalStep = String(vocal.step);
-      marker.title = vocal.syllable;
+      marker.title = `${vocal.lyric} · ${vocal.lyricLine}`;
       roll.append(marker);
     }
     this.updateVisual(0);
@@ -446,6 +469,7 @@ export class AutoComposeMode {
   private async play(): Promise<void> {
     await this.audio.unlock();
     if (!this.active) return;
+    setActiveVocalEnsembleComposition(this.composition);
     this.audio.clearVocalStream();
     this.playing = true;
     this.nextStep = 0;
@@ -504,10 +528,12 @@ export class AutoComposeMode {
     const length = compositionLengthSteps(this.composition);
     const bar = Math.floor(step / 16);
     const chord = this.composition.chords[bar]?.chord ?? this.composition.chords[0]?.chord;
-    if (chord) this.required<HTMLElement>('#compose-chord').textContent = chord.label.toUpperCase();
+    const section = fullSongSectionAtStep(this.composition, step);
+    const sectionLabel = section?.label ?? 'FULL SONG';
+    if (chord) this.required<HTMLElement>('#compose-chord').textContent = `${sectionLabel} · ${chord.label.toUpperCase()}`;
     this.required<HTMLElement>('#compose-progress-fill').style.width = `${step / Math.max(1, length - 1) * 100}%`;
-    for (const cell of this.root.querySelectorAll<HTMLElement>('[data-compose-bar]')) {
-      cell.classList.toggle('active', Number(cell.dataset.composeBar) === bar && this.playing);
+    for (const cell of this.root.querySelectorAll<HTMLElement>('[data-compose-section]')) {
+      cell.classList.toggle('active', Number(cell.dataset.composeSection) === section?.index && this.playing);
     }
     for (const note of this.root.querySelectorAll<HTMLElement>('.compose-note')) {
       const noteStep = Number(note.dataset.step);
@@ -520,19 +546,22 @@ export class AutoComposeMode {
     }
 
     const vocalStatus = this.audio.vocalEngineStatus;
-    const syllable = this.vocalEnabled && this.playing ? vocalSyllableAtStep(this.vocalLine, step) : '';
+    const lyricEvent = this.vocalEnabled && this.playing
+      ? this.vocalLine.find((event) => event.step === step)
+      : undefined;
     const style = genreStyle(this.settings.genre, this.settings.subgenre);
     const tone = Math.round(this.voiceTone * 50);
     const toneText = `TONE ${tone > 0 ? '+' : ''}${tone}`;
     const characterText = this.voiceCharacter.toUpperCase();
+    const ensemble = lyricEvent ? activeVocalEnsembleFor(lyricEvent).label : 'LEAD';
     this.required<HTMLElement>('#compose-vocal-now').textContent = !this.vocalEnabled
       ? 'OFF · INSTRUMENTAL ONLY'
       : vocalStatus === 'unavailable'
         ? 'AUDIOWORKLET UNAVAILABLE · INSTRUMENTAL FALLBACK'
         : vocalStatus !== 'ready'
           ? 'AUDIOWORKLET SINGER · INITIALIZING'
-          : syllable
-            ? `${characterText} · ${toneText} · ${style.label.toUpperCase()} · “${syllable.toUpperCase()}”`
-            : `${characterText} · ${toneText} · ${this.vocalStyle.toUpperCase()} BASE · CONTINUOUS AUDIOWORKLET SINGER`;
+          : lyricEvent
+            ? `${characterText} · ${ensemble} · “${lyricEvent.lyric}” · ${lyricEvent.lyricLine}`
+            : `${characterText} · ${toneText} · ${style.label.toUpperCase()} · ${sectionLabel}`;
   }
 }
