@@ -50,7 +50,7 @@ for (const sourceFilterFeature of ['tractFeedbackDepth', 'sourceTiltDepth', 'ope
 for (const producerTuningFeature of ['timingLeadSeconds', 'consonantLengthScale', 'dynamicsStartScale', 'dynamicsEndScale', 'attackTimeScale', 'airScale', 'mouthScale', 'articulationScale', 'scoopCentsAdd', 'fallCentsAdd', 'vibratoScale', 'jitterScale']) {
   if (!entryJavaScript.includes(producerTuningFeature)) fail(`production bundle is missing v21.0 producer tuning grammar: ${producerTuningFeature}`);
 }
-for (const voiceCharacterFeature of ['SOFT', 'NATURAL', 'CLEAR', 'AIRY', 'POWER', 'upperFormantGainScale', 'setActiveVoiceCharacter', 'compose-voice-tone']) {
+for (const voiceCharacterFeature of ['SOFT', 'NATURAL', 'CLEAR', 'AIRY', 'POWER', 'upperFormantGainScale', 'compose-voice-character', 'compose-voice-tone']) {
   if (!entryJavaScript.includes(voiceCharacterFeature)) fail(`production bundle is missing v21.1 voice character macro: ${voiceCharacterFeature}`);
 }
 
