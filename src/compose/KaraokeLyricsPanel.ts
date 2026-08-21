@@ -177,8 +177,12 @@ class KaraokeLyricsPanelController {
   }
 
   private observe(): void {
-    const rollObserver = new MutationObserver(() => {
-      this.refreshMarkers();
+    const rollObserver = new MutationObserver((mutations) => {
+      const markerGeometryChanged = mutations.some((mutation) => (
+        mutation.type === 'childList'
+        || (mutation.type === 'attributes' && mutation.attributeName !== 'class')
+      ));
+      if (markerGeometryChanged) this.refreshMarkers();
       this.requestRender();
     });
     rollObserver.observe(this.roll, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'style', 'title'] });
