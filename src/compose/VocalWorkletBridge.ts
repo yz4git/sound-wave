@@ -25,6 +25,7 @@ import {
   type VoiceCharacterControl,
   type VoiceCharacterSettings,
 } from './VoiceCharacter';
+import { activeVocalEnsembleFor } from './VocalEnsemble';
 
 export type VocalWorkletStatus = 'idle' | 'loading' | 'ready' | 'unavailable';
 
@@ -46,6 +47,11 @@ export interface VocalWorkletEvent {
   sourceFilter: VocalSourceFilterCouplingControl;
   producerTuning: ProducerTuningControl;
   voiceCharacter: VoiceCharacterControl;
+  ensemble: {
+    label: 'LEAD' | 'DOUBLE' | 'HARMONY' | 'STACKED';
+    harmonyTargetHz: number | null;
+    harmonyGainScale: number;
+  };
   phrase: {
     progressStart: number;
     progressEnd: number;
@@ -120,6 +126,7 @@ export function vocalEventToWorklet(
     localStep,
     normalizedDuration,
   );
+  const ensembleControl = activeVocalEnsembleFor(event);
   const rawPhoneme = phonemeTimingFor(event.syllable);
   const consonantScale = producerTuning.consonantLengthScale;
   const phoneme: JapanesePhonemeTiming = {
@@ -129,9 +136,7 @@ export function vocalEventToWorklet(
     fricationSeconds: rawPhoneme.fricationSeconds * consonantScale,
     voicingDelaySeconds: rawPhoneme.voicingDelaySeconds * consonantScale,
     noiseMix: clamp(
-      rawPhoneme.noiseMix
-        * producerTuning.articulationScale
-        * voiceCharacter.articulationScale,
+      rawPhoneme.noiseMix * producerTuning.articulationScale * voiceCharacter.articulationScale,
       0,
       1,
     ),
@@ -142,9 +147,7 @@ export function vocalEventToWorklet(
     scoopCents: clamp(baseKaraoke.scoopCents + producerTuning.scoopCentsAdd, 0, 14),
     fallCents: clamp(baseKaraoke.fallCents + producerTuning.fallCentsAdd, 0, 12),
     vibratoGain: clamp(
-      baseKaraoke.vibratoGain
-        * producerTuning.vibratoScale
-        * voiceCharacter.vibratoScale,
+      baseKaraoke.vibratoGain * producerTuning.vibratoScale * voiceCharacter.vibratoScale,
       0,
       1,
     ),
@@ -152,8 +155,7 @@ export function vocalEventToWorklet(
   const baseResonance = vocalResonanceControlFor(event, phraseControl);
   const plannedExpression = vocaloidExpressionFor(event, phoneme, normalizedDuration, phraseControl);
 
-  const requestedPreRoll = plannedExpression.consonantPreRollSeconds
-    + producerTuning.timingLeadSeconds;
+  const requestedPreRoll = plannedExpression.consonantPreRollSeconds + producerTuning.timingLeadSeconds;
   const appliedPreRoll = Math.min(requestedPreRoll, Math.max(0, when));
   const scheduledWhen = when - appliedPreRoll;
   const scheduledDuration = normalizedDuration + appliedPreRoll;
@@ -243,6 +245,13 @@ export function vocalEventToWorklet(
     sourceFilter,
     producerTuning,
     voiceCharacter,
+    ensemble: {
+      label: ensembleControl.label,
+      harmonyTargetHz: ensembleControl.harmony === null
+        ? null
+        : midiToHz(midiForPitchClass(ensembleControl.harmony.event.pitch, ensembleControl.harmony.event.octave)),
+      harmonyGainScale: ensembleControl.harmony?.gainScale ?? 0,
+    },
     phrase: {
       progressStart: phraseControl.progressStart,
       progressEnd: phraseControl.progressEnd,
@@ -279,13 +288,10 @@ export function vocalEventToWorklet(
       const upperWeight = index / Math.max(1, bands.length - 1);
       const timbreScale = 1 + (vocaloid.upperFormantScale - 1) * upperWeight;
       const filterLoadScale = 1 - sourceFilter.filterLoad * upperWeight * 0.025;
-      const characterGainScale = 1
-        + (voiceCharacter.upperFormantGainScale - 1) * upperWeight;
+      const characterGainScale = 1 + (voiceCharacter.upperFormantGainScale - 1) * upperWeight;
       const mouthWeight = index === 0 ? 1 : index === 1 ? 0.3 : 0;
       const mouthFrequencyScale = 1 + (producerTuning.mouthScale - 1) * mouthWeight;
-      const targetFrequency = band.frequency
-        * mouthFrequencyScale
-        * voiceCharacter.formantScale;
+      const targetFrequency = band.frequency * mouthFrequencyScale * voiceCharacter.formantScale;
       const nextFrequency = nextBands?.[index]?.frequency ?? null;
       return {
         startHz: onsetFormantFrequency(event.syllable, index, targetFrequency),
@@ -304,28 +310,28 @@ export function vocalEventToWorklet(
       vibratoDepthCents: model.vibratoDepthCents,
       vibratoDelaySeconds: model.vibratoDelaySeconds,
       intensityModDepth: model.intensityModDepth,
-      jitterCents: model.jitterCents
-        * producerTuning.jitterScale
-        * voiceCharacter.jitterScale,
+      jitterCents: model.jitterCents * producerTuning.jitterScale * voiceCharacter.jitterScale,
       shimmerDepth: model.shimmerDepth,
       presenceFrequency: model.presenceFrequency,
       presenceGain: model.presenceGain,
       breathLevel: dynamicBreathLevel,
-      attackSeconds: model.attackSeconds
-        * producerTuning.attackTimeScale
-        * voiceCharacter.attackScale,
+      attackSeconds: model.attackSeconds * producerTuning.attackTimeScale * voiceCharacter.attackScale,
       releaseSeconds: model.releaseSeconds,
       onsetPitchCents: model.onsetPitchCents * vocaloid.transitionPreservation,
       radiationFrequency: model.radiationFrequency,
       radiationGainDb: model.radiationGainDb,
-      doubleDelaySeconds: model.doubleDelaySeconds,
-      doubleLevel: model.doubleLevel,
+      doubleDelaySeconds: ensembleControl.doubleLevel > 0
+        ? ensembleControl.doubleDelaySeconds
+        : model.doubleDelaySeconds,
+      doubleLevel: clamp(ensembleControl.doubleLevel, 0, 0.22),
     },
   };
 }
 
 export class VocalWorkletBridge {
   private node: AudioWorkletNode | null = null;
+  private harmonyNode: AudioWorkletNode | null = null;
+  private harmonyGain: GainNode | null = null;
   private statusValue: VocalWorkletStatus = 'idle';
 
   get status(): VocalWorkletStatus {
@@ -347,12 +353,25 @@ export class VocalWorkletBridge {
         numberOfOutputs: 1,
         outputChannelCount: [1],
       });
+      const harmonyNode = new AudioWorkletNode(context, 'sound-wave-vocal-processor', {
+        numberOfInputs: 0,
+        numberOfOutputs: 1,
+        outputChannelCount: [1],
+      });
+      const harmonyGain = context.createGain();
+      harmonyGain.gain.value = 0.72;
       node.connect(destination);
+      harmonyNode.connect(harmonyGain);
+      harmonyGain.connect(destination);
       this.node = node;
+      this.harmonyNode = harmonyNode;
+      this.harmonyGain = harmonyGain;
       this.statusValue = 'ready';
     } catch (error) {
       console.warn('Local vocal AudioWorklet unavailable', error);
       this.node = null;
+      this.harmonyNode = null;
+      this.harmonyGain = null;
       this.statusValue = 'unavailable';
     }
   }
@@ -360,17 +379,57 @@ export class VocalWorkletBridge {
   schedule(event: VocalWorkletEvent): void {
     if (!this.node || this.statusValue !== 'ready') return;
     this.node.port.postMessage({ type: 'schedule', event });
+
+    const harmonyTargetHz = event.ensemble.harmonyTargetHz;
+    if (!this.harmonyNode || harmonyTargetHz === null || event.ensemble.harmonyGainScale <= 0) return;
+    const harmonyEvent: VocalWorkletEvent = {
+      ...event,
+      when: event.when + 0.006,
+      targetHz: harmonyTargetHz,
+      glideFromHz: null,
+      velocity: clamp(event.velocity * event.ensemble.harmonyGainScale, 0.14, 0.62),
+      articulate: false,
+      phraseStart: false,
+      phoneme: {
+        ...event.phoneme,
+        noiseMix: event.phoneme.noiseMix * 0.72,
+        aspirationMix: event.phoneme.aspirationMix * 0.78,
+      },
+      karaoke: {
+        ...event.karaoke,
+        scoopCents: event.karaoke.scoopCents * 0.45,
+        fallCents: event.karaoke.fallCents * 0.45,
+        vibratoGain: event.karaoke.vibratoGain * 0.82,
+      },
+      style: {
+        ...event.style,
+        jitterCents: event.style.jitterCents * 0.72,
+        breathLevel: event.style.breathLevel * 0.82,
+        doubleLevel: 0,
+      },
+      ensemble: {
+        label: 'LEAD',
+        harmonyTargetHz: null,
+        harmonyGainScale: 0,
+      },
+    };
+    this.harmonyNode.port.postMessage({ type: 'schedule', event: harmonyEvent });
   }
 
   clear(): void {
     this.node?.port.postMessage({ type: 'clear' });
+    this.harmonyNode?.port.postMessage({ type: 'clear' });
   }
 
   dispose(): void {
-    if (!this.node) return;
-    this.node.port.postMessage({ type: 'clear' });
-    this.node.disconnect();
+    this.node?.port.postMessage({ type: 'clear' });
+    this.harmonyNode?.port.postMessage({ type: 'clear' });
+    this.node?.disconnect();
+    this.harmonyNode?.disconnect();
+    this.harmonyGain?.disconnect();
     this.node = null;
+    this.harmonyNode = null;
+    this.harmonyGain = null;
     this.statusValue = 'idle';
   }
 }
