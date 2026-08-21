@@ -19,6 +19,12 @@ import {
   vocaloidExpressionFor,
   type VocaloidExpressionControl,
 } from './VocaloidExpression';
+import {
+  DEFAULT_VOICE_CHARACTER,
+  voiceCharacterFor,
+  type VoiceCharacterControl,
+  type VoiceCharacterSettings,
+} from './VoiceCharacter';
 
 export type VocalWorkletStatus = 'idle' | 'loading' | 'ready' | 'unavailable';
 
@@ -39,6 +45,7 @@ export interface VocalWorkletEvent {
   spectral: VocalSpectralEnvelopeControl;
   sourceFilter: VocalSourceFilterCouplingControl;
   producerTuning: ProducerTuningControl;
+  voiceCharacter: VoiceCharacterControl;
   phrase: {
     progressStart: number;
     progressEnd: number;
@@ -97,12 +104,14 @@ export function vocalEventToWorklet(
   producerProfile?: GenreStyleProfile,
   producerState?: ArrangementBar,
   localStep: number = event.step % 16,
+  voiceCharacterSettings: VoiceCharacterSettings = DEFAULT_VOICE_CHARACTER,
 ): VocalWorkletEvent {
   const model = VOCAL_STYLE_MODELS[style];
   const bands = formantsFor(event.vowel, style);
   const nextBands = event.nextVowel === null ? null : formantsFor(event.nextVowel, style);
   const targetHz = midiToHz(midiForPitchClass(event.pitch, event.octave));
   const normalizedDuration = Math.max(0.11, duration);
+  const voiceCharacter = voiceCharacterFor(voiceCharacterSettings);
   const producerTuning = producerTuningFor(
     event,
     phraseControl,
@@ -119,14 +128,26 @@ export function vocalEventToWorklet(
     burstSeconds: rawPhoneme.burstSeconds * clamp(consonantScale, 0.88, 1.1),
     fricationSeconds: rawPhoneme.fricationSeconds * consonantScale,
     voicingDelaySeconds: rawPhoneme.voicingDelaySeconds * consonantScale,
-    noiseMix: clamp(rawPhoneme.noiseMix * producerTuning.articulationScale, 0, 1),
+    noiseMix: clamp(
+      rawPhoneme.noiseMix
+        * producerTuning.articulationScale
+        * voiceCharacter.articulationScale,
+      0,
+      1,
+    ),
   };
   const baseKaraoke = karaokeSingingControlFor(event, normalizedDuration, phraseControl);
   const karaoke: KaraokeSingingControl = {
     ...baseKaraoke,
     scoopCents: clamp(baseKaraoke.scoopCents + producerTuning.scoopCentsAdd, 0, 14),
     fallCents: clamp(baseKaraoke.fallCents + producerTuning.fallCentsAdd, 0, 12),
-    vibratoGain: clamp(baseKaraoke.vibratoGain * producerTuning.vibratoScale, 0, 1),
+    vibratoGain: clamp(
+      baseKaraoke.vibratoGain
+        * producerTuning.vibratoScale
+        * voiceCharacter.vibratoScale,
+      0,
+      1,
+    ),
   };
   const baseResonance = vocalResonanceControlFor(event, phraseControl);
   const plannedExpression = vocaloidExpressionFor(event, phoneme, normalizedDuration, phraseControl);
@@ -151,9 +172,11 @@ export function vocalEventToWorklet(
       0.2,
     ),
     spectralTiltDepth: clamp(
-      baseSpectral.spectralTiltDepth * (1 + sourceFilter.sourceTiltDepth * 1.6),
-      0.006,
-      0.024,
+      baseSpectral.spectralTiltDepth
+        * (1 + sourceFilter.sourceTiltDepth * 1.6)
+        * voiceCharacter.sourceTiltScale,
+      0.005,
+      0.026,
     ),
     trajectoryDepth: clamp(
       baseSpectral.trajectoryDepth * (1 + sourceFilter.spectralCouplingDepth * 0.045),
@@ -183,21 +206,24 @@ export function vocalEventToWorklet(
   const dynamicOpenQuotient = clamp(
     model.glottalOpenQuotient
       + sourceFilter.openQuotientOffset
-      + sourceFilter.sourceTiltDepth * 0.08,
-    0.48,
-    0.82,
+      + sourceFilter.sourceTiltDepth * 0.08
+      + voiceCharacter.openQuotientOffset,
+    0.46,
+    0.84,
   );
   const dynamicSpeedQuotient = clamp(
     model.glottalSpeedQuotient
       + sourceFilter.speedQuotientOffset
-      - sourceFilter.sourceTiltDepth * 0.045,
-    0.48,
-    0.84,
+      - sourceFilter.sourceTiltDepth * 0.045
+      + voiceCharacter.speedQuotientOffset,
+    0.46,
+    0.86,
   );
   const dynamicBreathLevel = model.breathLevel
     * vocaloid.aspirationScale
     * (1 + sourceFilter.aspirationCoupling * 0.18)
-    * producerTuning.airScale;
+    * producerTuning.airScale
+    * voiceCharacter.breathScale;
 
   return {
     when: scheduledWhen,
@@ -216,22 +242,25 @@ export function vocalEventToWorklet(
     spectral,
     sourceFilter,
     producerTuning,
+    voiceCharacter,
     phrase: {
       progressStart: phraseControl.progressStart,
       progressEnd: phraseControl.progressEnd,
       energyStart: clamp(
         phraseControl.energyStart
           * vocaloid.energyStartScale
-          * producerTuning.dynamicsStartScale,
-        0.72,
-        1.18,
+          * producerTuning.dynamicsStartScale
+          * voiceCharacter.dynamicsScale,
+        0.7,
+        1.2,
       ),
       energyEnd: clamp(
         phraseControl.energyEnd
           * vocaloid.energyEndScale
-          * producerTuning.dynamicsEndScale,
-        0.72,
-        1.18,
+          * producerTuning.dynamicsEndScale
+          * voiceCharacter.dynamicsScale,
+        0.7,
+        1.2,
       ),
       centeringStart: clamp(phraseControl.centeringStart * vocaloid.centeringScale, 0, 0.22),
       centeringEnd: clamp(phraseControl.centeringEnd * vocaloid.centeringScale, 0, 0.22),
@@ -239,9 +268,10 @@ export function vocalEventToWorklet(
         phraseControl.aspirationDepth
           * vocaloid.aspirationScale
           * (1 + sourceFilter.aspirationCoupling * 0.1)
-          * producerTuning.airScale,
-        0.05,
-        0.15,
+          * producerTuning.airScale
+          * voiceCharacter.breathScale,
+        0.045,
+        0.16,
       ),
       sourceTractCoupling: dynamicSourceTractCoupling,
     },
@@ -249,16 +279,22 @@ export function vocalEventToWorklet(
       const upperWeight = index / Math.max(1, bands.length - 1);
       const timbreScale = 1 + (vocaloid.upperFormantScale - 1) * upperWeight;
       const filterLoadScale = 1 - sourceFilter.filterLoad * upperWeight * 0.025;
+      const characterGainScale = 1
+        + (voiceCharacter.upperFormantGainScale - 1) * upperWeight;
       const mouthWeight = index === 0 ? 1 : index === 1 ? 0.3 : 0;
       const mouthFrequencyScale = 1 + (producerTuning.mouthScale - 1) * mouthWeight;
-      const targetFrequency = band.frequency * mouthFrequencyScale;
+      const targetFrequency = band.frequency
+        * mouthFrequencyScale
+        * voiceCharacter.formantScale;
       const nextFrequency = nextBands?.[index]?.frequency ?? null;
       return {
         startHz: onsetFormantFrequency(event.syllable, index, targetFrequency),
         targetHz: targetFrequency,
-        nextHz: nextFrequency === null ? null : nextFrequency * mouthFrequencyScale,
+        nextHz: nextFrequency === null
+          ? null
+          : nextFrequency * mouthFrequencyScale * voiceCharacter.formantScale,
         bandwidth: band.bandwidth * (1 + Math.abs(producerTuning.mouthScale - 1) * 0.35),
-        gain: band.gain * timbreScale * filterLoadScale,
+        gain: band.gain * timbreScale * filterLoadScale * characterGainScale,
       };
     }),
     style: {
@@ -268,12 +304,16 @@ export function vocalEventToWorklet(
       vibratoDepthCents: model.vibratoDepthCents,
       vibratoDelaySeconds: model.vibratoDelaySeconds,
       intensityModDepth: model.intensityModDepth,
-      jitterCents: model.jitterCents * producerTuning.jitterScale,
+      jitterCents: model.jitterCents
+        * producerTuning.jitterScale
+        * voiceCharacter.jitterScale,
       shimmerDepth: model.shimmerDepth,
       presenceFrequency: model.presenceFrequency,
       presenceGain: model.presenceGain,
       breathLevel: dynamicBreathLevel,
-      attackSeconds: model.attackSeconds * producerTuning.attackTimeScale,
+      attackSeconds: model.attackSeconds
+        * producerTuning.attackTimeScale
+        * voiceCharacter.attackScale,
       releaseSeconds: model.releaseSeconds,
       onsetPitchCents: model.onsetPitchCents * vocaloid.transitionPreservation,
       radiationFrequency: model.radiationFrequency,
