@@ -32,7 +32,7 @@ for (const required of ['service-worker.js', 'manifest.webmanifest', 'icon.svg',
 }
 
 const entryJavaScript = jsRefs.map((name) => readFileSync(join(distDir, 'assets', name), 'utf8')).join('\n');
-for (const genreFeature of ['AUTO COMPOSE v2', 'J-POP', 'ROCK', 'K-POP', 'GAME MUSIC']) {
+for (const genreFeature of ['J-POP', 'ROCK', 'K-POP', 'GAME MUSIC']) {
   if (!entryJavaScript.includes(genreFeature)) fail(`production bundle is missing Auto Compose Genre Style Engine feature: ${genreFeature}`);
 }
 for (const arrangementFeature of ['power-pulse', 'syncopated-808', 'arpeggio-pulse', 'eighth-drive', 'offbeat-stabs']) {
@@ -52,6 +52,15 @@ for (const producerTuningFeature of ['timingLeadSeconds', 'consonantLengthScale'
 }
 for (const voiceCharacterFeature of ['SOFT', 'NATURAL', 'CLEAR', 'AIRY', 'POWER', 'upperFormantGainScale', 'compose-voice-character', 'compose-voice-tone']) {
   if (!entryJavaScript.includes(voiceCharacterFeature)) fail(`production bundle is missing v21.1 voice character macro: ${voiceCharacterFeature}`);
+}
+for (const fullSongFeature of ['AUTO COMPOSE v3', 'FULL SONG', 'songSections', 'PRE-CHORUS', 'INTERLUDE', 'BRIDGE']) {
+  if (!entryJavaScript.includes(fullSongFeature)) fail(`production bundle is missing Auto Compose v3 full-song structure: ${fullSongFeature}`);
+}
+for (const ensembleFeature of ['harmonyTargetHz', 'harmonyGainScale', 'STACKED', 'DOUBLE', 'HARMONY']) {
+  if (!entryJavaScript.includes(ensembleFeature)) fail(`production bundle is missing Vocal Ensemble feature: ${ensembleFeature}`);
+}
+for (const lyricsFeature of ['JAPANESE LYRICS', 'lyricLine', '青い空こえて', '未来を鳴らそう']) {
+  if (!entryJavaScript.includes(lyricsFeature)) fail(`production bundle is missing Japanese Lyrics Engine feature: ${lyricsFeature}`);
 }
 
 const vocalWorklet = readFileSync(join(distDir, 'vocal-worklet.js'), 'utf8');
@@ -81,4 +90,4 @@ for (const spectralWorkletFeature of ['DEFAULT_SPECTRAL', 'spectralSmoothingAlph
   if (!vocalWorklet.includes(spectralWorkletFeature)) fail(`vocal AudioWorklet is missing v20.8 spectral-envelope trajectory: ${spectralWorkletFeature}`);
 }
 
-console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact + Genre Style/Arrangement Grammar + VOCALOID-informed score-aligned expression + v20.8 spectral-envelope trajectory + v20.9 dynamic source-filter coupling + v21.0 producer tuning grammar + v21.1 voice character macros + Human Phrase Model + Japanese phoneme/coarticulation + karaoke-score phrasing + dynamic resonance/glottal AudioWorklet`);
+console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact + Auto Compose v3 Full Song Structure + Vocal Ensemble + Japanese Lyrics Engine + Genre Style/Arrangement Grammar + VOCALOID-informed expression + v20.8 spectral-envelope trajectory + v20.9 dynamic source-filter coupling + v21.0 producer tuning grammar + v21.1 voice character macros + Human Phrase Model + Japanese phoneme/coarticulation + karaoke-score phrasing + dynamic resonance/glottal AudioWorklet`);
