@@ -23,12 +23,25 @@ import {
   type VocalEvent,
   type VocalStyle,
 } from './VocalGenerator';
+import {
+  VOICE_CHARACTER_PRESETS,
+  setActiveVoiceCharacter,
+  validVoiceCharacterPreset,
+  type VoiceCharacterPreset,
+} from './VoiceCharacter';
 
 const STORAGE_KEY = 'sound-wave-auto-compose-v1';
 const VOCAL_STORAGE_KEY = 'sound-wave-auto-vocal-v1';
 const MODES: readonly Mode[] = ['major', 'minor', 'dorian', 'phrygian', 'mixolydian'];
 const PITCHES: readonly PitchClass[] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11];
 const VOCAL_STYLES: readonly VocalStyle[] = ['warm', 'bright', 'airy'];
+const VOICE_CHARACTER_LABELS: Record<VoiceCharacterPreset, string> = {
+  soft: 'SOFT',
+  natural: 'NATURAL',
+  clear: 'CLEAR',
+  airy: 'AIRY',
+  power: 'POWER',
+};
 
 export class AutoComposeMode {
   private readonly root: HTMLElement;
@@ -38,6 +51,8 @@ export class AutoComposeMode {
   private vocalLine: VocalEvent[];
   private vocalEnabled: boolean;
   private vocalStyle: VocalStyle;
+  private voiceCharacter: VoiceCharacterPreset;
+  private voiceTone: number;
   private active = false;
   private playing = false;
   private nextStep = 0;
@@ -51,6 +66,9 @@ export class AutoComposeMode {
     const vocal = this.loadVocalSettings();
     this.vocalEnabled = vocal.enabled;
     this.vocalStyle = vocal.style;
+    this.voiceCharacter = vocal.character;
+    this.voiceTone = vocal.tone;
+    setActiveVoiceCharacter({ preset: this.voiceCharacter, tone: this.voiceTone });
     this.composition = generateComposition(this.settings);
     this.vocalLine = generateVocalLine(this.composition);
     this.renderShell();
@@ -109,17 +127,32 @@ export class AutoComposeMode {
     }
   }
 
-  private loadVocalSettings(): { enabled: boolean; style: VocalStyle } {
+  private loadVocalSettings(): {
+    enabled: boolean;
+    style: VocalStyle;
+    character: VoiceCharacterPreset;
+    tone: number;
+  } {
+    const recommended = genreStyle(this.settings.genre, this.settings.subgenre).recommendedVocalStyle;
     try {
       const raw = localStorage.getItem(VOCAL_STORAGE_KEY);
-      if (!raw) return { enabled: true, style: genreStyle(this.settings.genre, this.settings.subgenre).recommendedVocalStyle };
-      const parsed = JSON.parse(raw) as { enabled?: unknown; style?: unknown };
+      if (!raw) return { enabled: true, style: recommended, character: 'natural', tone: 0 };
+      const parsed = JSON.parse(raw) as {
+        enabled?: unknown;
+        style?: unknown;
+        character?: unknown;
+        tone?: unknown;
+      };
       const style = VOCAL_STYLES.includes(parsed.style as VocalStyle)
         ? parsed.style as VocalStyle
-        : genreStyle(this.settings.genre, this.settings.subgenre).recommendedVocalStyle;
-      return { enabled: parsed.enabled !== false, style };
+        : recommended;
+      const character = validVoiceCharacterPreset(parsed.character)
+        ? parsed.character
+        : 'natural';
+      const tone = Math.max(-1, Math.min(1, Number(parsed.tone) || 0));
+      return { enabled: parsed.enabled !== false, style, character, tone };
     } catch {
-      return { enabled: true, style: genreStyle(this.settings.genre, this.settings.subgenre).recommendedVocalStyle };
+      return { enabled: true, style: recommended, character: 'natural', tone: 0 };
     }
   }
 
@@ -133,7 +166,12 @@ export class AutoComposeMode {
 
   private saveVocalSettings(): void {
     try {
-      localStorage.setItem(VOCAL_STORAGE_KEY, JSON.stringify({ enabled: this.vocalEnabled, style: this.vocalStyle }));
+      localStorage.setItem(VOCAL_STORAGE_KEY, JSON.stringify({
+        enabled: this.vocalEnabled,
+        style: this.vocalStyle,
+        character: this.voiceCharacter,
+        tone: this.voiceTone,
+      }));
     } catch {
       // Storage may be unavailable in private/restricted Safari contexts.
     }
@@ -151,10 +189,15 @@ export class AutoComposeMode {
       .join('');
   }
 
+  private characterOptions(): string {
+    return VOICE_CHARACTER_PRESETS
+      .map((preset) => `<option value="${preset}">${VOICE_CHARACTER_LABELS[preset]}</option>`)
+      .join('');
+  }
+
   private renderShell(): void {
     const keyOptions = PITCHES.map((pitch) => `<option value="${pitch}">${pitchName(pitch)}</option>`).join('');
     const modeOptions = MODES.map((mode) => `<option value="${mode}">${mode.toUpperCase()}</option>`).join('');
-    const vocalOptions = VOCAL_STYLES.map((style) => `<option value="${style}">${style.toUpperCase()}</option>`).join('');
     this.root.innerHTML = `
       <header class="compose-header">
         <div>
@@ -174,8 +217,14 @@ export class AutoComposeMode {
         <label><span>MODE</span><select id="compose-mode">${modeOptions}</select></label>
         <label><span id="compose-bpm-label">108 BPM</span><input id="compose-bpm" type="range" min="60" max="190" step="1" /></label>
         <label><span id="compose-density-label">DENSITY 55%</span><input id="compose-density" type="range" min="15" max="100" step="1" /></label>
-        <label class="compose-vocal-toggle"><span>VOCAL</span><button type="button" id="compose-vocal-toggle">ON</button></label>
-        <label><span>VOICE</span><select id="compose-vocal-style">${vocalOptions}</select></label>
+        <label class="compose-vocal-control">
+          <span>VOICE</span>
+          <span class="compose-vocal-inline">
+            <button type="button" id="compose-vocal-toggle">ON</button>
+            <select id="compose-voice-character">${this.characterOptions()}</select>
+          </span>
+        </label>
+        <label class="compose-tone-control"><span id="compose-tone-label">TONE 0</span><input id="compose-voice-tone" type="range" min="-50" max="50" step="1" /></label>
       </section>
       <section class="compose-stage">
         <div class="compose-now">
@@ -192,8 +241,8 @@ export class AutoComposeMode {
           <div id="compose-roll" class="compose-roll"></div>
         </div>
         <div class="compose-explain">
-          <b>STYLE ENGINE</b>
-          <span>Genre profiles reshape chord choices · melodic density · syncopation · drum placement · arrangement weight · recommended vocal character.</span>
+          <b>VOICE CHARACTER</b>
+          <span>Pick SOFT / NATURAL / CLEAR / AIRY / POWER, then use TONE for darker ↔ brighter adjustment.</span>
         </div>
       </section>
     `;
@@ -204,7 +253,8 @@ export class AutoComposeMode {
     this.required<HTMLSelectElement>('#compose-mode').value = this.settings.mode;
     this.required<HTMLInputElement>('#compose-bpm').value = String(this.settings.bpm);
     this.required<HTMLInputElement>('#compose-density').value = String(Math.round(this.settings.density * 100));
-    this.required<HTMLSelectElement>('#compose-vocal-style').value = this.vocalStyle;
+    this.required<HTMLSelectElement>('#compose-voice-character').value = this.voiceCharacter;
+    this.required<HTMLInputElement>('#compose-voice-tone').value = String(Math.round(this.voiceTone * 50));
     this.syncControlLabels();
     this.syncVocalControl();
     this.syncStyleInfo();
@@ -237,12 +287,22 @@ export class AutoComposeMode {
       this.updateVisual(this.visualStep);
     }, { passive: false });
 
-    this.required<HTMLSelectElement>('#compose-vocal-style').addEventListener('change', (event) => {
-      this.vocalStyle = (event.target as HTMLSelectElement).value as VocalStyle;
-      this.audio.clearVocalStream();
+    this.required<HTMLSelectElement>('#compose-voice-character').addEventListener('change', (event) => {
+      const value = (event.target as HTMLSelectElement).value;
+      if (!validVoiceCharacterPreset(value)) return;
+      this.voiceCharacter = value;
+      setActiveVoiceCharacter({ preset: this.voiceCharacter, tone: this.voiceTone });
       this.saveVocalSettings();
       this.updateVisual(this.visualStep);
     });
+
+    this.required<HTMLInputElement>('#compose-voice-tone').addEventListener('input', (event) => {
+      this.voiceTone = Math.max(-1, Math.min(1, Number((event.target as HTMLInputElement).value) / 50));
+      setActiveVoiceCharacter({ preset: this.voiceCharacter, tone: this.voiceTone });
+      this.syncControlLabels();
+      this.updateVisual(this.visualStep);
+    });
+    this.required<HTMLInputElement>('#compose-voice-tone').addEventListener('change', () => this.saveVocalSettings());
 
     this.required<HTMLSelectElement>('#compose-genre').addEventListener('change', (event) => {
       const value = (event.target as HTMLSelectElement).value;
@@ -296,7 +356,6 @@ export class AutoComposeMode {
     this.settings = { ...this.settings, bpm };
     this.vocalStyle = style.recommendedVocalStyle;
     this.required<HTMLInputElement>('#compose-bpm').value = String(bpm);
-    this.required<HTMLSelectElement>('#compose-vocal-style').value = this.vocalStyle;
     this.audio.clearVocalStream();
     this.saveVocalSettings();
     this.syncControlLabels();
@@ -307,6 +366,8 @@ export class AutoComposeMode {
     const style = genreStyle(this.settings.genre, this.settings.subgenre);
     this.required<HTMLElement>('#compose-bpm-label').textContent = `${Math.round(this.settings.bpm)} BPM · ${style.bpmRange[0]}–${style.bpmRange[1]}`;
     this.required<HTMLElement>('#compose-density-label').textContent = `DENSITY ${Math.round(this.settings.density * 100)}%`;
+    const tone = Math.round(this.voiceTone * 50);
+    this.required<HTMLElement>('#compose-tone-label').textContent = `TONE ${tone > 0 ? '+' : ''}${tone}`;
   }
 
   private syncStyleInfo(): void {
@@ -314,13 +375,17 @@ export class AutoComposeMode {
     const genre = genreDefinition(this.settings.genre);
     this.required<HTMLElement>('#compose-style-name').textContent = `${genre.label} · ${style.label}`;
     this.required<HTMLElement>('#compose-style-description').textContent = style.description;
-    this.required<HTMLElement>('#compose-theory').textContent = `SYNC ${Math.round(style.syncopation * 100)}% · MELODY ${Math.round(style.melodyDensity * 100)}% · VOICE ${style.recommendedVocalStyle.toUpperCase()}`;
+    this.required<HTMLElement>('#compose-theory').textContent = `SYNC ${Math.round(style.syncopation * 100)}% · MELODY ${Math.round(style.melodyDensity * 100)}% · VOICE ${this.voiceCharacter.toUpperCase()}`;
   }
 
   private syncVocalControl(): void {
     const button = this.required<HTMLButtonElement>('#compose-vocal-toggle');
+    const character = this.required<HTMLSelectElement>('#compose-voice-character');
+    const tone = this.required<HTMLInputElement>('#compose-voice-tone');
     button.textContent = this.vocalEnabled ? 'ON' : 'OFF';
     button.classList.toggle('active', this.vocalEnabled);
+    character.disabled = !this.vocalEnabled;
+    tone.disabled = !this.vocalEnabled;
   }
 
   private rebuildFromControls(): void {
@@ -457,6 +522,9 @@ export class AutoComposeMode {
     const vocalStatus = this.audio.vocalEngineStatus;
     const syllable = this.vocalEnabled && this.playing ? vocalSyllableAtStep(this.vocalLine, step) : '';
     const style = genreStyle(this.settings.genre, this.settings.subgenre);
+    const tone = Math.round(this.voiceTone * 50);
+    const toneText = `TONE ${tone > 0 ? '+' : ''}${tone}`;
+    const characterText = this.voiceCharacter.toUpperCase();
     this.required<HTMLElement>('#compose-vocal-now').textContent = !this.vocalEnabled
       ? 'OFF · INSTRUMENTAL ONLY'
       : vocalStatus === 'unavailable'
@@ -464,7 +532,7 @@ export class AutoComposeMode {
         : vocalStatus !== 'ready'
           ? 'AUDIOWORKLET SINGER · INITIALIZING'
           : syllable
-            ? `${this.vocalStyle.toUpperCase()} · ${style.label.toUpperCase()} · “${syllable.toUpperCase()}”`
-            : `${this.vocalStyle.toUpperCase()} · ${style.label.toUpperCase()} · CONTINUOUS AUDIOWORKLET SINGER`;
+            ? `${characterText} · ${toneText} · ${style.label.toUpperCase()} · “${syllable.toUpperCase()}”`
+            : `${characterText} · ${toneText} · ${this.vocalStyle.toUpperCase()} BASE · CONTINUOUS AUDIOWORKLET SINGER`;
   }
 }
