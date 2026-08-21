@@ -33,6 +33,8 @@ export const DEFAULT_VOICE_CHARACTER: VoiceCharacterSettings = {
   tone: 0,
 };
 
+let activeVoiceCharacter: VoiceCharacterSettings = { ...DEFAULT_VOICE_CHARACTER };
+
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
 const BASE: Record<VoiceCharacterPreset, VoiceCharacterControl> = {
@@ -105,6 +107,17 @@ const BASE: Record<VoiceCharacterPreset, VoiceCharacterControl> = {
 
 export function validVoiceCharacterPreset(value: unknown): value is VoiceCharacterPreset {
   return typeof value === 'string' && VOICE_CHARACTER_PRESETS.includes(value as VoiceCharacterPreset);
+}
+
+export function setActiveVoiceCharacter(settings: VoiceCharacterSettings): void {
+  activeVoiceCharacter = {
+    preset: validVoiceCharacterPreset(settings.preset) ? settings.preset : 'natural',
+    tone: clamp(settings.tone, -1, 1),
+  };
+}
+
+export function currentVoiceCharacterSettings(): VoiceCharacterSettings {
+  return { ...activeVoiceCharacter };
 }
 
 export function voiceCharacterFor(settings: VoiceCharacterSettings): VoiceCharacterControl {
