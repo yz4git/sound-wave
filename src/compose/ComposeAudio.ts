@@ -465,7 +465,16 @@ export class ComposeAudio {
         energyStart: clamp(phraseControl.energyStart * profile.vocalEnergy * sectionEnergy, 0.7, 1.18),
         energyEnd: clamp(phraseControl.energyEnd * profile.vocalEnergy * sectionEnergy, 0.7, 1.18),
       };
-      const workletEvent = vocalEventToWorklet(vocal, vocalStyle, when, duration, styledPhrase);
+      const workletEvent = vocalEventToWorklet(
+        vocal,
+        vocalStyle,
+        when,
+        duration,
+        styledPhrase,
+        profile,
+        state,
+        localStep,
+      );
       workletEvent.phoneme = {
         ...workletEvent.phoneme,
         noiseMix: clamp(workletEvent.phoneme.noiseMix * profile.vocalArticulation, 0, 1),
