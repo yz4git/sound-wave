@@ -5,6 +5,10 @@ import { VOCAL_STYLE_MODELS, formantsFor, onsetFormantFrequency } from './VocalM
 import { neutralPhraseControl, type VocalPhraseControl } from './VocalPhraseModel';
 import { vocalResonanceControlFor, type VocalResonanceControl } from './VocalResonance';
 import {
+  sourceFilterCouplingFor,
+  type VocalSourceFilterCouplingControl,
+} from './VocalSourceFilterCoupling';
+import {
   spectralEnvelopeControlFor,
   type VocalSpectralEnvelopeControl,
 } from './VocalSpectralEnvelope';
@@ -30,6 +34,7 @@ export interface VocalWorkletEvent {
   resonance: VocalResonanceControl;
   vocaloid: VocaloidExpressionControl;
   spectral: VocalSpectralEnvelopeControl;
+  sourceFilter: VocalSourceFilterCouplingControl;
   phrase: {
     progressStart: number;
     progressEnd: number;
@@ -108,6 +113,7 @@ export function vocalEventToWorklet(
     consonantPreRollSeconds: appliedPreRoll,
   };
   const spectral = spectralEnvelopeControlFor(event, normalizedDuration, phraseControl, vocaloid);
+  const sourceFilter = sourceFilterCouplingFor(event, targetHz, phraseControl, spectral);
 
   const resonance: VocalResonanceControl = {
     ...baseResonance,
@@ -132,6 +138,7 @@ export function vocalEventToWorklet(
     resonance,
     vocaloid,
     spectral,
+    sourceFilter,
     phrase: {
       progressStart: phraseControl.progressStart,
       progressEnd: phraseControl.progressEnd,
