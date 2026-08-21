@@ -10,9 +10,7 @@ function fail(message) {
 }
 
 if (!existsSync(indexPath)) fail('dist/index.html is missing');
-
 const html = readFileSync(indexPath, 'utf8');
-
 if (/\/src\/main\.ts|src\/main\.ts/.test(html)) fail('dist/index.html still references TypeScript source');
 if (/(?:src|href)=["'][^"']*(?:^|\/)app\.js["']|(?:src|href)=["'][^"']*(?:^|\/)styles\.css["']/.test(html)) {
   fail('dist/index.html references the removed build-independent runtime');
@@ -23,10 +21,7 @@ const jsRefs = assetRefs.filter((name) => name.endsWith('.js'));
 const cssRefs = assetRefs.filter((name) => name.endsWith('.css'));
 if (jsRefs.length === 0) fail('dist/index.html has no Vite JavaScript bundle reference');
 if (cssRefs.length === 0) fail('dist/index.html has no Vite CSS bundle reference');
-
-for (const name of assetRefs) {
-  if (!existsSync(join(distDir, 'assets', name))) fail(`referenced Vite asset is missing: dist/assets/${name}`);
-}
+for (const name of assetRefs) if (!existsSync(join(distDir, 'assets', name))) fail(`referenced Vite asset is missing: dist/assets/${name}`);
 for (const required of ['service-worker.js', 'manifest.webmanifest', 'icon.svg', 'vocal-worklet.js']) {
   if (!existsSync(join(distDir, required))) fail(`dist/${required} is missing`);
 }
@@ -53,20 +48,33 @@ for (const producerTuningFeature of ['timingLeadSeconds', 'consonantLengthScale'
 for (const voiceCharacterFeature of ['SOFT', 'NATURAL', 'CLEAR', 'AIRY', 'POWER', 'upperFormantGainScale', 'compose-voice-character', 'compose-voice-tone']) {
   if (!entryJavaScript.includes(voiceCharacterFeature)) fail(`production bundle is missing v21.1 voice character macro: ${voiceCharacterFeature}`);
 }
-for (const fullSongFeature of ['AUTO COMPOSE v3', 'FULL SONG', 'songSections', 'PRE-CHORUS', 'INTERLUDE', 'BRIDGE']) {
-  if (!entryJavaScript.includes(fullSongFeature)) fail(`production bundle is missing Auto Compose v3 full-song structure: ${fullSongFeature}`);
+for (const fullSongFeature of ['FULL SONG', 'songSections', 'PRE-CHORUS', 'INTERLUDE', 'BRIDGE']) {
+  if (!entryJavaScript.includes(fullSongFeature)) fail(`production bundle is missing full-song structure: ${fullSongFeature}`);
 }
 for (const ensembleFeature of ['harmonyTargetHz', 'harmonyGainScale', 'STACKED', 'DOUBLE', 'HARMONY']) {
   if (!entryJavaScript.includes(ensembleFeature)) fail(`production bundle is missing Vocal Ensemble feature: ${ensembleFeature}`);
 }
-for (const lyricsFeature of ['JAPANESE LYRICS', 'lyricLine', '青い空こえて', '未来を鳴らそう']) {
-  if (!entryJavaScript.includes(lyricsFeature)) fail(`production bundle is missing Japanese Lyrics Engine feature: ${lyricsFeature}`);
+for (const productionSuiteFeature of ['AUTO COMPOSE v4', 'compose-vocal-director', 'compose-export-wav', '16-BIT WAV EXPORTED']) {
+  if (!entryJavaScript.includes(productionSuiteFeature)) fail(`production bundle is missing Auto Compose v4 production suite: ${productionSuiteFeature}`);
+}
+for (const mixMasterFeature of ['stereoWidth', 'lowEndDuck', 'masterDrive', 'WIDTH']) {
+  if (!entryJavaScript.includes(mixMasterFeature)) fail(`production bundle is missing Mix & Master v1: ${mixMasterFeature}`);
+}
+for (const lyricsV2Feature of ['青い空を見上げた', '未来はここから始まる', 'lyricLine']) {
+  if (!entryJavaScript.includes(lyricsV2Feature)) fail(`production bundle is missing Japanese Lyrics v2: ${lyricsV2Feature}`);
+}
+for (const instrumentsV2Feature of ['rhythm-guitar', 'synth-pad', 'brass', 'synth-lead']) {
+  if (!entryJavaScript.includes(instrumentsV2Feature)) fail(`production bundle is missing Arrangement Instruments v2: ${instrumentsV2Feature}`);
+}
+for (const directorFeature of ['EMOTIONAL', 'INTIMATE', 'ensembleScale', 'releaseScale']) {
+  if (!entryJavaScript.includes(directorFeature)) fail(`production bundle is missing Vocal Director v1: ${directorFeature}`);
+}
+for (const exportFeature of ['sound-wave-song-v1', 'audio/wav', 'RIFF', 'PROJECT JSON EXPORTED']) {
+  if (!entryJavaScript.includes(exportFeature)) fail(`production bundle is missing Song Export feature: ${exportFeature}`);
 }
 
 const vocalWorklet = readFileSync(join(distDir, 'vocal-worklet.js'), 'utf8');
-try {
-  new Function(vocalWorklet);
-} catch (error) {
+try { new Function(vocalWorklet); } catch (error) {
   fail(`dist/vocal-worklet.js has invalid JavaScript syntax: ${error instanceof Error ? error.message : String(error)}`);
 }
 if (!vocalWorklet.includes("registerProcessor('sound-wave-vocal-processor'")) fail('dist/vocal-worklet.js does not register the Sound Wave vocal processor');
@@ -90,4 +98,4 @@ for (const spectralWorkletFeature of ['DEFAULT_SPECTRAL', 'spectralSmoothingAlph
   if (!vocalWorklet.includes(spectralWorkletFeature)) fail(`vocal AudioWorklet is missing v20.8 spectral-envelope trajectory: ${spectralWorkletFeature}`);
 }
 
-console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Vite-only production artifact + Auto Compose v3 Full Song Structure + Vocal Ensemble + Japanese Lyrics Engine + Genre Style/Arrangement Grammar + VOCALOID-informed expression + v20.8 spectral-envelope trajectory + v20.9 dynamic source-filter coupling + v21.0 producer tuning grammar + v21.1 voice character macros + Human Phrase Model + Japanese phoneme/coarticulation + karaoke-score phrasing + dynamic resonance/glottal AudioWorklet`);
+console.log(`[validate:prod] OK — ${jsRefs.length} entry JS bundle(s), ${cssRefs.length} entry CSS bundle(s), Auto Compose v4 Production Suite + Mix/Master v1 + Japanese Lyrics v2 + Arrangement Instruments v2 + Vocal Director v1 + Project/WAV Export + Full Song + Vocal Ensemble + v20.x/v21.x vocal safety stack`);
