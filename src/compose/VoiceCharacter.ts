@@ -110,10 +110,15 @@ export function validVoiceCharacterPreset(value: unknown): value is VoiceCharact
 }
 
 export function setActiveVoiceCharacter(settings: VoiceCharacterSettings): void {
-  activeVoiceCharacter = {
+  const next: VoiceCharacterSettings = {
     preset: validVoiceCharacterPreset(settings.preset) ? settings.preset : 'natural',
     tone: clamp(settings.tone, -1, 1),
   };
+  activeVoiceCharacter = next;
+  // VocalWorkletBridge uses this object as its default argument. Keep the same
+  // reference live so existing callers need no new scheduling parameter.
+  DEFAULT_VOICE_CHARACTER.preset = next.preset;
+  DEFAULT_VOICE_CHARACTER.tone = next.tone;
 }
 
 export function currentVoiceCharacterSettings(): VoiceCharacterSettings {
