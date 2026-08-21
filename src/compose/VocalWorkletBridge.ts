@@ -112,16 +112,67 @@ export function vocalEventToWorklet(
     ...plannedExpression,
     consonantPreRollSeconds: appliedPreRoll,
   };
-  const spectral = spectralEnvelopeControlFor(event, normalizedDuration, phraseControl, vocaloid);
-  const sourceFilter = sourceFilterCouplingFor(event, targetHz, phraseControl, spectral);
+  const baseSpectral = spectralEnvelopeControlFor(event, normalizedDuration, phraseControl, vocaloid);
+  const sourceFilter = sourceFilterCouplingFor(event, targetHz, phraseControl, baseSpectral);
+
+  // v20.9 lets filter motion feed back into source-shaping controls without
+  // adding a second resonator or fixed presence contour. The existing v20.8
+  // worklet remains the single DSP stream; these bounded controls alter its
+  // glottal shape, source-tract feedback, aspiration and envelope motion.
+  const spectral: VocalSpectralEnvelopeControl = {
+    ...baseSpectral,
+    frequencySmoothing: clamp(
+      baseSpectral.frequencySmoothing * (1 + sourceFilter.filterLoad * 0.08),
+      0.08,
+      0.2,
+    ),
+    spectralTiltDepth: clamp(
+      baseSpectral.spectralTiltDepth * (1 + sourceFilter.sourceTiltDepth * 1.6),
+      0.006,
+      0.024,
+    ),
+    trajectoryDepth: clamp(
+      baseSpectral.trajectoryDepth * (1 + sourceFilter.spectralCouplingDepth * 0.045),
+      0.72,
+      1.08,
+    ),
+  };
 
   const resonance: VocalResonanceControl = {
     ...baseResonance,
-    bandwidthMotion: baseResonance.bandwidthMotion * vocaloid.sustainTimbreMotion,
-    gainMotion: baseResonance.gainMotion * vocaloid.sustainTimbreMotion,
+    bandwidthMotion: baseResonance.bandwidthMotion
+      * vocaloid.sustainTimbreMotion
+      * (1 + sourceFilter.filterLoad * 0.08),
+    gainMotion: baseResonance.gainMotion
+      * vocaloid.sustainTimbreMotion
+      * (1 - sourceFilter.highPitchCompensation * 0.07),
     vibratoResonanceDepth: baseResonance.vibratoResonanceDepth
-      * clamp(vocaloid.sustainTimbreMotion, 0.8, 1.08),
+      * clamp(vocaloid.sustainTimbreMotion, 0.8, 1.08)
+      * (1 - sourceFilter.highPitchCompensation * 0.08),
   };
+
+  const dynamicSourceTractCoupling = clamp(
+    phraseControl.sourceTractCoupling * 0.5 + sourceFilter.tractFeedbackDepth * 0.7,
+    0.004,
+    0.013,
+  );
+  const dynamicOpenQuotient = clamp(
+    model.glottalOpenQuotient
+      + sourceFilter.openQuotientOffset
+      + sourceFilter.sourceTiltDepth * 0.08,
+    0.48,
+    0.82,
+  );
+  const dynamicSpeedQuotient = clamp(
+    model.glottalSpeedQuotient
+      + sourceFilter.speedQuotientOffset
+      - sourceFilter.sourceTiltDepth * 0.045,
+    0.48,
+    0.84,
+  );
+  const dynamicBreathLevel = model.breathLevel
+    * vocaloid.aspirationScale
+    * (1 + sourceFilter.aspirationCoupling * 0.18);
 
   return {
     when: scheduledWhen,
@@ -146,23 +197,30 @@ export function vocalEventToWorklet(
       energyEnd: clamp(phraseControl.energyEnd * vocaloid.energyEndScale, 0.72, 1.18),
       centeringStart: clamp(phraseControl.centeringStart * vocaloid.centeringScale, 0, 0.22),
       centeringEnd: clamp(phraseControl.centeringEnd * vocaloid.centeringScale, 0, 0.22),
-      aspirationDepth: clamp(phraseControl.aspirationDepth * vocaloid.aspirationScale, 0.05, 0.14),
-      sourceTractCoupling: phraseControl.sourceTractCoupling,
+      aspirationDepth: clamp(
+        phraseControl.aspirationDepth
+          * vocaloid.aspirationScale
+          * (1 + sourceFilter.aspirationCoupling * 0.1),
+        0.05,
+        0.145,
+      ),
+      sourceTractCoupling: dynamicSourceTractCoupling,
     },
     formants: bands.map((band, index) => {
       const upperWeight = index / Math.max(1, bands.length - 1);
       const timbreScale = 1 + (vocaloid.upperFormantScale - 1) * upperWeight;
+      const filterLoadScale = 1 - sourceFilter.filterLoad * upperWeight * 0.025;
       return {
         startHz: onsetFormantFrequency(event.syllable, index, band.frequency),
         targetHz: band.frequency,
         nextHz: nextBands?.[index]?.frequency ?? null,
         bandwidth: band.bandwidth,
-        gain: band.gain * timbreScale,
+        gain: band.gain * timbreScale * filterLoadScale,
       };
     }),
     style: {
-      glottalOpenQuotient: model.glottalOpenQuotient,
-      glottalSpeedQuotient: model.glottalSpeedQuotient,
+      glottalOpenQuotient: dynamicOpenQuotient,
+      glottalSpeedQuotient: dynamicSpeedQuotient,
       vibratoRateHz: model.vibratoRateHz,
       vibratoDepthCents: model.vibratoDepthCents,
       vibratoDelaySeconds: model.vibratoDelaySeconds,
@@ -171,7 +229,7 @@ export function vocalEventToWorklet(
       shimmerDepth: model.shimmerDepth,
       presenceFrequency: model.presenceFrequency,
       presenceGain: model.presenceGain,
-      breathLevel: model.breathLevel * vocaloid.aspirationScale,
+      breathLevel: dynamicBreathLevel,
       attackSeconds: model.attackSeconds,
       releaseSeconds: model.releaseSeconds,
       onsetPitchCents: model.onsetPitchCents * vocaloid.transitionPreservation,
