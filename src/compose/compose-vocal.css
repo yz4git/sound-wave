@@ -59,9 +59,36 @@
   letter-spacing: .08em;
 }
 
+/* Full-song sections replace the old eight fixed chord cells. Keep the
+   timeline horizontally scrollable so iPhone landscape never compresses
+   ten sections into unreadable columns. */
+.compose-sections {
+  display: flex;
+  grid-template-columns: none;
+  gap: 5px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+  -webkit-overflow-scrolling: touch;
+}
+.compose-sections::-webkit-scrollbar { display: none; }
+.compose-section-cell {
+  flex: 0 0 clamp(76px, 10.5vw, 108px);
+  min-height: 48px;
+  scroll-snap-align: nearest;
+}
+.compose-section-cell.active {
+  border-color: rgba(255,109,159,.65);
+  background: linear-gradient(135deg, rgba(69,40,76,.76), rgba(28,64,69,.62));
+  box-shadow: 0 0 16px rgba(255,109,159,.08);
+}
+.compose-roll .compose-note { min-width: 2px; }
+
 .compose-vocal-note {
   position: absolute;
-  min-width: 5px;
+  min-width: 2px;
   height: 3px;
   border-radius: 999px;
   background: rgba(255,109,159,.7);
@@ -88,4 +115,7 @@
   .compose-stage { gap: 5px; }
   .compose-vocal-strip { min-height: 18px; }
   .compose-vocal-strip b, .compose-vocal-strip span { font-size: 6px; }
+  .compose-section-cell { flex-basis: 70px; min-height: 36px; }
+  .compose-section-cell b { font-size: 7px; }
+  .compose-section-cell span, .compose-section-cell em { font-size: 5px; }
 }
