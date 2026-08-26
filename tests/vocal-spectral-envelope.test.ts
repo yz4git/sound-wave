@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { VocalEvent } from '../src/compose/VocalGenerator';
 import { neutralPhraseControl } from '../src/compose/VocalPhraseModel';
 import { phonemeTimingFor } from '../src/compose/JapanesePhoneme';
-import { vocaloidExpressionFor } from '../src/compose/VocaloidExpression';
+import { scoreAlignedExpressionFor } from '../src/compose/ScoreAlignedExpression';
 import { spectralEnvelopeControlFor } from '../src/compose/VocalSpectralEnvelope';
 
 function event(overrides: Partial<VocalEvent> = {}): VocalEvent {
@@ -28,8 +28,8 @@ describe('v20.8 spectral envelope trajectory', () => {
     const vocal = event();
     const phrase = neutralPhraseControl(vocal);
     const phoneme = phonemeTimingFor(vocal.syllable);
-    const vocaloid = vocaloidExpressionFor(vocal, phoneme, 0.8, phrase);
-    const control = spectralEnvelopeControlFor(vocal, 0.8, phrase, vocaloid);
+    const scoreAligned = scoreAlignedExpressionFor(vocal, phoneme, 0.8, phrase);
+    const control = spectralEnvelopeControlFor(vocal, 0.8, phrase, scoreAligned);
 
     expect(control.transitionSmoothingMs).toBeLessThan(control.timeSmoothingMs);
     expect(control.transitionProtectionSeconds).toBeGreaterThan(0.04);
@@ -41,8 +41,8 @@ describe('v20.8 spectral envelope trajectory', () => {
     const vocal = event();
     const phrase = neutralPhraseControl(vocal);
     const phoneme = phonemeTimingFor(vocal.syllable);
-    const shortExpression = vocaloidExpressionFor(vocal, phoneme, 0.22, phrase);
-    const longExpression = vocaloidExpressionFor(vocal, phoneme, 1.1, phrase);
+    const shortExpression = scoreAlignedExpressionFor(vocal, phoneme, 0.22, phrase);
+    const longExpression = scoreAlignedExpressionFor(vocal, phoneme, 1.1, phrase);
     const shortControl = spectralEnvelopeControlFor(vocal, 0.22, phrase, shortExpression);
     const longControl = spectralEnvelopeControlFor(vocal, 1.1, phrase, longExpression);
 
@@ -55,8 +55,8 @@ describe('v20.8 spectral envelope trajectory', () => {
     const vocal = event({ phraseStart: false, phraseEnd: true, syllable: 'sa' });
     const phrase = neutralPhraseControl(vocal);
     const phoneme = phonemeTimingFor(vocal.syllable);
-    const vocaloid = vocaloidExpressionFor(vocal, phoneme, 2.2, phrase);
-    const control = spectralEnvelopeControlFor(vocal, 2.2, phrase, vocaloid);
+    const scoreAligned = scoreAlignedExpressionFor(vocal, phoneme, 2.2, phrase);
+    const control = spectralEnvelopeControlFor(vocal, 2.2, phrase, scoreAligned);
 
     expect(control.timeSmoothingMs).toBeGreaterThanOrEqual(22);
     expect(control.timeSmoothingMs).toBeLessThanOrEqual(40);
