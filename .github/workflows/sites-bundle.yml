@@ -1,0 +1,49 @@
+name: Build Sites Bundle
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sites-bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build production artifact
+        run: npm run build
+
+      - name: Package source and production artifact
+        shell: bash
+        run: |
+          tar -czf sound-wave-sites-source.tar.gz \
+            --exclude=.git \
+            --exclude=node_modules \
+            --exclude=dist \
+            --exclude=.openai/hosting.json \
+            --exclude=.github \
+            .
+          tar -czf sound-wave-sites-dist.tar.gz -C dist .
+
+      - name: Upload Sites bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: sound-wave-sites-bundle
+          path: |
+            sound-wave-sites-source.tar.gz
+            sound-wave-sites-dist.tar.gz
+          retention-days: 7
