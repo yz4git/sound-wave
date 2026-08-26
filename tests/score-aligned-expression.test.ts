@@ -4,8 +4,8 @@ import type { VocalEvent } from '../src/compose/VocalGenerator';
 import { neutralPhraseControl } from '../src/compose/VocalPhraseModel';
 import {
   consonantPreRollSeconds,
-  vocaloidExpressionFor,
-} from '../src/compose/VocaloidExpression';
+  scoreAlignedExpressionFor,
+} from '../src/compose/ScoreAlignedExpression';
 
 function event(syllable: string, overrides: Partial<VocalEvent> = {}): VocalEvent {
   return {
@@ -25,7 +25,7 @@ function event(syllable: string, overrides: Partial<VocalEvent> = {}): VocalEven
   };
 }
 
-describe('VOCALOID-informed expression planning', () => {
+describe('score-aligned expression planning', () => {
   it('pre-rolls consonants but keeps vowel-only notes on score time', () => {
     const vowel = event('ah');
     const stop = event('ka');
@@ -50,9 +50,9 @@ describe('VOCALOID-informed expression planning', () => {
     const legato = event('a', { articulate: false, phraseStart: false, glideFromMidi: 60 });
     const phrase = neutralPhraseControl(articulated);
 
-    const shortControl = vocaloidExpressionFor(articulated, phonemeTimingFor('ka'), 0.24, phrase);
-    const longControl = vocaloidExpressionFor(articulated, phonemeTimingFor('ka'), 1.1, phrase);
-    const legatoControl = vocaloidExpressionFor(legato, phonemeTimingFor('a'), 0.6, neutralPhraseControl(legato));
+    const shortControl = scoreAlignedExpressionFor(articulated, phonemeTimingFor('ka'), 0.24, phrase);
+    const longControl = scoreAlignedExpressionFor(articulated, phonemeTimingFor('ka'), 1.1, phrase);
+    const legatoControl = scoreAlignedExpressionFor(legato, phonemeTimingFor('a'), 0.6, neutralPhraseControl(legato));
 
     expect(shortControl.transitionPreservation).toBeGreaterThanOrEqual(0.9);
     expect(longControl.sustainTimbreMotion).toBeGreaterThan(shortControl.sustainTimbreMotion);
@@ -62,8 +62,8 @@ describe('VOCALOID-informed expression planning', () => {
   it('softens phrase entry and phrase release without large dynamics jumps', () => {
     const start = event('na', { phraseStart: true, phraseEnd: false });
     const end = event('ne', { phraseStart: false, phraseEnd: true });
-    const startControl = vocaloidExpressionFor(start, phonemeTimingFor('na'), 0.6, neutralPhraseControl(start));
-    const endControl = vocaloidExpressionFor(end, phonemeTimingFor('ne'), 0.6, neutralPhraseControl(end));
+    const startControl = scoreAlignedExpressionFor(start, phonemeTimingFor('na'), 0.6, neutralPhraseControl(start));
+    const endControl = scoreAlignedExpressionFor(end, phonemeTimingFor('ne'), 0.6, neutralPhraseControl(end));
 
     expect(startControl.energyStartScale).toBeLessThan(1);
     expect(startControl.energyStartScale).toBeGreaterThan(0.9);

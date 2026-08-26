@@ -16,9 +16,9 @@ import {
   type VocalSpectralEnvelopeControl,
 } from './VocalSpectralEnvelope';
 import {
-  vocaloidExpressionFor,
-  type VocaloidExpressionControl,
-} from './VocaloidExpression';
+  scoreAlignedExpressionFor,
+  type ScoreAlignedExpressionControl,
+} from './ScoreAlignedExpression';
 import {
   DEFAULT_VOICE_CHARACTER,
   voiceCharacterFor,
@@ -43,7 +43,7 @@ export interface VocalWorkletEvent {
   phoneme: JapanesePhonemeTiming;
   karaoke: KaraokeSingingControl;
   resonance: VocalResonanceControl;
-  vocaloid: VocaloidExpressionControl;
+  scoreAligned: ScoreAlignedExpressionControl;
   spectral: VocalSpectralEnvelopeControl;
   sourceFilter: VocalSourceFilterCouplingControl;
   producerTuning: ProducerTuningControl;
@@ -170,17 +170,17 @@ export function vocalEventToWorklet(
     ),
   };
   const baseResonance = vocalResonanceControlFor(event, phraseControl);
-  const plannedExpression = vocaloidExpressionFor(event, phoneme, normalizedDuration, phraseControl);
+  const plannedExpression = scoreAlignedExpressionFor(event, phoneme, normalizedDuration, phraseControl);
 
   const requestedPreRoll = plannedExpression.consonantPreRollSeconds + producerTuning.timingLeadSeconds;
   const appliedPreRoll = Math.min(requestedPreRoll, Math.max(0, when));
   const scheduledWhen = when - appliedPreRoll;
   const scheduledDuration = normalizedDuration + appliedPreRoll;
-  const vocaloid: VocaloidExpressionControl = {
+  const scoreAligned: ScoreAlignedExpressionControl = {
     ...plannedExpression,
     consonantPreRollSeconds: appliedPreRoll,
   };
-  const baseSpectral = spectralEnvelopeControlFor(event, normalizedDuration, phraseControl, vocaloid);
+  const baseSpectral = spectralEnvelopeControlFor(event, normalizedDuration, phraseControl, scoreAligned);
   const sourceFilter = sourceFilterCouplingFor(event, targetHz, phraseControl, baseSpectral);
 
   const spectral: VocalSpectralEnvelopeControl = {
@@ -207,13 +207,13 @@ export function vocalEventToWorklet(
   const resonance: VocalResonanceControl = {
     ...baseResonance,
     bandwidthMotion: baseResonance.bandwidthMotion
-      * vocaloid.sustainTimbreMotion
+      * scoreAligned.sustainTimbreMotion
       * (1 + sourceFilter.filterLoad * 0.08),
     gainMotion: baseResonance.gainMotion
-      * vocaloid.sustainTimbreMotion
+      * scoreAligned.sustainTimbreMotion
       * (1 - sourceFilter.highPitchCompensation * 0.07),
     vibratoResonanceDepth: baseResonance.vibratoResonanceDepth
-      * clamp(vocaloid.sustainTimbreMotion, 0.8, 1.08)
+      * clamp(scoreAligned.sustainTimbreMotion, 0.8, 1.08)
       * (1 - sourceFilter.highPitchCompensation * 0.08),
   };
 
@@ -239,7 +239,7 @@ export function vocalEventToWorklet(
     0.86,
   );
   const dynamicBreathLevel = model.breathLevel
-    * vocaloid.aspirationScale
+    * scoreAligned.aspirationScale
     * (1 + sourceFilter.aspirationCoupling * 0.18)
     * producerTuning.airScale
     * voiceCharacter.breathScale
@@ -259,7 +259,7 @@ export function vocalEventToWorklet(
     phoneme,
     karaoke,
     resonance,
-    vocaloid,
+    scoreAligned,
     spectral,
     sourceFilter,
     producerTuning,
@@ -277,7 +277,7 @@ export function vocalEventToWorklet(
       progressEnd: phraseControl.progressEnd,
       energyStart: clamp(
         phraseControl.energyStart
-          * vocaloid.energyStartScale
+          * scoreAligned.energyStartScale
           * producerTuning.dynamicsStartScale
           * voiceCharacter.dynamicsScale
           * vocalDirector.dynamicsScale,
@@ -286,18 +286,18 @@ export function vocalEventToWorklet(
       ),
       energyEnd: clamp(
         phraseControl.energyEnd
-          * vocaloid.energyEndScale
+          * scoreAligned.energyEndScale
           * producerTuning.dynamicsEndScale
           * voiceCharacter.dynamicsScale
           * vocalDirector.dynamicsScale,
         0.7,
         1.2,
       ),
-      centeringStart: clamp(phraseControl.centeringStart * vocaloid.centeringScale, 0, 0.22),
-      centeringEnd: clamp(phraseControl.centeringEnd * vocaloid.centeringScale, 0, 0.22),
+      centeringStart: clamp(phraseControl.centeringStart * scoreAligned.centeringScale, 0, 0.22),
+      centeringEnd: clamp(phraseControl.centeringEnd * scoreAligned.centeringScale, 0, 0.22),
       aspirationDepth: clamp(
         phraseControl.aspirationDepth
-          * vocaloid.aspirationScale
+          * scoreAligned.aspirationScale
           * (1 + sourceFilter.aspirationCoupling * 0.1)
           * producerTuning.airScale
           * voiceCharacter.breathScale
@@ -309,7 +309,7 @@ export function vocalEventToWorklet(
     },
     formants: bands.map((band, index) => {
       const upperWeight = index / Math.max(1, bands.length - 1);
-      const timbreScale = 1 + (vocaloid.upperFormantScale - 1) * upperWeight;
+      const timbreScale = 1 + (scoreAligned.upperFormantScale - 1) * upperWeight;
       const filterLoadScale = 1 - sourceFilter.filterLoad * upperWeight * 0.025;
       const characterGainScale = 1 + (voiceCharacter.upperFormantGainScale - 1) * upperWeight;
       const mouthWeight = index === 0 ? 1 : index === 1 ? 0.3 : 0;
@@ -346,7 +346,7 @@ export function vocalEventToWorklet(
         * voiceCharacter.attackScale
         * vocalDirector.attackScale,
       releaseSeconds: model.releaseSeconds * vocalDirector.releaseScale,
-      onsetPitchCents: model.onsetPitchCents * vocaloid.transitionPreservation,
+      onsetPitchCents: model.onsetPitchCents * scoreAligned.transitionPreservation,
       radiationFrequency: model.radiationFrequency,
       radiationGainDb: model.radiationGainDb,
       doubleDelaySeconds: ensembleControl.doubleLevel > 0

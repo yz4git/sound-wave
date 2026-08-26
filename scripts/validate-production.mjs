@@ -33,8 +33,8 @@ for (const genreFeature of ['J-POP', 'ROCK', 'K-POP', 'GAME MUSIC']) {
 for (const arrangementFeature of ['power-pulse', 'syncopated-808', 'arpeggio-pulse', 'eighth-drive', 'offbeat-stabs']) {
   if (!entryJavaScript.includes(arrangementFeature)) fail(`production bundle is missing Genre Arrangement Grammar feature: ${arrangementFeature}`);
 }
-for (const vocaloidExpressionFeature of ['consonantPreRollSeconds', 'transitionPreservation', 'sustainTimbreMotion', 'upperFormantScale']) {
-  if (!entryJavaScript.includes(vocaloidExpressionFeature)) fail(`production bundle is missing VOCALOID-informed expression feature: ${vocaloidExpressionFeature}`);
+for (const scoreAlignedExpressionFeature of ['consonantPreRollSeconds', 'transitionPreservation', 'sustainTimbreMotion', 'upperFormantScale']) {
+  if (!entryJavaScript.includes(scoreAlignedExpressionFeature)) fail(`production bundle is missing score-aligned expression feature: ${scoreAlignedExpressionFeature}`);
 }
 for (const spectralTrajectoryFeature of ['timeSmoothingMs', 'transitionSmoothingMs', 'frequencySmoothing', 'transitionProtectionSeconds', 'spectralTiltDepth', 'trajectoryDepth']) {
   if (!entryJavaScript.includes(spectralTrajectoryFeature)) fail(`production bundle is missing spectral-envelope trajectory feature: ${spectralTrajectoryFeature}`);

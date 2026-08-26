@@ -2,7 +2,7 @@ import type { JapanesePhonemeTiming } from './JapanesePhoneme';
 import type { VocalEvent } from './VocalGenerator';
 import type { VocalPhraseControl } from './VocalPhraseModel';
 
-export interface VocaloidExpressionControl {
+export interface ScoreAlignedExpressionControl {
   /** Start consonant material before the score note so the vowel nucleus lands near Note-On. */
   consonantPreRollSeconds: number;
   /** Preserve articulation/transition character; use most timbre motion on the sustained region. */
@@ -23,9 +23,10 @@ export interface VocaloidExpressionControl {
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
 /**
- * Public VOCALOID descriptions place the vowel onset on score Note-On while
- * allowing consonantal material to precede it.  Our local singer is procedural,
- * so we derive a bounded pre-roll from the existing Japanese phoneme model.
+ * Public singing-synthesis literature describes placing the vowel nucleus on
+ * score Note-On while allowing consonantal preparation to precede it. Our local
+ * singer is procedural, so we derive a bounded pre-roll from the existing
+ * Japanese phoneme model.
  */
 export function consonantPreRollSeconds(
   event: VocalEvent,
@@ -43,15 +44,15 @@ export function consonantPreRollSeconds(
 /**
  * Derive a conservative, deterministic expression plan from score context.
  * The transition itself is intentionally protected; stronger timbre movement is
- * reserved for long/stationary vowels, mirroring the transition/stationary split
- * described in early VOCALOID literature.
+ * reserved for long/stationary vowels, following the transition/stationary split
+ * described in public singing-synthesis literature.
  */
-export function vocaloidExpressionFor(
+export function scoreAlignedExpressionFor(
   event: VocalEvent,
   phoneme: JapanesePhonemeTiming,
   durationSeconds: number,
   phrase: VocalPhraseControl,
-): VocaloidExpressionControl {
+): ScoreAlignedExpressionControl {
   const duration = Math.max(0.11, durationSeconds);
   const preRoll = consonantPreRollSeconds(event, phoneme);
   const longSustain = clamp((duration - 0.38) / 0.8, 0, 1);

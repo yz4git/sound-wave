@@ -4,3 +4,26 @@ dist/
 *.log
 .vite/
 coverage/
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.jks
+.npmrc
+.yarnrc
+
+# Local deployment / hosting metadata
+.openai/
+
+# Local editor and OS state
+.vscode/
+.idea/
+*.swp
+*.swo

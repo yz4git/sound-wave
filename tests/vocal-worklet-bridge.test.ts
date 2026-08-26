@@ -16,8 +16,8 @@ describe('continuous vocal AudioWorklet bridge', () => {
     const mapped = vocalEventToWorklet(event!, 'warm', scoreWhen, scoreDuration);
     expect(mapped.when).toBeLessThanOrEqual(scoreWhen);
     expect(mapped.when + mapped.duration).toBeCloseTo(scoreWhen + scoreDuration, 8);
-    expect(mapped.vocaloid.consonantPreRollSeconds).toBeGreaterThanOrEqual(0);
-    expect(mapped.vocaloid.consonantPreRollSeconds).toBeLessThanOrEqual(0.065);
+    expect(mapped.scoreAligned.consonantPreRollSeconds).toBeGreaterThanOrEqual(0);
+    expect(mapped.scoreAligned.consonantPreRollSeconds).toBeLessThanOrEqual(0.065);
     expect(mapped.targetHz).toBeGreaterThan(60);
     expect(mapped.formants).toHaveLength(5);
     expect(mapped.formants.every((band) => band.bandwidth > 0 && band.targetHz > 0)).toBe(true);
@@ -50,11 +50,11 @@ describe('continuous vocal AudioWorklet bridge', () => {
     const vowel = vocalEventToWorklet({ ...base!, syllable: 'ah', vowel: 'a', articulate: true }, 'warm', 2, 0.5);
 
     expect(consonant.when).toBeLessThan(2);
-    expect(consonant.vocaloid.consonantPreRollSeconds).toBeGreaterThan(0.04);
+    expect(consonant.scoreAligned.consonantPreRollSeconds).toBeGreaterThan(0.04);
     expect(consonant.when + consonant.duration).toBeCloseTo(2.5, 8);
     expect(vowel.when).toBe(2);
     expect(vowel.duration).toBe(0.5);
-    expect(vowel.vocaloid.consonantPreRollSeconds).toBe(0);
+    expect(vowel.scoreAligned.consonantPreRollSeconds).toBe(0);
   });
 
   it('marks long notes for straight-hold then late-vibrato scoring phrasing', () => {
@@ -145,8 +145,8 @@ describe('continuous vocal AudioWorklet bridge', () => {
     expect(mapped.phraseEnd).toBe(melisma!.phraseEnd);
     expect(mapped.phrase.progressStart).toBe(phraseControl!.progressStart);
     expect(mapped.phrase.progressEnd).toBe(phraseControl!.progressEnd);
-    expect(mapped.phrase.energyStart).toBeCloseTo(phraseControl!.energyStart * mapped.vocaloid.energyStartScale, 8);
-    expect(mapped.phrase.energyEnd).toBeCloseTo(phraseControl!.energyEnd * mapped.vocaloid.energyEndScale, 8);
+    expect(mapped.phrase.energyStart).toBeCloseTo(phraseControl!.energyStart * mapped.scoreAligned.energyStartScale, 8);
+    expect(mapped.phrase.energyEnd).toBeCloseTo(phraseControl!.energyEnd * mapped.scoreAligned.energyEndScale, 8);
     expect(mapped.phrase.centeringEnd).toBeLessThanOrEqual(0.22);
     expect(mapped.phrase.aspirationDepth).toBeGreaterThan(0);
     expect(mapped.phrase.sourceTractCoupling).toBeGreaterThan(0);
