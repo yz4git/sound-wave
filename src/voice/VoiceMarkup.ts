@@ -9,9 +9,15 @@ import {
   type VoiceExpressionSettings,
 } from './VoiceExpression';
 
+export interface VoiceSpeechSegment {
+  text: string;
+  expression: VoiceExpressionSettings | null;
+}
+
 export interface VoiceMarkupScript extends VoiceScript {
   plainText: string;
   localExpressions: (VoiceExpressionSettings | null)[];
+  speechSegments: VoiceSpeechSegment[];
   markupUsed: boolean;
 }
 
@@ -31,6 +37,7 @@ export function parseVoiceMarkup(text: string): VoiceMarkupScript {
   const localExpressions: (VoiceExpressionSettings | null)[] = [];
   const unsupported: string[] = [];
   const plainParts: string[] = [];
+  const speechSegments: VoiceSpeechSegment[] = [];
   const stack: VoiceExpressionSettings[] = [];
   let markupUsed = false;
   let cursor = 0;
@@ -38,10 +45,16 @@ export function parseVoiceMarkup(text: string): VoiceMarkupScript {
   const appendSegment = (segment: string): void => {
     if (!segment) return;
     plainParts.push(segment);
+    const active = stack[stack.length - 1] ?? null;
+    const lastSpeech = speechSegments[speechSegments.length - 1];
+    const sameExpression = lastSpeech
+      && lastSpeech.expression?.preset === active?.preset
+      && lastSpeech.expression?.intensity === active?.intensity;
+    if (sameExpression) lastSpeech.text += segment;
+    else speechSegments.push({ text: segment, expression: active ? { ...active } : null });
+
     const parsed = parseVoiceScript(segment);
     neutralizeSyntheticFinalBoundary(parsed.units);
-
-    const active = stack[stack.length - 1] ?? null;
     for (const unit of parsed.units) {
       units.push({
         ...unit,
@@ -89,6 +102,7 @@ export function parseVoiceMarkup(text: string): VoiceMarkupScript {
     unsupported: [...new Set(unsupported)],
     plainText: plainParts.join(''),
     localExpressions,
+    speechSegments,
     markupUsed,
   };
 }
