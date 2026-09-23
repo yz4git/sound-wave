@@ -301,6 +301,21 @@ export class VoiceMode {
       }, { passive: false });
     }
 
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-voice-expression]')) {
+      button.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        const preset = button.dataset.voiceExpression;
+        if (!validVoiceExpressionPreset(preset)) return;
+        this.settings.expression.preset = preset;
+        this.changed();
+      }, { passive: false });
+    }
+
+    this.required<HTMLInputElement>('#voice-expression-intensity').addEventListener('input', (event) => {
+      this.settings.expression.intensity = Number((event.target as HTMLInputElement).value) / 100;
+      this.changed(false);
+    });
+
     this.required<HTMLSelectElement>('#voice-character').addEventListener('change', (event) => {
       const value = (event.target as HTMLSelectElement).value;
       if (!validVoiceCharacterPreset(value)) return;
