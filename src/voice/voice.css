@@ -257,8 +257,20 @@
   transition: transform .08s ease, color .08s ease, background .08s ease;
 }
 
-.voice-units i.phrase-start { border-left: 2px solid rgba(121, 211, 255, .45); }
+.voice-units i.phrase-start { border-left: 2px solid rgba(121, 211, 255, .55); }
 .voice-units i.phrase-end { margin-right: 6px; }
+.voice-units i.accent-start:not(.phrase-start) { border-left: 1px solid rgba(188, 132, 255, .34); }
+.voice-units i.devoiced {
+  color: rgba(225, 240, 252, .34);
+  background: rgba(132, 192, 225, .025);
+  border-bottom: 1px dotted rgba(124, 206, 255, .42);
+}
+.voice-units i.long-vowel { min-width: 27px; }
+.voice-units i.geminate::before {
+  content: "·";
+  margin-right: 2px;
+  color: rgba(192, 139, 255, .7);
+}
 .voice-units i.speaking {
   color: #061019;
   background: #8bd8ff;
