@@ -27,6 +27,7 @@ export interface VoiceTimedUnit {
   duration: number;
   pitchMidi: number;
   energyScale: number;
+  manualPitchOffset: number;
 }
 
 export interface VoicePlaybackPlan {
@@ -167,7 +168,11 @@ export class VoiceSynth {
     void this.context?.resume();
   }
 
-  plan(script: VoiceScript, settings: VoiceSynthSettings): VoicePlaybackPlan {
+  plan(
+    script: VoiceScript,
+    settings: VoiceSynthSettings,
+    pitchOffsets: readonly number[] = [],
+  ): VoicePlaybackPlan {
     const units: VoiceTimedUnit[] = [];
     let cursor = 0;
 
@@ -177,7 +182,8 @@ export class VoiceSynth {
       }
 
       const offset = prosodyOffsetForUnit(unit, index, script.units.length, settings.intonation);
-      const pitchMidi = clamp(settings.pitch + offset, 40, 82);
+      const manualPitchOffset = clamp(pitchOffsets[index] ?? 0, -3.5, 3.5);
+      const pitchMidi = clamp(settings.pitch + offset + manualPitchOffset, 40, 82);
       const duration = unitDuration(unit, settings.rate);
       const energyScale = unitEnergyScale(unit);
 
@@ -187,6 +193,7 @@ export class VoiceSynth {
         duration,
         pitchMidi,
         energyScale,
+        manualPitchOffset,
       });
 
       cursor += duration + unit.pauseAfter / clamp(settings.rate, 0.7, 1.4);
@@ -195,13 +202,17 @@ export class VoiceSynth {
     return { duration: cursor + 0.08, units };
   }
 
-  async play(script: VoiceScript, settings: VoiceSynthSettings): Promise<VoicePlaybackPlan> {
+  async play(
+    script: VoiceScript,
+    settings: VoiceSynthSettings,
+    pitchOffsets: readonly number[] = [],
+  ): Promise<VoicePlaybackPlan> {
     await this.unlock();
     if (!this.context) throw new Error('Voice AudioContext unavailable');
     if (this.worklet.status !== 'ready') throw new Error('Voice AudioWorklet unavailable');
 
     this.worklet.clear();
-    const plan = this.plan(script, settings);
+    const plan = this.plan(script, settings, pitchOffsets);
     const startAt = this.context.currentTime + 0.055;
     let previousPitchMidi: number | null = null;
 
@@ -316,12 +327,16 @@ export class VoiceSynth {
     return plan;
   }
 
-  async renderWav(script: VoiceScript, settings: VoiceSynthSettings): Promise<Blob> {
+  async renderWav(
+    script: VoiceScript,
+    settings: VoiceSynthSettings,
+    pitchOffsets: readonly number[] = [],
+  ): Promise<Blob> {
     await this.unlock();
     if (!this.context || !this.limiter) throw new Error('Voice render unavailable');
     this.stop();
     this.wavCapture.start(this.context, this.limiter);
-    const plan = await this.play(script, settings);
+    const plan = await this.play(script, settings, pitchOffsets);
     await new Promise<void>((resolve) => window.setTimeout(resolve, Math.ceil((plan.duration + 0.18) * 1000)));
     return this.wavCapture.finish();
   }
