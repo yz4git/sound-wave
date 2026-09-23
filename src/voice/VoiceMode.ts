@@ -1,8 +1,9 @@
 import type { VocalStyle } from '../compose/VocalGenerator';
 import { downloadBlob } from '../compose/SongExport';
 import { VOICE_CHARACTER_PRESETS, validVoiceCharacterPreset, type VoiceCharacterPreset } from '../compose/VoiceCharacter';
-import { parseVoiceScript, type VoiceIntonation } from './VoiceScript';
+import { type VoiceIntonation } from './VoiceScript';
 import { VoiceSynth, type VoiceProsodyEdits, type VoiceSynthSettings } from './VoiceSynth';
+import { parseVoiceMarkup, removeVoiceMarkup, wrapVoiceSelection } from './VoiceMarkup';
 import {
   VOICE_EXPRESSION_PRESETS,
   validVoiceExpressionPreset,
@@ -22,6 +23,7 @@ const STORAGE_KEY = 'sound-wave-voice-lab-settings-v1';
 const DEFAULT_TEXT = 'こんにちは。おんせい ごうせいの じっけんです。ことばの たかさと いきおいを かえてみましょう。';
 const STYLES: readonly VocalStyle[] = ['warm', 'bright', 'airy'];
 const INTONATIONS: readonly VoiceIntonation[] = ['natural', 'flat', 'rise', 'fall', 'question'];
+const LOCAL_DELIVERY_PRESETS = ['calm', 'excited', 'serious', 'whisper', 'narration'] as const;
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
@@ -152,6 +154,13 @@ export class VoiceMode {
         <section class="voice-content-panel">
           <div class="voice-section-label"><span>01</span><b>CONTENT</b><em>what is said</em></div>
           <textarea id="voice-text" rows="5" maxlength="420" spellcheck="false" aria-label="Speech text">${DEFAULT_TEXT}</textarea>
+          <div class="voice-local-delivery">
+            <span>SELECT TEXT → LOCAL DELIVERY</span>
+            <div role="group" aria-label="Local speaking style">
+              ${LOCAL_DELIVERY_PRESETS.map((preset) => `<button type="button" data-local-delivery="${preset}">${preset.toUpperCase()}</button>`).join('')}
+              <button type="button" id="voice-clear-local">CLEAR TAGS</button>
+            </div>
+          </div>
           <div class="voice-engine" role="group" aria-label="Voice engine">
             <button type="button" data-voice-engine="local">SOUND WAVE DSP</button>
             <button type="button" data-voice-engine="system">SYSTEM TTS</button>
