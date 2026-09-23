@@ -34,6 +34,15 @@ describe('Voice Lab local delivery markup', () => {
     expect(script.localExpressions.every((value) => value?.intensity === 1.25)).toBe(true);
   });
 
+  it('preserves text segments for System TTS style switching', () => {
+    const script = parseVoiceMarkup('ゆっくり [whisper:120]しずかに[/] そして [excited]げんきに[/]');
+
+    expect(script.speechSegments.map((segment) => segment.expression?.preset ?? 'global'))
+      .toEqual(['global', 'whisper', 'global', 'excited']);
+    expect(script.speechSegments[1]?.expression?.intensity).toBe(1.2);
+    expect(script.speechSegments.map((segment) => segment.text).join('')).toBe(script.plainText);
+  });
+
   it('supports nested local delivery with the innermost style taking effect', () => {
     const script = parseVoiceMarkup('[calm]あ[whisper]さ[/]ひ[/]');
 
