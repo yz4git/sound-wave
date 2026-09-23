@@ -68,3 +68,33 @@ The Sound Wave DSP engine is fully local and contains no bundled voice recording
 - real-time local WAV capture
 
 For arbitrary Japanese text containing kanji, VOICE LAB also offers the browser/OS System TTS as a separate fallback. System voice availability and implementation vary by device.
+
+
+### Japanese mora-level prosody and natural speech timing
+
+A 2025 NICT/ICASSP system predicts Japanese fundamental frequency at the **mora level** from text and katakana rather than relying only on hand-authored accent labels. This supports treating mora-by-mora F0 as a first-class control signal in VOICE LAB instead of quantizing spoken pitch to sung semitone notes.
+
+Reference:
+- Ogura et al., *Mora-Level Prosody Prediction for Text-to-Speech Using Japanese BERT Without Accentual Labels* (ICASSP 2025): https://ast-astrec.nict.go.jp/demo_samples/bert_tts_icassp2025/
+
+Recent expressive Japanese TTS evaluation also highlights pitch-accent sensitivity as a major determinant of naturalness and intelligibility.
+
+Reference:
+- Rackauckas & Hirschberg, *Benchmarking Expressive Japanese Character Text-to-Speech with VITS and Style-BERT-VITS2* (2025): https://arxiv.org/abs/2505.17320
+
+VOICE LAB therefore uses:
+- continuous fractional-mora F0 rather than integer semitone speech
+- accent-phrase resets with local rise/declination
+- phrase-final lowering and question rises
+- consonant-conditioned microprosody
+- longer sentence pauses than accent-phrase pauses
+
+### Japanese high-vowel devoicing
+
+Japanese /i/ and /u/ commonly devoice in voiceless consonant environments. Classic phonetic work and later corpus analysis show that this is not just generic volume reduction: the high-vowel mora can undergo substantial temporal compression and glottal overlap while preserving the rhythmic structure needed for intelligibility.
+
+References:
+- Kondo, *Mechanisms of vowel devoicing in Japanese*: https://www.isca-archive.org/icslp_1994/kondo94_icslp.html
+- Shaw & Kawahara, *Durational Evidence That Tokyo Japanese Vowel Devoicing Is Not Gradient Reduction* (2019): https://pmc.ncbi.nlm.nih.gov/articles/PMC6476939/
+
+VOICE LAB applies conservative devoicing only to isolated candidate morae. It reduces periodic voicing, increases aspiration/noise, shortens the mora, and avoids fully suppressing adjacent eligible morae.
