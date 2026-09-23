@@ -361,6 +361,12 @@ export class VoiceMode {
   }
 
   private syncControls(): void {
+    this.required<HTMLInputElement>('#voice-expression-intensity').value = String(
+      Math.round(this.settings.expression.intensity * 100),
+    );
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-voice-expression]')) {
+      button.classList.toggle('active', button.dataset.voiceExpression === this.settings.expression.preset);
+    }
     this.required<HTMLSelectElement>('#voice-character').value = this.settings.character;
     this.required<HTMLSelectElement>('#voice-style').value = this.settings.style;
     this.required<HTMLSelectElement>('#voice-intonation').value = this.settings.intonation;
@@ -383,6 +389,8 @@ export class VoiceMode {
   }
 
   private syncLabels(): void {
+    this.required<HTMLElement>('#voice-expression-label').textContent =
+      `STYLE INTENSITY ${Math.round(this.settings.expression.intensity * 100)}%`;
     this.required<HTMLElement>('#voice-tone-label').textContent = `TONE ${this.settings.tone >= 0 ? '+' : ''}${Math.round(this.settings.tone * 100)}`;
     this.required<HTMLElement>('#voice-rate-label').textContent = `RATE ${this.settings.rate.toFixed(2)}×`;
     this.required<HTMLElement>('#voice-pitch-label').textContent = `PITCH ${Math.round(this.settings.pitch)}`;
@@ -440,7 +448,7 @@ export class VoiceMode {
     if (this.settings.engine === 'local') {
       note.textContent = script.unsupported.length > 0
         ? `LOCAL DSP · かな/カナ/ROMAJI対応 · 未対応文字: ${script.unsupported.slice(0, 8).join(' ')} · 漢字文はSYSTEM TTSへ`
-        : `LOCAL DSP · ${script.units.length} morae · draw pitch / energy / timing`;
+        : `LOCAL DSP · ${script.units.length} morae · ${this.settings.expression.preset.toUpperCase()} delivery · draw pitch / energy / timing`;
       this.setStatus(script.units.length > 0 ? 'READY · LOCAL DSP' : 'ENTER KANA OR ROMAJI');
     } else {
       note.textContent = 'SYSTEM TTS · device/browser voice · kanji and general text supported · availability varies by OS';
@@ -627,9 +635,21 @@ export class VoiceMode {
       ?? voices.find((voice) => voice.lang.toLowerCase().startsWith('en'))
       ?? null;
     utterance.lang = utterance.voice?.lang ?? 'ja-JP';
-    utterance.rate = clamp(this.settings.rate, 0.6, 1.65);
-    utterance.pitch = clamp(0.7 + (this.settings.pitch - 45) / 31 * 0.8 + this.settings.tone * 0.12, 0.5, 1.7);
-    utterance.volume = clamp(this.settings.energy, 0.55, 1);
+    const expression = voiceExpressionControl(this.settings.expression);
+    utterance.rate = clamp(
+      this.settings.rate / expression.durationScale,
+      0.55,
+      1.75,
+    );
+    utterance.pitch = clamp(
+      0.7
+        + (this.settings.pitch - 45) / 31 * 0.8
+        + (this.settings.tone + expression.toneOffset) * 0.12
+        + expression.pitchShift * 0.06,
+      0.5,
+      1.75,
+    );
+    utterance.volume = clamp(this.settings.energy * expression.energyScale, 0.35, 1);
     utterance.onstart = () => {
       this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
       this.setStatus(`SYSTEM TTS · ${utterance.voice?.name ?? 'DEFAULT VOICE'}`);
