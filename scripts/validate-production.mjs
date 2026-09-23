@@ -22,11 +22,16 @@ const cssRefs = assetRefs.filter((name) => name.endsWith('.css'));
 if (jsRefs.length === 0) fail('dist/index.html has no Vite JavaScript bundle reference');
 if (cssRefs.length === 0) fail('dist/index.html has no Vite CSS bundle reference');
 for (const name of assetRefs) if (!existsSync(join(distDir, 'assets', name))) fail(`referenced Vite asset is missing: dist/assets/${name}`);
-for (const required of ['service-worker.js', 'manifest.webmanifest', 'icon.svg', 'vocal-worklet.js']) {
+for (const required of ['service-worker.js', 'manifest.webmanifest', 'icon.svg', 'vocal-worklet.js', 'version.json']) {
   if (!existsSync(join(distDir, required))) fail(`dist/${required} is missing`);
 }
 
 const entryJavaScript = jsRefs.map((name) => readFileSync(join(distDir, 'assets', name), 'utf8')).join('\n');
+for (const freshnessFeature of ['sound-wave-build-id-v1', '__fresh', 'service-worker.js', '__build']) {
+  if (!entryJavaScript.includes(freshnessFeature)) fail(`production bundle is missing Pages freshness feature: ${freshnessFeature}`);
+}
+const version = JSON.parse(readFileSync(join(distDir, 'version.json'), 'utf8'));
+if (typeof version.buildId !== 'string' || version.buildId.length < 3) fail('dist/version.json has no valid buildId');
 for (const genreFeature of ['J-POP', 'ROCK', 'K-POP', 'GAME MUSIC']) {
   if (!entryJavaScript.includes(genreFeature)) fail(`production bundle is missing Auto Compose Genre Style Engine feature: ${genreFeature}`);
 }
@@ -74,6 +79,11 @@ for (const exportFeature of ['sound-wave-song-v1', 'audio/wav', 'RIFF', 'PROJECT
 }
 for (const karaokeLyricsFeature of ['KARAOKE LYRICS', 'compose-lyrics-panel', 'compose-lyrics-current', 'compose-lyrics-mora', 'karaoke-progress']) {
   if (!entryJavaScript.includes(karaokeLyricsFeature)) fail(`production bundle is missing Karaoke Lyrics Panel feature: ${karaokeLyricsFeature}`);
+}
+
+const serviceWorker = readFileSync(join(distDir, 'service-worker.js'), 'utf8');
+for (const swFreshnessFeature of ["CACHE_PREFIX = 'sound-wave-'", "endsWith('/version.json')", "cache: 'no-store'", "'/assets/'"]) {
+  if (!serviceWorker.includes(swFreshnessFeature)) fail(`service worker is missing freshness feature: ${swFreshnessFeature}`);
 }
 
 const vocalWorklet = readFileSync(join(distDir, 'vocal-worklet.js'), 'utf8');
