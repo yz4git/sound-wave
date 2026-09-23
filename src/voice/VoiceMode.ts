@@ -243,6 +243,27 @@ export class VoiceMode {
       this.refreshPlan();
     });
 
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-local-delivery]')) {
+      button.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        const preset = button.dataset.localDelivery;
+        if (!validVoiceExpressionPreset(preset) || preset === 'neutral') return;
+        this.applyLocalDelivery(preset);
+      }, { passive: false });
+    }
+    this.required<HTMLButtonElement>('#voice-clear-local').addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      const cleaned = removeVoiceMarkup(text.value);
+      if (cleaned === text.value) {
+        this.setStatus('NO LOCAL DELIVERY TAGS');
+        return;
+      }
+      text.value = cleaned;
+      this.resetProsodyEdits();
+      this.refreshPlan();
+      this.setStatus('LOCAL DELIVERY TAGS CLEARED');
+    }, { passive: false });
+
     const contour = this.required<HTMLElement>('#voice-contour');
     contour.addEventListener('pointerdown', (event) => {
       if (this.settings.engine !== 'local') return;
@@ -406,16 +427,41 @@ export class VoiceMode {
     this.required<HTMLElement>('#voice-energy-label').textContent = `ENERGY ${Math.round(this.settings.energy * 100)}%`;
   }
 
+  private applyLocalDelivery(preset: Exclude<VoiceExpressionSettings['preset'], 'neutral'>): void {
+    const textarea = this.required<HTMLTextAreaElement>('#voice-text');
+    const wrapped = wrapVoiceSelection(
+      textarea.value,
+      textarea.selectionStart ?? 0,
+      textarea.selectionEnd ?? 0,
+      {
+        preset,
+        intensity: this.settings.expression.intensity,
+      },
+    );
+    if (!wrapped) {
+      this.setStatus('SELECT TEXT FIRST · THEN CHOOSE LOCAL DELIVERY');
+      textarea.focus();
+      return;
+    }
+
+    textarea.value = wrapped.text;
+    textarea.focus();
+    textarea.setSelectionRange(wrapped.selectionStart, wrapped.selectionEnd);
+    this.resetProsodyEdits();
+    this.refreshPlan();
+    this.setStatus(`LOCAL ${preset.toUpperCase()} · ${Math.round(this.settings.expression.intensity * 100)}%`);
+  }
+
   private refreshPlan(): void {
     const text = this.required<HTMLTextAreaElement>('#voice-text').value;
-    const script = parseVoiceScript(text);
+    const script = parseVoiceMarkup(text);
     const unitsEl = this.required<HTMLElement>('#voice-units');
     const contourEl = this.required<HTMLElement>('#voice-contour');
     unitsEl.replaceChildren();
     contourEl.replaceChildren();
 
     this.ensureProsodyEditLength(script.units.length);
-    const plan = this.synth.plan(script, this.settings, this.getProsodyEdits());
+    const plan = this.synth.plan(script, this.settings, this.getProsodyEdits(script.localExpressions));
     const preview = plan.units.slice(0, 72);
     preview.forEach((timed, index) => {
       const unit = timed.unit;
@@ -428,6 +474,12 @@ export class VoiceMode {
       if (unit.devoiced) token.classList.add('devoiced');
       if (unit.longVowel) token.classList.add('long-vowel');
       if (unit.geminateBefore) token.classList.add('geminate');
+      const localExpression = script.localExpressions[index];
+      if (localExpression) {
+        token.classList.add('local-delivery');
+        token.dataset.localDelivery = localExpression.preset;
+        token.title = `${localExpression.preset.toUpperCase()} ${Math.round(localExpression.intensity * 100)}%`;
+      }
       unitsEl.append(token);
 
       const point = document.createElement('i');
@@ -457,7 +509,7 @@ export class VoiceMode {
     if (this.settings.engine === 'local') {
       note.textContent = script.unsupported.length > 0
         ? `LOCAL DSP · かな/カナ/ROMAJI対応 · 未対応文字: ${script.unsupported.slice(0, 8).join(' ')} · 漢字文はSYSTEM TTSへ`
-        : `LOCAL DSP · ${script.units.length} morae · ${this.settings.expression.preset.toUpperCase()} delivery · draw pitch / energy / timing`;
+        : `LOCAL DSP · ${script.units.length} morae · ${this.settings.expression.preset.toUpperCase()} delivery${script.markupUsed ? ' + local spans' : ''} · draw pitch / energy / timing`;
       this.setStatus(script.units.length > 0 ? 'READY · LOCAL DSP' : 'ENTER KANA OR ROMAJI');
     } else {
       note.textContent = 'SYSTEM TTS · device/browser voice · kanji and general text supported · availability varies by OS';
@@ -486,11 +538,14 @@ export class VoiceMode {
     this.durationEdits = resize(this.durationEdits, 1);
   }
 
-  private getProsodyEdits(): VoiceProsodyEdits {
+  private getProsodyEdits(
+    localExpressions: readonly (VoiceExpressionSettings | null)[] = [],
+  ): VoiceProsodyEdits {
     return {
       pitchOffsets: this.pitchEdits,
       energyScales: this.energyEdits,
       durationScales: this.durationEdits,
+      localExpressions,
     };
   }
 
@@ -526,7 +581,7 @@ export class VoiceMode {
     const rect = contour.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
 
-    const script = parseVoiceScript(this.required<HTMLTextAreaElement>('#voice-text').value);
+    const script = parseVoiceMarkup(this.required<HTMLTextAreaElement>('#voice-text').value);
     if (script.units.length === 0) return;
     this.ensureProsodyEditLength(script.units.length);
 
@@ -552,7 +607,7 @@ export class VoiceMode {
     this.lastDrawIndex = index;
     this.lastDrawValue = value;
 
-    const plan = this.synth.plan(script, this.settings, this.getProsodyEdits());
+    const plan = this.synth.plan(script, this.settings, this.getProsodyEdits(script.localExpressions));
     const timed = plan.units[index];
     if (timed) {
       const point = contour.children[index] as HTMLElement | undefined;
@@ -597,12 +652,13 @@ export class VoiceMode {
       return;
     }
 
+    const script = parseVoiceMarkup(text);
     if (this.settings.engine === 'system') {
-      this.playSystem(text);
+      this.playSystem(script.plainText);
       return;
     }
 
-    const script = parseVoiceScript(text);
+
     if (script.units.length === 0) {
       this.setStatus('LOCAL DSP NEEDS KANA OR ROMAJI');
       return;
@@ -610,7 +666,7 @@ export class VoiceMode {
 
     try {
       this.setStatus('SCHEDULING · LOW-LATENCY STREAM');
-      const plan = await this.synth.play(script, this.settings, this.getProsodyEdits());
+      const plan = await this.synth.play(script, this.settings, this.getProsodyEdits(script.localExpressions));
       this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
       this.setStatus(`SPEAKING · ${script.units.length} UNITS · ${plan.duration.toFixed(1)}s`);
       for (const timed of plan.units.slice(0, 72)) {
@@ -674,7 +730,7 @@ export class VoiceMode {
   private async exportWav(): Promise<void> {
     if (this.settings.engine !== 'local') return;
     const text = this.required<HTMLTextAreaElement>('#voice-text').value.trim();
-    const script = parseVoiceScript(text);
+    const script = parseVoiceMarkup(text);
     if (script.units.length === 0) {
       this.setStatus('LOCAL DSP NEEDS KANA OR ROMAJI');
       return;
@@ -686,8 +742,8 @@ export class VoiceMode {
     button.textContent = 'RENDERING…';
     this.setStatus('RENDERING WAV · REAL-TIME LOCAL CAPTURE');
     try {
-      const blob = await this.synth.renderWav(script, this.settings, this.getProsodyEdits());
-      downloadBlob(blob, `${safeFilename(text)}.wav`);
+      const blob = await this.synth.renderWav(script, this.settings, this.getProsodyEdits(script.localExpressions));
+      downloadBlob(blob, `${safeFilename(script.plainText)}.wav`);
       this.setStatus(`WAV EXPORTED · ${Math.round(blob.size / 1024)} KB`);
     } catch (error) {
       console.warn('VOICE LAB WAV export failed.', error);
