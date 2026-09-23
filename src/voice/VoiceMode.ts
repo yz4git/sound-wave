@@ -3,7 +3,7 @@ import { downloadBlob } from '../compose/SongExport';
 import { VOICE_CHARACTER_PRESETS, validVoiceCharacterPreset, type VoiceCharacterPreset } from '../compose/VoiceCharacter';
 import { type VoiceIntonation } from './VoiceScript';
 import { VoiceSynth, type VoiceProsodyEdits, type VoiceSynthSettings } from './VoiceSynth';
-import { parseVoiceMarkup, removeVoiceMarkup, wrapVoiceSelection } from './VoiceMarkup';
+import { parseVoiceMarkup, removeVoiceMarkup, wrapVoiceSelection, type VoiceMarkupScript } from './VoiceMarkup';
 import {
   VOICE_EXPRESSION_PRESETS,
   validVoiceExpressionPreset,
@@ -58,6 +58,7 @@ export class VoiceMode {
   private drawingProsody = false;
   private lastDrawIndex: number | null = null;
   private lastDrawValue = 0;
+  private systemSpeechGeneration = 0;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -639,6 +640,7 @@ export class VoiceMode {
   private stop(): void {
     this.clearPlaybackTimers();
     this.synth.stop();
+    this.systemSpeechGeneration += 1;
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
     if (this.active) this.setStatus(this.settings.engine === 'local' ? 'READY · LOCAL DSP' : 'READY · SYSTEM TTS');
@@ -654,7 +656,7 @@ export class VoiceMode {
 
     const script = parseVoiceMarkup(text);
     if (this.settings.engine === 'system') {
-      this.playSystem(script.plainText);
+      this.playSystem(script);
       return;
     }
 
@@ -689,42 +691,74 @@ export class VoiceMode {
     }
   }
 
-  private playSystem(text: string): void {
+  private playSystem(script: VoiceMarkupScript): void {
     if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
       this.setStatus('SYSTEM TTS UNAVAILABLE');
       return;
     }
-    const utterance = new SpeechSynthesisUtterance(text);
+
+    const segments = script.speechSegments.filter((segment) => segment.text.trim().length > 0);
+    if (segments.length === 0) {
+      this.setStatus('ENTER TEXT');
+      return;
+    }
+
+    const generation = ++this.systemSpeechGeneration;
     const voices = window.speechSynthesis.getVoices();
-    utterance.voice = voices.find((voice) => voice.lang.toLowerCase().startsWith('ja'))
-      ?? voices.find((voice) => voice.lang.toLowerCase().startsWith('en'))
+    const voice = voices.find((candidate) => candidate.lang.toLowerCase().startsWith('ja'))
+      ?? voices.find((candidate) => candidate.lang.toLowerCase().startsWith('en'))
       ?? null;
-    utterance.lang = utterance.voice?.lang ?? 'ja-JP';
-    const expression = voiceExpressionControl(this.settings.expression);
-    utterance.rate = clamp(
-      this.settings.rate / expression.durationScale,
-      0.55,
-      1.75,
-    );
-    utterance.pitch = clamp(
-      0.7
-        + (this.settings.pitch - 45) / 31 * 0.8
-        + (this.settings.tone + expression.toneOffset) * 0.12
-        + expression.pitchShift * 0.06,
-      0.5,
-      1.75,
-    );
-    utterance.volume = clamp(this.settings.energy * expression.energyScale, 0.35, 1);
-    utterance.onstart = () => {
-      this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
-      this.setStatus(`SYSTEM TTS · ${utterance.voice?.name ?? 'DEFAULT VOICE'}`);
+    let segmentIndex = 0;
+
+    const speakNext = (): void => {
+      if (generation !== this.systemSpeechGeneration) return;
+      const segment = segments[segmentIndex];
+      if (!segment) {
+        this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
+        this.setStatus('READY · SYSTEM TTS');
+        return;
+      }
+      segmentIndex += 1;
+
+      const expressionSettings = segment.expression ?? this.settings.expression;
+      const expression = voiceExpressionControl(expressionSettings);
+      const utterance = new SpeechSynthesisUtterance(segment.text);
+      utterance.voice = voice;
+      utterance.lang = voice?.lang ?? 'ja-JP';
+      utterance.rate = clamp(
+        this.settings.rate / expression.durationScale,
+        0.55,
+        1.75,
+      );
+      utterance.pitch = clamp(
+        0.7
+          + (this.settings.pitch - 45) / 31 * 0.8
+          + (this.settings.tone + expression.toneOffset) * 0.12
+          + expression.pitchShift * 0.06,
+        0.5,
+        1.75,
+      );
+      utterance.volume = clamp(this.settings.energy * expression.energyScale, 0.35, 1);
+      utterance.onstart = () => {
+        if (generation !== this.systemSpeechGeneration) return;
+        this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
+        this.setStatus(
+          `SYSTEM TTS · ${expressionSettings.preset.toUpperCase()} · ${voice?.name ?? 'DEFAULT VOICE'}`,
+        );
+      };
+      utterance.onend = () => {
+        if (generation !== this.systemSpeechGeneration) return;
+        speakNext();
+      };
+      utterance.onerror = () => {
+        if (generation !== this.systemSpeechGeneration) return;
+        this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
+        this.setStatus('SYSTEM TTS FAILED');
+      };
+      window.speechSynthesis.speak(utterance);
     };
-    utterance.onend = () => {
-      this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
-      this.setStatus('READY · SYSTEM TTS');
-    };
-    utterance.onerror = () => this.setStatus('SYSTEM TTS FAILED');
-    window.speechSynthesis.speak(utterance);
+
+    speakNext();
   }
 
   private async exportWav(): Promise<void> {
