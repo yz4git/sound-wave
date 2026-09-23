@@ -31,6 +31,7 @@ export interface VoiceProsodyEdits {
   pitchOffsets?: readonly number[];
   energyScales?: readonly number[];
   durationScales?: readonly number[];
+  localExpressions?: readonly (VoiceExpressionSettings | null)[];
 }
 
 type VoiceProsodyInput = VoiceProsodyEdits | readonly number[];
@@ -44,6 +45,7 @@ export interface VoiceTimedUnit {
   manualPitchOffset: number;
   manualEnergyScale: number;
   manualDurationScale: number;
+  expression: VoiceExpressionSettings;
 }
 
 export interface VoicePlaybackPlan {
@@ -193,8 +195,7 @@ export class VoiceSynth {
     prosodyInput: VoiceProsodyInput = {},
   ): VoicePlaybackPlan {
     const edits = normalizeProsodyEdits(prosodyInput);
-    const expression = settings.expression ?? { preset: 'neutral', intensity: 1 };
-    const expressionControl = voiceExpressionControl(expression);
+    const globalExpression = settings.expression ?? { preset: 'neutral', intensity: 1 };
     const units: VoiceTimedUnit[] = [];
     let cursor = 0;
 
@@ -203,6 +204,8 @@ export class VoiceSynth {
         cursor += clamp(0.068 / clamp(settings.rate, 0.7, 1.5), 0.042, 0.105);
       }
 
+      const expression = edits.localExpressions?.[index] ?? globalExpression;
+      const expressionControl = voiceExpressionControl(expression);
       const expressionUnit = voiceExpressionForUnit(unit, index, script.units.length, expression);
       const offset = prosodyOffsetForUnit(unit, index, script.units.length, settings.intonation)
         * expressionControl.pitchRangeScale;
@@ -235,6 +238,7 @@ export class VoiceSynth {
         manualPitchOffset,
         manualEnergyScale,
         manualDurationScale,
+        expression,
       });
 
       cursor += duration + unit.pauseAfter / clamp(settings.rate, 0.7, 1.4);
@@ -254,13 +258,12 @@ export class VoiceSynth {
 
     this.worklet.clear();
     const plan = this.plan(script, settings, prosodyInput);
-    const expression = settings.expression ?? { preset: 'neutral', intensity: 1 };
-    const expressionControl = voiceExpressionControl(expression);
     const startAt = this.context.currentTime + 0.055;
     let previousPitchMidi: number | null = null;
 
     plan.units.forEach((timed, index) => {
       const unit = timed.unit;
+      const expressionControl = voiceExpressionControl(timed.expression);
       const roundedMidi = Math.round(timed.pitchMidi);
       const event: VocalEvent = {
         step: index,
