@@ -2,9 +2,10 @@ import type { VocalStyle } from '../compose/VocalGenerator';
 import { downloadBlob } from '../compose/SongExport';
 import { VOICE_CHARACTER_PRESETS, validVoiceCharacterPreset, type VoiceCharacterPreset } from '../compose/VoiceCharacter';
 import { parseVoiceScript, type VoiceIntonation } from './VoiceScript';
-import { VoiceSynth, type VoiceSynthSettings } from './VoiceSynth';
+import { VoiceSynth, type VoiceProsodyEdits, type VoiceSynthSettings } from './VoiceSynth';
 
 type VoiceEngine = 'local' | 'system';
+type ProsodyLane = 'pitch' | 'energy' | 'duration';
 
 interface VoiceLabSettings extends VoiceSynthSettings {
   engine: VoiceEngine;
@@ -41,8 +42,13 @@ export class VoiceMode {
   private active = false;
   private playbackTimer = 0;
   private tokenTimers: number[] = [];
-  private prosodyEdits: number[] = [];
+  private pitchEdits: number[] = [];
+  private energyEdits: number[] = [];
+  private durationEdits: number[] = [];
+  private prosodyLane: ProsodyLane = 'pitch';
   private drawingProsody = false;
+  private lastDrawIndex: number | null = null;
+  private lastDrawValue = 0;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -136,12 +142,17 @@ export class VoiceMode {
           <p class="voice-engine-note" id="voice-engine-note"></p>
 
           <div class="voice-prosody-preview">
-            <div class="voice-section-label compact"><span>02</span><b>PROSODY DRAW</b><em>drag the contour · ±3 semitones</em></div>
+            <div class="voice-section-label compact"><span>02</span><b>PROSODY DRAW</b><em>pitch / energy / duration</em></div>
             <div class="voice-prosody-tools">
-              <span>DRAW F0 WITH TOUCH / POINTER</span>
-              <button type="button" id="voice-reset-prosody">RESET CURVE</button>
+              <div class="voice-prosody-lanes" role="group" aria-label="Prosody drawing lane">
+                <button type="button" data-prosody-lane="pitch">PITCH</button>
+                <button type="button" data-prosody-lane="energy">ENERGY</button>
+                <button type="button" data-prosody-lane="duration">TIMING</button>
+              </div>
+              <span id="voice-prosody-hint">DRAW F0 · ±3 ST</span>
+              <button type="button" id="voice-reset-prosody">RESET ALL</button>
             </div>
-            <div id="voice-contour" class="voice-contour" aria-label="Drawable prosody contour"></div>
+            <div id="voice-contour" class="voice-contour pitch" aria-label="Drawable prosody contour"></div>
             <div id="voice-units" class="voice-units" aria-label="Speech units"></div>
           </div>
         </section>
@@ -194,7 +205,7 @@ export class VoiceMode {
   private bindEvents(): void {
     const text = this.required<HTMLTextAreaElement>('#voice-text');
     text.addEventListener('input', () => {
-      this.prosodyEdits = [];
+      this.resetProsodyEdits();
       this.refreshPlan();
     });
 
@@ -203,6 +214,7 @@ export class VoiceMode {
       if (this.settings.engine !== 'local') return;
       event.preventDefault();
       this.drawingProsody = true;
+      this.lastDrawIndex = null;
       contour.setPointerCapture(event.pointerId);
       this.applyProsodyPointer(event);
     }, { passive: false });
@@ -214,16 +226,28 @@ export class VoiceMode {
     const finishProsodyDraw = (event: PointerEvent): void => {
       if (!this.drawingProsody) return;
       this.drawingProsody = false;
+      this.lastDrawIndex = null;
       if (contour.hasPointerCapture(event.pointerId)) contour.releasePointerCapture(event.pointerId);
       this.refreshPlan();
     };
     contour.addEventListener('pointerup', finishProsodyDraw);
     contour.addEventListener('pointercancel', finishProsodyDraw);
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-prosody-lane]')) {
+      button.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        const lane = button.dataset.prosodyLane;
+        if (lane !== 'pitch' && lane !== 'energy' && lane !== 'duration') return;
+        this.prosodyLane = lane;
+        this.syncProsodyLaneUi();
+        this.refreshPlan();
+      }, { passive: false });
+    }
+
     this.required<HTMLButtonElement>('#voice-reset-prosody').addEventListener('pointerdown', (event) => {
       event.preventDefault();
-      this.prosodyEdits = [];
+      this.resetProsodyEdits();
       this.refreshPlan();
-      this.setStatus('PROSODY CURVE RESET');
+      this.setStatus('PITCH / ENERGY / TIMING RESET');
     }, { passive: false });
 
     this.required<HTMLButtonElement>('#voice-play').addEventListener('pointerdown', (event) => {
@@ -310,7 +334,11 @@ export class VoiceMode {
     }
     this.required<HTMLButtonElement>('#voice-export-wav').disabled = this.settings.engine !== 'local';
     this.required<HTMLButtonElement>('#voice-reset-prosody').disabled = this.settings.engine !== 'local';
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-prosody-lane]')) {
+      button.disabled = this.settings.engine !== 'local';
+    }
     this.required<HTMLElement>('#voice-contour').classList.toggle('disabled', this.settings.engine !== 'local');
+    this.syncProsodyLaneUi();
     this.syncLabels();
   }
 
@@ -329,7 +357,8 @@ export class VoiceMode {
     unitsEl.replaceChildren();
     contourEl.replaceChildren();
 
-    const plan = this.synth.plan(script, this.settings, this.prosodyEdits);
+    this.ensureProsodyEditLength(script.units.length);
+    const plan = this.synth.plan(script, this.settings, this.getProsodyEdits());
     const preview = plan.units.slice(0, 72);
     preview.forEach((timed, index) => {
       const unit = timed.unit;
@@ -345,9 +374,25 @@ export class VoiceMode {
       unitsEl.append(token);
 
       const point = document.createElement('i');
-      const offset = timed.pitchMidi - this.settings.pitch;
-      point.style.setProperty('--voice-pitch', String(clamp((offset + 3) / 6, 0.05, 0.95)));
+      const pitchOffset = timed.pitchMidi - this.settings.pitch;
+      const pitchValue = clamp((pitchOffset + 3) / 6, 0.05, 0.95);
+      const energyValue = clamp((timed.manualEnergyScale - 0.45) / 1.1, 0.05, 0.95);
+      const durationValue = clamp((timed.manualDurationScale - 0.6) / 1.05, 0.05, 0.95);
+      const laneValue = this.prosodyLane === 'pitch'
+        ? pitchValue
+        : this.prosodyLane === 'energy'
+          ? energyValue
+          : durationValue;
+      point.style.setProperty('--voice-pitch', String(pitchValue));
+      point.style.setProperty('--voice-energy', String(energyValue));
+      point.style.setProperty('--voice-duration', String(durationValue));
+      point.style.setProperty('--voice-value', String(laneValue));
       point.style.width = `${Math.max(1.2, timed.duration / Math.max(0.1, plan.duration) * 100)}%`;
+      if (
+        (this.prosodyLane === 'pitch' && Math.abs(timed.manualPitchOffset) > 0.001)
+        || (this.prosodyLane === 'energy' && Math.abs(timed.manualEnergyScale - 1) > 0.001)
+        || (this.prosodyLane === 'duration' && Math.abs(timed.manualDurationScale - 1) > 0.001)
+      ) point.classList.add('edited');
       contourEl.append(point);
     });
 
@@ -355,12 +400,68 @@ export class VoiceMode {
     if (this.settings.engine === 'local') {
       note.textContent = script.unsupported.length > 0
         ? `LOCAL DSP · かな/カナ/ROMAJI対応 · 未対応文字: ${script.unsupported.slice(0, 8).join(' ')} · 漢字文はSYSTEM TTSへ`
-        : `LOCAL DSP · ${script.units.length} morae · accent phrases + devoicing · draw F0 directly`;
+        : `LOCAL DSP · ${script.units.length} morae · draw pitch / energy / timing`;
       this.setStatus(script.units.length > 0 ? 'READY · LOCAL DSP' : 'ENTER KANA OR ROMAJI');
     } else {
       note.textContent = 'SYSTEM TTS · device/browser voice · kanji and general text supported · availability varies by OS';
       this.setStatus('READY · SYSTEM TTS');
     }
+  }
+
+  private resetProsodyEdits(): void {
+    this.pitchEdits = [];
+    this.energyEdits = [];
+    this.durationEdits = [];
+    this.lastDrawIndex = null;
+  }
+
+  private ensureProsodyEditLength(count: number): void {
+    const resize = (source: number[], fill: number): number[] => {
+      if (source.length === count) return source;
+      const next = new Array<number>(count).fill(fill);
+      for (let index = 0; index < Math.min(source.length, count); index += 1) {
+        next[index] = source[index] ?? fill;
+      }
+      return next;
+    };
+    this.pitchEdits = resize(this.pitchEdits, 0);
+    this.energyEdits = resize(this.energyEdits, 1);
+    this.durationEdits = resize(this.durationEdits, 1);
+  }
+
+  private getProsodyEdits(): VoiceProsodyEdits {
+    return {
+      pitchOffsets: this.pitchEdits,
+      energyScales: this.energyEdits,
+      durationScales: this.durationEdits,
+    };
+  }
+
+  private syncProsodyLaneUi(): void {
+    const contour = this.required<HTMLElement>('#voice-contour');
+    contour.classList.remove('pitch', 'energy', 'duration');
+    contour.classList.add(this.prosodyLane);
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-prosody-lane]')) {
+      button.classList.toggle('active', button.dataset.prosodyLane === this.prosodyLane);
+    }
+    const hint = this.required<HTMLElement>('#voice-prosody-hint');
+    hint.textContent = this.prosodyLane === 'pitch'
+      ? 'DRAW F0 · ±3 ST'
+      : this.prosodyLane === 'energy'
+        ? 'DRAW ENERGY · 45–155%'
+        : 'DRAW TIMING · 60–165%';
+  }
+
+  private drawValueFromPointer(y: number): number {
+    if (this.prosodyLane === 'pitch') return Math.round((0.5 - y) * 6 * 20) / 20;
+    if (this.prosodyLane === 'energy') return Math.round((0.45 + (1 - y) * 1.1) * 20) / 20;
+    return Math.round((0.6 + (1 - y) * 1.05) * 20) / 20;
+  }
+
+  private setProsodyValue(index: number, value: number): void {
+    if (this.prosodyLane === 'pitch') this.pitchEdits[index] = clamp(value, -3, 3);
+    else if (this.prosodyLane === 'energy') this.energyEdits[index] = clamp(value, 0.45, 1.55);
+    else this.durationEdits[index] = clamp(value, 0.6, 1.65);
   }
 
   private applyProsodyPointer(event: PointerEvent): void {
@@ -370,30 +471,49 @@ export class VoiceMode {
 
     const script = parseVoiceScript(this.required<HTMLTextAreaElement>('#voice-text').value);
     if (script.units.length === 0) return;
+    this.ensureProsodyEditLength(script.units.length);
 
     const x = clamp((event.clientX - rect.left) / rect.width, 0, 0.999999);
     const y = clamp((event.clientY - rect.top) / rect.height, 0, 1);
     const index = Math.min(script.units.length - 1, Math.floor(x * script.units.length));
-    const semitones = Math.round((0.5 - y) * 6 * 20) / 20;
+    const value = this.drawValueFromPointer(y);
 
-    if (this.prosodyEdits.length !== script.units.length) {
-      const next = new Array<number>(script.units.length).fill(0);
-      for (let cursor = 0; cursor < Math.min(this.prosodyEdits.length, next.length); cursor += 1) {
-        next[cursor] = this.prosodyEdits[cursor] ?? 0;
+    if (this.lastDrawIndex !== null && this.lastDrawIndex !== index) {
+      const from = this.lastDrawIndex;
+      const to = index;
+      const direction = to > from ? 1 : -1;
+      const distance = Math.abs(to - from);
+      for (let step = 1; step <= distance; step += 1) {
+        const cursor = from + step * direction;
+        const t = step / distance;
+        this.setProsodyValue(cursor, this.lastDrawValue + (value - this.lastDrawValue) * t);
       }
-      this.prosodyEdits = next;
+    } else {
+      this.setProsodyValue(index, value);
     }
-    this.prosodyEdits[index] = semitones;
 
-    const basePlan = this.synth.plan(script, this.settings, this.prosodyEdits);
-    const timed = basePlan.units[index];
-    const point = contour.children[index] as HTMLElement | undefined;
-    if (timed && point) {
-      const offset = timed.pitchMidi - this.settings.pitch;
-      point.style.setProperty('--voice-pitch', String(clamp((offset + 3) / 6, 0.05, 0.95)));
-      point.classList.add('edited');
+    this.lastDrawIndex = index;
+    this.lastDrawValue = value;
+
+    const plan = this.synth.plan(script, this.settings, this.getProsodyEdits());
+    const timed = plan.units[index];
+    if (timed) {
+      const point = contour.children[index] as HTMLElement | undefined;
+      if (point) {
+        const pitchValue = clamp((timed.pitchMidi - this.settings.pitch + 3) / 6, 0.05, 0.95);
+        const energyValue = clamp((timed.manualEnergyScale - 0.45) / 1.1, 0.05, 0.95);
+        const durationValue = clamp((timed.manualDurationScale - 0.6) / 1.05, 0.05, 0.95);
+        point.style.setProperty('--voice-value', String(
+          this.prosodyLane === 'pitch' ? pitchValue : this.prosodyLane === 'energy' ? energyValue : durationValue,
+        ));
+        point.classList.add('edited');
+      }
     }
-    this.setStatus(`PROSODY DRAW · MORA ${index + 1} · ${semitones >= 0 ? '+' : ''}${semitones.toFixed(2)} ST`);
+
+    const statusValue = this.prosodyLane === 'pitch'
+      ? `${value >= 0 ? '+' : ''}${value.toFixed(2)} ST`
+      : `${Math.round(value * 100)}%`;
+    this.setStatus(`${this.prosodyLane.toUpperCase()} DRAW · MORA ${index + 1} · ${statusValue}`);
   }
 
   private clearPlaybackTimers(): void {
@@ -433,7 +553,7 @@ export class VoiceMode {
 
     try {
       this.setStatus('SCHEDULING · LOW-LATENCY STREAM');
-      const plan = await this.synth.play(script, this.settings, this.prosodyEdits);
+      const plan = await this.synth.play(script, this.settings, this.getProsodyEdits());
       this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
       this.setStatus(`SPEAKING · ${script.units.length} UNITS · ${plan.duration.toFixed(1)}s`);
       for (const timed of plan.units.slice(0, 72)) {
@@ -497,7 +617,7 @@ export class VoiceMode {
     button.textContent = 'RENDERING…';
     this.setStatus('RENDERING WAV · REAL-TIME LOCAL CAPTURE');
     try {
-      const blob = await this.synth.renderWav(script, this.settings, this.prosodyEdits);
+      const blob = await this.synth.renderWav(script, this.settings, this.getProsodyEdits());
       downloadBlob(blob, `${safeFilename(text)}.wav`);
       this.setStatus(`WAV EXPORTED · ${Math.round(blob.size / 1024)} KB`);
     } catch (error) {

@@ -205,17 +205,35 @@
 }
 
 .voice-prosody-tools {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
-  min-height: 24px;
+  min-height: 26px;
+}
+
+.voice-prosody-lanes {
+  display: flex;
+  gap: 4px;
+}
+
+.voice-prosody-lanes button {
+  min-width: 52px;
+}
+
+.voice-prosody-lanes button.active {
+  color: #f7fbff;
+  border-color: rgba(126, 207, 255, .48);
+  background: rgba(73, 157, 217, .22);
+  box-shadow: inset 0 0 0 1px rgba(128, 212, 255, .06);
 }
 
 .voice-prosody-tools span {
+  justify-self: center;
   color: rgba(211, 232, 248, .42);
   font: 800 8px/1 system-ui, sans-serif;
   letter-spacing: .08em;
+  white-space: nowrap;
 }
 
 .voice-prosody-tools button {
@@ -276,11 +294,35 @@
   position: absolute;
   left: 0;
   right: 0;
-  top: calc((1 - var(--voice-pitch)) * 100% - 2px);
+  top: calc((1 - var(--voice-value)) * 100% - 2px);
   height: 4px;
   border-radius: 4px;
   background: linear-gradient(90deg, #78d4ff, #bd84ff);
   box-shadow: 0 0 8px rgba(111, 204, 255, .32);
+}
+
+.voice-contour.energy > i::after {
+  height: 5px;
+  background: linear-gradient(90deg, #7fe3c8, #84b8ff);
+  box-shadow: 0 0 8px rgba(104, 220, 193, .28);
+}
+
+.voice-contour.duration > i::after {
+  height: 5px;
+  background: linear-gradient(90deg, #ffd28a, #c990ff);
+  box-shadow: 0 0 8px rgba(238, 184, 118, .25);
+}
+
+.voice-contour.energy {
+  background:
+    linear-gradient(to bottom, transparent 49.5%, rgba(113, 218, 187, .11) 50%, transparent 50.5%),
+    rgba(7, 13, 22, .8);
+}
+
+.voice-contour.duration {
+  background:
+    linear-gradient(to bottom, transparent 49.5%, rgba(240, 190, 122, .11) 50%, transparent 50.5%),
+    rgba(7, 13, 22, .8);
 }
 
 .voice-units {
@@ -454,7 +496,7 @@
     min-height: auto;
   }
   .voice-content-panel {
-    grid-template-rows: auto 130px auto auto 150px;
+    grid-template-rows: auto 130px auto auto 170px;
   }
   .voice-controls-panel {
     overflow: visible;
@@ -473,4 +515,21 @@
   .voice-content-panel { gap: 6px; }
   .voice-prosody-preview { min-height: 96px; }
   .voice-tech > div { min-height: 22px; }
+}
+
+
+@media (max-width: 560px) {
+  .voice-prosody-tools {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "lanes reset"
+      "hint hint";
+  }
+  .voice-prosody-lanes { grid-area: lanes; }
+  .voice-prosody-tools > span { grid-area: hint; justify-self: start; }
+  .voice-prosody-tools > #voice-reset-prosody { grid-area: reset; }
+  .voice-prosody-lanes button {
+    min-width: 46px;
+    padding: 0 6px;
+  }
 }

@@ -98,3 +98,24 @@ References:
 - Shaw & Kawahara, *Durational Evidence That Tokyo Japanese Vowel Devoicing Is Not Gradient Reduction* (2019): https://pmc.ncbi.nlm.nih.gov/articles/PMC6476939/
 
 VOICE LAB applies conservative devoicing only to isolated candidate morae. It reduces periodic voicing, increases aspiration/noise, shortens the mora, and avoids fully suppressing adjacent eligible morae.
+
+
+### Three-axis prosody editing: pitch, energy, duration
+
+Interspeech 2025 Japanese GST-BERT-TTS extends accent-label-free prosody prediction beyond log-F0 to **energy and duration**, explicitly treating all three as useful speech-generation controls.
+
+Reference:
+- Ogura et al., *GST-BERT-TTS: Prosody Prediction Without Accentual Labels For Multi-Speaker TTS Using BERT With Global Style Tokens* (Interspeech 2025): https://www.isca-archive.org/interspeech_2025/ogura25_interspeech.html
+
+This aligns with broader controllable-TTS work where interpretable prosody is represented through pitch, energy, and duration rather than a single opaque style value. ProMode also reports benefits from modeling F0 and energy explicitly, while 2025 work on stochastic prosody modeling continues to use explicit pitch/energy/duration parameters for controllability.
+
+References:
+- Eren et al., *ProMode: A Speech Prosody Model Conditioned on Acoustic and Textual Inputs* (Interspeech 2025): https://www.isca-archive.org/interspeech_2025/eren25_interspeech.html
+- Mayer et al., *Investigating Stochastic Methods for Prosody Modeling in Speech Synthesis* (Interspeech 2025): https://www.isca-archive.org/interspeech_2025/mayer25_interspeech.html
+
+VOICE LAB therefore exposes three independent mora-level drawing lanes:
+- PITCH: continuous F0 offset
+- ENERGY: local speech intensity / phrase-energy scale
+- TIMING: local mora-duration scale that also shifts following mora start times
+
+The automatic Japanese prosody remains underneath these edits, so manual drawing acts as a correction or expressive layer instead of replacing accent-phrase timing entirely.

@@ -21,6 +21,14 @@ export interface VoiceSynthSettings {
   intonation: VoiceIntonation;
 }
 
+export interface VoiceProsodyEdits {
+  pitchOffsets?: readonly number[];
+  energyScales?: readonly number[];
+  durationScales?: readonly number[];
+}
+
+type VoiceProsodyInput = VoiceProsodyEdits | readonly number[];
+
 export interface VoiceTimedUnit {
   unit: VoiceUnit;
   start: number;
@@ -28,6 +36,8 @@ export interface VoiceTimedUnit {
   pitchMidi: number;
   energyScale: number;
   manualPitchOffset: number;
+  manualEnergyScale: number;
+  manualDurationScale: number;
 }
 
 export interface VoicePlaybackPlan {
@@ -36,6 +46,11 @@ export interface VoicePlaybackPlan {
 }
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
+
+function normalizeProsodyEdits(input: VoiceProsodyInput): VoiceProsodyEdits {
+  if (Array.isArray(input)) return { pitchOffsets: input as readonly number[] };
+  return input as VoiceProsodyEdits;
+}
 
 function pitchClassForMidi(midi: number): PitchClass {
   return (((Math.round(midi) % 12) + 12) % 12) as PitchClass;
@@ -54,8 +69,6 @@ function unitDuration(unit: VoiceUnit, rate: number): number {
   const nasal = unit.moraicN;
   let base = nasal ? 0.155 : consonantHeavy ? 0.174 : 0.165;
 
-  // Long vowels remain a full mora, but ordinary phrase-final morae lengthen
-  // slightly while devoiced high vowels compress substantially.
   if (unit.longVowel) base *= 1.28;
   if (unit.devoiced) base *= 0.76;
   if (unit.accentEnd && !unit.phraseEnd) base *= 1.035;
@@ -91,8 +104,8 @@ function phraseControlFor(unit: VoiceUnit, energy: number): VocalPhraseControl {
     phraseEndStep: unit.phraseCount,
     progressStart,
     progressEnd,
-    energyStart: clamp(crestStart * energy, 0.7, 1.16),
-    energyEnd: clamp(crestEnd * energy * boundaryRelease, 0.68, 1.16),
+    energyStart: clamp(crestStart * energy, 0.58, 1.32),
+    energyEnd: clamp(crestEnd * energy * boundaryRelease, 0.55, 1.32),
     centeringStart: unit.phraseEnd ? 0.025 : 0,
     centeringEnd: unit.phraseEnd ? 0.11 : unit.accentEnd ? 0.045 : 0.015,
     aspirationDepth: clamp(0.068 + (1 - energy) * 0.05 + (unit.devoiced ? 0.035 : 0), 0.05, 0.145),
@@ -171,8 +184,9 @@ export class VoiceSynth {
   plan(
     script: VoiceScript,
     settings: VoiceSynthSettings,
-    pitchOffsets: readonly number[] = [],
+    prosodyInput: VoiceProsodyInput = {},
   ): VoicePlaybackPlan {
+    const edits = normalizeProsodyEdits(prosodyInput);
     const units: VoiceTimedUnit[] = [];
     let cursor = 0;
 
@@ -182,10 +196,13 @@ export class VoiceSynth {
       }
 
       const offset = prosodyOffsetForUnit(unit, index, script.units.length, settings.intonation);
-      const manualPitchOffset = clamp(pitchOffsets[index] ?? 0, -3.5, 3.5);
+      const manualPitchOffset = clamp(edits.pitchOffsets?.[index] ?? 0, -3.5, 3.5);
+      const manualEnergyScale = clamp(edits.energyScales?.[index] ?? 1, 0.45, 1.55);
+      const manualDurationScale = clamp(edits.durationScales?.[index] ?? 1, 0.6, 1.65);
+
       const pitchMidi = clamp(settings.pitch + offset + manualPitchOffset, 40, 82);
-      const duration = unitDuration(unit, settings.rate);
-      const energyScale = unitEnergyScale(unit);
+      const duration = clamp(unitDuration(unit, settings.rate) * manualDurationScale, 0.055, 0.54);
+      const energyScale = clamp(unitEnergyScale(unit) * manualEnergyScale, 0.28, 1.55);
 
       units.push({
         unit,
@@ -194,6 +211,8 @@ export class VoiceSynth {
         pitchMidi,
         energyScale,
         manualPitchOffset,
+        manualEnergyScale,
+        manualDurationScale,
       });
 
       cursor += duration + unit.pauseAfter / clamp(settings.rate, 0.7, 1.4);
@@ -205,14 +224,14 @@ export class VoiceSynth {
   async play(
     script: VoiceScript,
     settings: VoiceSynthSettings,
-    pitchOffsets: readonly number[] = [],
+    prosodyInput: VoiceProsodyInput = {},
   ): Promise<VoicePlaybackPlan> {
     await this.unlock();
     if (!this.context) throw new Error('Voice AudioContext unavailable');
     if (this.worklet.status !== 'ready') throw new Error('Voice AudioWorklet unavailable');
 
     this.worklet.clear();
-    const plan = this.plan(script, settings, pitchOffsets);
+    const plan = this.plan(script, settings, prosodyInput);
     const startAt = this.context.currentTime + 0.055;
     let previousPitchMidi: number | null = null;
 
@@ -224,7 +243,7 @@ export class VoiceSynth {
         pitch: pitchClassForMidi(roundedMidi),
         octave: octaveForMidi(roundedMidi),
         durationSteps: 1,
-        velocity: clamp(0.7 * settings.energy * timed.energyScale, 0.28, 0.95),
+        velocity: clamp(0.72 * settings.energy * timed.energyScale, 0.2, 0.98),
         syllable: unit.syllable,
         vowel: unit.vowel,
         nextVowel: plan.units[index + 1]?.unit.vowel ?? null,
@@ -247,9 +266,6 @@ export class VoiceSynth {
         { preset: settings.character, tone: settings.tone },
       );
 
-      // Keep mora-level F0 continuous instead of quantizing speech to sung
-      // semitone steps. The VocalEvent still provides a safe discrete pitch
-      // class for the existing formant/source-filter path.
       workletEvent.targetHz = midiToHz(timed.pitchMidi);
       workletEvent.glideFromHz = previousPitchMidi === null || unit.phraseStart
         ? null
@@ -300,7 +316,7 @@ export class VoiceSynth {
           glottalOpenQuotient: clamp(workletEvent.style.glottalOpenQuotient + 0.055, 0.46, 0.88),
           intensityModDepth: workletEvent.style.intensityModDepth * 0.45,
         };
-        workletEvent.velocity = clamp(workletEvent.velocity * 0.7, 0.2, 0.72);
+        workletEvent.velocity = clamp(workletEvent.velocity * 0.7, 0.16, 0.72);
       }
 
       if (unit.longVowel) {
@@ -319,7 +335,7 @@ export class VoiceSynth {
         harmonyTargetHz: null,
         harmonyGainScale: 0,
       };
-      workletEvent.velocity = clamp(workletEvent.velocity * settings.energy * timed.energyScale, 0.22, 0.95);
+      workletEvent.velocity = clamp(workletEvent.velocity, 0.16, 0.98);
       this.worklet.schedule(workletEvent);
       previousPitchMidi = timed.pitchMidi;
     });
@@ -330,13 +346,13 @@ export class VoiceSynth {
   async renderWav(
     script: VoiceScript,
     settings: VoiceSynthSettings,
-    pitchOffsets: readonly number[] = [],
+    prosodyInput: VoiceProsodyInput = {},
   ): Promise<Blob> {
     await this.unlock();
     if (!this.context || !this.limiter) throw new Error('Voice render unavailable');
     this.stop();
     this.wavCapture.start(this.context, this.limiter);
-    const plan = await this.play(script, settings, pitchOffsets);
+    const plan = await this.play(script, settings, prosodyInput);
     await new Promise<void>((resolve) => window.setTimeout(resolve, Math.ceil((plan.duration + 0.18) * 1000)));
     return this.wavCapture.finish();
   }

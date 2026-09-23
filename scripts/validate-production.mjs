@@ -53,6 +53,9 @@ for (const producerTuningFeature of ['timingLeadSeconds', 'consonantLengthScale'
 for (const voiceCharacterFeature of ['SOFT', 'NATURAL', 'CLEAR', 'AIRY', 'POWER', 'upperFormantGainScale', 'compose-voice-character', 'compose-voice-tone']) {
   if (!entryJavaScript.includes(voiceCharacterFeature)) fail(`production bundle is missing v21.1 voice character macro: ${voiceCharacterFeature}`);
 }
+for (const voiceLabFeature of ['VOICE LAB', 'PROSODY DRAW', 'DRAW ENERGY', 'DRAW TIMING', 'manualEnergyScale', 'manualDurationScale']) {
+  if (!entryJavaScript.includes(voiceLabFeature)) fail(`production bundle is missing VOICE LAB prosody editor: ${voiceLabFeature}`);
+}
 for (const fullSongFeature of ['FULL SONG', 'songSections', 'PRE-CHORUS', 'INTERLUDE', 'BRIDGE']) {
   if (!entryJavaScript.includes(fullSongFeature)) fail(`production bundle is missing full-song structure: ${fullSongFeature}`);
 }
