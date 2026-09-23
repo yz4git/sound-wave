@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { parseVoiceScript, prosodyOffset } from '../src/voice/VoiceScript';
+import {
+  parseVoiceScript,
+  prosodyOffset,
+  prosodyOffsetForUnit,
+} from '../src/voice/VoiceScript';
 
 describe('Voice Lab speech planning', () => {
   it('parses hiragana and katakana into the same phonetic units', () => {
@@ -11,23 +15,42 @@ describe('Voice Lab speech planning', () => {
     expect(hira.unsupported).toEqual([]);
   });
 
-  it('handles contracted kana and long vowels', () => {
+  it('handles contracted kana and long vowels as morae', () => {
     const script = parseVoiceScript('きょう、しゅー');
 
     expect(script.units[0]?.syllable).toBe('kyo');
     expect(script.units[1]?.syllable).toBe('u');
     expect(script.units[2]?.syllable).toBe('shu');
     expect(script.units[3]?.vowel).toBe('u');
+    expect(script.units[3]?.longVowel).toBe(true);
     expect(script.units[1]?.pauseAfter).toBeGreaterThan(0.1);
   });
 
-  it('marks sentence punctuation as phrase boundaries', () => {
-    const script = parseVoiceScript('あさ。ひる？よる！');
-    const phraseEnds = script.units.filter((unit) => unit.phraseEnd);
+  it('marks sokuon on the following consonant mora', () => {
+    const script = parseVoiceScript('きって');
 
-    expect(phraseEnds.length).toBe(3);
-    expect(script.units[2]?.phraseStart).toBe(true);
-    expect(script.units[4]?.phraseStart).toBe(true);
+    expect(script.units.map((unit) => unit.syllable)).toEqual(['ki', 'te']);
+    expect(script.units[0]?.geminateBefore).toBe(false);
+    expect(script.units[1]?.geminateBefore).toBe(true);
+  });
+
+  it('marks sentence punctuation and accent phrase boundaries', () => {
+    const script = parseVoiceScript('あさ ひる、よる。');
+
+    expect(script.units[0]?.phraseStart).toBe(true);
+    expect(script.units[1]?.accentEnd).toBe(true);
+    expect(script.units[2]?.accentStart).toBe(true);
+    expect(script.units[3]?.accentEnd).toBe(true);
+    expect(script.units[4]?.accentStart).toBe(true);
+    expect(script.units[5]?.phraseEnd).toBe(true);
+  });
+
+  it('devoices isolated high vowels between voiceless consonants without erasing consecutive morae', () => {
+    const script = parseVoiceScript('すき');
+
+    expect(script.units[0]?.syllable).toBe('su');
+    expect(script.units[0]?.devoiced).toBe(true);
+    expect(script.units[1]?.devoiced).toBe(false);
   });
 
   it('reports kanji instead of silently inventing a reading', () => {
@@ -37,7 +60,7 @@ describe('Voice Lab speech planning', () => {
     expect(script.unsupported).toContain('声');
   });
 
-  it('provides distinct controllable prosody shapes', () => {
+  it('provides distinct controllable global prosody shapes', () => {
     const risingStart = prosodyOffset(0, 5, 'rise', true, false);
     const risingEnd = prosodyOffset(4, 5, 'rise', false, true);
     const fallingStart = prosodyOffset(0, 5, 'fall', true, false);
@@ -47,5 +70,17 @@ describe('Voice Lab speech planning', () => {
     expect(risingEnd).toBeGreaterThan(risingStart);
     expect(fallingEnd).toBeLessThan(fallingStart);
     expect(questionEnd).toBeGreaterThan(1.5);
+  });
+
+  it('adds mora-level accent phrase motion while keeping flat mode flat', () => {
+    const script = parseVoiceScript('あさ ひる。');
+    const first = script.units[0]!;
+    const secondPhraseStart = script.units[2]!;
+    const final = script.units[3]!;
+
+    expect(prosodyOffsetForUnit(first, 0, script.units.length, 'flat')).toBe(0);
+    expect(prosodyOffsetForUnit(secondPhraseStart, 2, script.units.length, 'natural')).not.toBe(0);
+    expect(prosodyOffsetForUnit(final, 3, script.units.length, 'question'))
+      .toBeGreaterThan(prosodyOffsetForUnit(final, 3, script.units.length, 'natural'));
   });
 });

@@ -1,7 +1,7 @@
 import type { VocalStyle } from '../compose/VocalGenerator';
 import { downloadBlob } from '../compose/SongExport';
 import { VOICE_CHARACTER_PRESETS, validVoiceCharacterPreset, type VoiceCharacterPreset } from '../compose/VoiceCharacter';
-import { parseVoiceScript, prosodyOffset, type VoiceIntonation } from './VoiceScript';
+import { parseVoiceScript, type VoiceIntonation } from './VoiceScript';
 import { VoiceSynth, type VoiceSynthSettings } from './VoiceSynth';
 
 type VoiceEngine = 'local' | 'system';
@@ -290,19 +290,25 @@ export class VoiceMode {
     unitsEl.replaceChildren();
     contourEl.replaceChildren();
 
-    const preview = script.units.slice(0, 72);
-    preview.forEach((unit, index) => {
+    const plan = this.synth.plan(script, this.settings);
+    const preview = plan.units.slice(0, 72);
+    preview.forEach((timed, index) => {
+      const unit = timed.unit;
       const token = document.createElement('i');
       token.textContent = unit.display;
       token.dataset.voiceUnit = String(index);
       if (unit.phraseStart) token.classList.add('phrase-start');
       if (unit.phraseEnd) token.classList.add('phrase-end');
+      if (unit.accentStart) token.classList.add('accent-start');
+      if (unit.devoiced) token.classList.add('devoiced');
+      if (unit.longVowel) token.classList.add('long-vowel');
+      if (unit.geminateBefore) token.classList.add('geminate');
       unitsEl.append(token);
 
       const point = document.createElement('i');
-      const offset = prosodyOffset(index, Math.max(1, preview.length), this.settings.intonation, unit.phraseStart, unit.phraseEnd);
+      const offset = timed.pitchMidi - this.settings.pitch;
       point.style.setProperty('--voice-pitch', String(clamp((offset + 3) / 6, 0.05, 0.95)));
-      point.style.width = `${Math.max(1.2, 100 / Math.max(12, preview.length))}%`;
+      point.style.width = `${Math.max(1.2, timed.duration / Math.max(0.1, plan.duration) * 100)}%`;
       contourEl.append(point);
     });
 
@@ -310,7 +316,7 @@ export class VoiceMode {
     if (this.settings.engine === 'local') {
       note.textContent = script.unsupported.length > 0
         ? `LOCAL DSP · かな/カナ/ROMAJI対応 · 未対応文字: ${script.unsupported.slice(0, 8).join(' ')} · 漢字文はSYSTEM TTSへ`
-        : `LOCAL DSP · ${script.units.length} speech units · audio stays in this page`;
+        : `LOCAL DSP · ${script.units.length} morae · accent phrases + devoicing · audio stays in this page`;
       this.setStatus(script.units.length > 0 ? 'READY · LOCAL DSP' : 'ENTER KANA OR ROMAJI');
     } else {
       note.textContent = 'SYSTEM TTS · device/browser voice · kanji and general text supported · availability varies by OS';

@@ -1,6 +1,7 @@
 import type { VocalVowel } from '../compose/VocalGenerator';
 
 export type VoiceIntonation = 'natural' | 'flat' | 'rise' | 'fall' | 'question';
+export type VoiceBoundary = 'none' | 'accent' | 'sentence';
 
 export interface VoiceUnit {
   index: number;
@@ -9,7 +10,18 @@ export interface VoiceUnit {
   vowel: VocalVowel;
   phraseStart: boolean;
   phraseEnd: boolean;
+  phraseIndex: number;
+  phraseCount: number;
+  accentStart: boolean;
+  accentEnd: boolean;
+  accentIndex: number;
+  accentCount: number;
+  boundaryAfter: VoiceBoundary;
   pauseAfter: number;
+  geminateBefore: boolean;
+  longVowel: boolean;
+  moraicN: boolean;
+  devoiced: boolean;
 }
 
 export interface VoiceScript {
@@ -17,11 +29,26 @@ export interface VoiceScript {
   unsupported: string[];
 }
 
-const PUNCTUATION = new Map<string, number>([
-  ['、', 0.16], [',', 0.14], ['，', 0.14],
-  ['。', 0.34], ['.', 0.28], ['！', 0.3], ['!', 0.26],
-  ['？', 0.34], ['?', 0.32], [';', 0.18], ['；', 0.18],
-  ['\n', 0.36],
+interface PunctuationSpec {
+  pause: number;
+  boundary: VoiceBoundary;
+}
+
+const PUNCTUATION = new Map<string, PunctuationSpec>([
+  ['、', { pause: 0.16, boundary: 'accent' }],
+  [',', { pause: 0.14, boundary: 'accent' }],
+  ['，', { pause: 0.14, boundary: 'accent' }],
+  ['。', { pause: 0.34, boundary: 'sentence' }],
+  ['.', { pause: 0.28, boundary: 'sentence' }],
+  ['！', { pause: 0.3, boundary: 'sentence' }],
+  ['!', { pause: 0.26, boundary: 'sentence' }],
+  ['？', { pause: 0.34, boundary: 'sentence' }],
+  ['?', { pause: 0.32, boundary: 'sentence' }],
+  [';', { pause: 0.18, boundary: 'accent' }],
+  ['；', { pause: 0.18, boundary: 'accent' }],
+  ['・', { pause: 0.08, boundary: 'accent' }],
+  ['/', { pause: 0.07, boundary: 'accent' }],
+  ['\n', { pause: 0.36, boundary: 'sentence' }],
 ]);
 
 const KANA: Record<string, string> = {
@@ -59,6 +86,16 @@ const KANA: Record<string, string> = {
   'ゔぁ':'va','ゔぃ':'vi','ゔぇ':'ve','ゔぉ':'vo',
 };
 
+function boundaryRank(boundary: VoiceBoundary): number {
+  if (boundary === 'sentence') return 2;
+  if (boundary === 'accent') return 1;
+  return 0;
+}
+
+function strongerBoundary(a: VoiceBoundary, b: VoiceBoundary): VoiceBoundary {
+  return boundaryRank(a) >= boundaryRank(b) ? a : b;
+}
+
 function toHiragana(value: string): string {
   return [...value].map((char) => {
     const code = char.charCodeAt(0);
@@ -75,62 +112,203 @@ function vowelOf(syllable: string, fallback: VocalVowel = 'a'): VocalVowel {
   return fallback;
 }
 
-function pushUnit(units: VoiceUnit[], display: string, syllable: string, vowel: VocalVowel): void {
-  const previous = units[units.length - 1];
-  const phraseStart = !previous || previous.phraseEnd || previous.pauseAfter >= 0.28;
+function consonantClass(syllable: string): string {
+  const value = syllable.toLowerCase();
+  if (value === 'n' || value === 'nn') return 'N';
+  if (/^(sh|s)/.test(value)) return 's';
+  if (/^(ch|ts|t)/.test(value)) return 't';
+  if (/^(ky|k)/.test(value)) return 'k';
+  if (/^(hy|h)/.test(value)) return 'h';
+  if (/^f/.test(value)) return 'f';
+  if (/^p/.test(value)) return 'p';
+  if (/^(gy|g)/.test(value)) return 'g';
+  if (/^(j|z)/.test(value)) return 'z';
+  if (/^d/.test(value)) return 'd';
+  if (/^b/.test(value)) return 'b';
+  if (/^m/.test(value)) return 'm';
+  if (/^n/.test(value)) return 'n';
+  if (/^(ry|r)/.test(value)) return 'r';
+  if (/^y/.test(value)) return 'y';
+  if (/^w/.test(value)) return 'w';
+  if (/^v/.test(value)) return 'v';
+  return 'vowel';
+}
+
+function isVoicelessConsonant(syllable: string): boolean {
+  const consonant = consonantClass(syllable);
+  return consonant === 'k'
+    || consonant === 's'
+    || consonant === 't'
+    || consonant === 'h'
+    || consonant === 'f'
+    || consonant === 'p';
+}
+
+function pushUnit(
+  units: VoiceUnit[],
+  display: string,
+  syllable: string,
+  vowel: VocalVowel,
+  flags: { geminateBefore?: boolean; longVowel?: boolean } = {},
+): void {
   units.push({
     index: units.length,
     display,
     syllable,
     vowel,
-    phraseStart,
+    phraseStart: false,
     phraseEnd: false,
+    phraseIndex: 0,
+    phraseCount: 1,
+    accentStart: false,
+    accentEnd: false,
+    accentIndex: 0,
+    accentCount: 1,
+    boundaryAfter: 'none',
     pauseAfter: 0,
+    geminateBefore: flags.geminateBefore ?? false,
+    longVowel: flags.longVowel ?? false,
+    moraicN: syllable === 'n' || syllable === 'nn',
+    devoiced: false,
   });
 }
 
-function markPause(units: VoiceUnit[], pause: number): void {
+function markPause(units: VoiceUnit[], pause: number, boundary: VoiceBoundary): void {
   const previous = units[units.length - 1];
   if (!previous) return;
   previous.pauseAfter = Math.max(previous.pauseAfter, pause);
-  if (pause >= 0.24) previous.phraseEnd = true;
+  previous.boundaryAfter = strongerBoundary(previous.boundaryAfter, boundary);
 }
 
-function parseRomajiWord(word: string, units: VoiceUnit[], unsupported: string[]): void {
-  let value = word.toLowerCase().replace(/[^a-z']/g, '');
+function parseRomajiWord(
+  word: string,
+  units: VoiceUnit[],
+  unsupported: string[],
+  pendingGeminate: { value: boolean },
+): void {
+  const value = word.toLowerCase().replace(/[^a-z']/g, '');
   if (!value) return;
-  const combos = ['kya','kyu','kyo','sha','shu','sho','cha','chu','cho','nya','nyu','nyo','hya','hyu','hyo','mya','myu','myo','rya','ryu','ryo','gya','gyu','gyo','ja','ju','jo','bya','byu','byo','pya','pyu','pyo','shi','chi','tsu','fu'];
+  const combos = [
+    'kya','kyu','kyo','sha','shu','sho','cha','chu','cho','nya','nyu','nyo',
+    'hya','hyu','hyo','mya','myu','myo','rya','ryu','ryo','gya','gyu','gyo',
+    'ja','ju','jo','bya','byu','byo','pya','pyu','pyo','shi','chi','tsu','fu',
+  ];
   let index = 0;
+
   while (index < value.length) {
     const tail = value.slice(index);
+    const char = value[index] ?? '';
+    const next = value[index + 1] ?? '';
+
+    if (char && next && char === next && /[kstpgzdbcf]/.test(char)) {
+      pendingGeminate.value = true;
+      index += 1;
+      continue;
+    }
+
     const combo = combos.find((candidate) => tail.startsWith(candidate));
     if (combo) {
-      pushUnit(units, combo, combo, vowelOf(combo));
+      pushUnit(units, combo, combo, vowelOf(combo), { geminateBefore: pendingGeminate.value });
+      pendingGeminate.value = false;
       index += combo.length;
       continue;
     }
 
-    const char = value[index]!;
-    const next = value[index + 1] ?? '';
     if ('aeiou'.includes(char)) {
-      pushUnit(units, char, char, char as VocalVowel);
+      pushUnit(units, char, char, char as VocalVowel, { geminateBefore: pendingGeminate.value });
+      pendingGeminate.value = false;
       index += 1;
       continue;
     }
+
     if (char === 'n' && (!next || !'aeiouy'.includes(next))) {
       const fallback = units[units.length - 1]?.vowel ?? 'u';
-      pushUnit(units, 'n', 'n', fallback);
+      pushUnit(units, 'n', 'n', fallback, { geminateBefore: pendingGeminate.value });
+      pendingGeminate.value = false;
       index += 1;
       continue;
     }
+
     if (/[bcdfghjklmpqrstvwxyz]/.test(char) && 'aeiou'.includes(next)) {
       const syllable = char + next;
-      pushUnit(units, syllable, syllable, next as VocalVowel);
+      pushUnit(units, syllable, syllable, next as VocalVowel, { geminateBefore: pendingGeminate.value });
+      pendingGeminate.value = false;
       index += 2;
       continue;
     }
+
     unsupported.push(char);
     index += 1;
+  }
+}
+
+function annotateRuns(
+  units: VoiceUnit[],
+  isBoundary: (unit: VoiceUnit, index: number) => boolean,
+  assign: (unit: VoiceUnit, localIndex: number, count: number) => void,
+): void {
+  let start = 0;
+  for (let index = 0; index < units.length; index += 1) {
+    const unit = units[index];
+    if (!unit) continue;
+    const isLast = index === units.length - 1;
+    if (!isBoundary(unit, index) && !isLast) continue;
+
+    const end = index;
+    const count = Math.max(1, end - start + 1);
+    for (let cursor = start; cursor <= end; cursor += 1) {
+      const candidate = units[cursor];
+      if (candidate) assign(candidate, cursor - start, count);
+    }
+    start = index + 1;
+  }
+}
+
+function finalizeStructure(units: VoiceUnit[]): void {
+  if (units.length === 0) return;
+  const final = units[units.length - 1]!;
+  final.boundaryAfter = 'sentence';
+
+  annotateRuns(
+    units,
+    (unit) => unit.boundaryAfter === 'sentence',
+    (unit, localIndex, count) => {
+      unit.phraseIndex = localIndex;
+      unit.phraseCount = count;
+      unit.phraseStart = localIndex === 0;
+      unit.phraseEnd = localIndex === count - 1;
+    },
+  );
+
+  annotateRuns(
+    units,
+    (unit) => unit.boundaryAfter !== 'none',
+    (unit, localIndex, count) => {
+      unit.accentIndex = localIndex;
+      unit.accentCount = count;
+      unit.accentStart = localIndex === 0;
+      unit.accentEnd = localIndex === count - 1;
+    },
+  );
+
+  let previousDevoiced = false;
+  for (let index = 0; index < units.length; index += 1) {
+    const unit = units[index]!;
+    const next = units[index + 1];
+    const highVowel = unit.vowel === 'i' || unit.vowel === 'u';
+    const nextVoiceless = next ? isVoicelessConsonant(next.syllable) : false;
+    const beforePause = unit.boundaryAfter !== 'none' && unit.pauseAfter <= 0.36;
+    const candidate = highVowel
+      && !unit.longVowel
+      && !unit.moraicN
+      && isVoicelessConsonant(unit.syllable)
+      && (nextVoiceless || beforePause);
+
+    // Avoid fully suppressing adjacent high-vowel morae; real speech typically
+    // preserves enough timing/energy for intelligibility when devoicing
+    // environments repeat.
+    unit.devoiced = candidate && !previousDevoiced;
+    previousDevoiced = unit.devoiced;
   }
 }
 
@@ -138,31 +316,35 @@ export function parseVoiceScript(text: string): VoiceScript {
   const normalized = toHiragana(text.normalize('NFKC'));
   const units: VoiceUnit[] = [];
   const unsupported: string[] = [];
+  const pendingGeminate = { value: false };
   let index = 0;
-  let geminate = false;
 
   while (index < normalized.length) {
     const char = normalized[index]!;
-    const punctuationPause = PUNCTUATION.get(char);
-    if (punctuationPause !== undefined) {
-      markPause(units, punctuationPause);
+    const punctuation = PUNCTUATION.get(char);
+    if (punctuation) {
+      markPause(units, punctuation.pause, punctuation.boundary);
       index += 1;
       continue;
     }
+
     if (/\s/.test(char)) {
-      markPause(units, 0.08);
+      markPause(units, 0.065, 'accent');
       index += 1;
       continue;
     }
+
     if (char === 'っ') {
-      geminate = true;
-      markPause(units, 0.045);
+      pendingGeminate.value = true;
       index += 1;
       continue;
     }
+
     if (char === 'ー') {
       const previous = units[units.length - 1];
-      if (previous) pushUnit(units, 'ー', previous.vowel, previous.vowel);
+      if (previous) {
+        pushUnit(units, 'ー', previous.vowel, previous.vowel, { longVowel: true });
+      }
       index += 1;
       continue;
     }
@@ -170,17 +352,28 @@ export function parseVoiceScript(text: string): VoiceScript {
     const pair = normalized.slice(index, index + 2);
     const pairSyllable = KANA[pair];
     if (pairSyllable) {
-      const syllable = geminate ? pairSyllable : pairSyllable;
-      pushUnit(units, pair, syllable, vowelOf(pairSyllable, units[units.length - 1]?.vowel));
-      geminate = false;
+      pushUnit(
+        units,
+        pair,
+        pairSyllable,
+        vowelOf(pairSyllable, units[units.length - 1]?.vowel),
+        { geminateBefore: pendingGeminate.value },
+      );
+      pendingGeminate.value = false;
       index += 2;
       continue;
     }
 
     const syllable = KANA[char];
     if (syllable) {
-      pushUnit(units, char, syllable, vowelOf(syllable, units[units.length - 1]?.vowel));
-      geminate = false;
+      pushUnit(
+        units,
+        char,
+        syllable,
+        vowelOf(syllable, units[units.length - 1]?.vowel),
+        { geminateBefore: pendingGeminate.value },
+      );
+      pendingGeminate.value = false;
       index += 1;
       continue;
     }
@@ -188,7 +381,7 @@ export function parseVoiceScript(text: string): VoiceScript {
     if (/[A-Za-z]/.test(char)) {
       let end = index + 1;
       while (end < normalized.length && /[A-Za-z']/i.test(normalized[end]!)) end += 1;
-      parseRomajiWord(normalized.slice(index, end), units, unsupported);
+      parseRomajiWord(normalized.slice(index, end), units, unsupported, pendingGeminate);
       index = end;
       continue;
     }
@@ -198,10 +391,64 @@ export function parseVoiceScript(text: string): VoiceScript {
     index += 1;
   }
 
-  if (units.length > 0) units[units.length - 1]!.phraseEnd = true;
+  finalizeStructure(units);
   return { units, unsupported: [...new Set(unsupported)] };
 }
 
+function accentPhraseOffset(unit: VoiceUnit): number {
+  if (unit.accentCount <= 1) return 0;
+  if (unit.accentIndex === 0) return -0.48;
+  const decline = Math.max(0, unit.accentIndex - 1) * 0.11;
+  const crest = 0.5 - decline;
+  return crest - (unit.accentEnd ? 0.16 : 0);
+}
+
+function consonantMicroProsody(unit: VoiceUnit): number {
+  const consonant = consonantClass(unit.syllable);
+  if (consonant === 'k' || consonant === 's' || consonant === 't' || consonant === 'h' || consonant === 'f' || consonant === 'p') {
+    return 0.16;
+  }
+  if (consonant === 'g' || consonant === 'z' || consonant === 'd' || consonant === 'b' || consonant === 'v') {
+    return -0.11;
+  }
+  if (unit.moraicN) return -0.08;
+  if (unit.longVowel) return -0.06;
+  return 0;
+}
+
+export function prosodyOffsetForUnit(
+  unit: VoiceUnit,
+  index: number,
+  count: number,
+  intonation: VoiceIntonation,
+): number {
+  if (intonation === 'flat') return 0;
+
+  const phraseProgress = unit.phraseCount <= 1
+    ? 0
+    : unit.phraseIndex / Math.max(1, unit.phraseCount - 1);
+  const phraseArc = Math.sin(phraseProgress * Math.PI) * 0.24 - phraseProgress * 0.42;
+  const accent = accentPhraseOffset(unit);
+  const micro = consonantMicroProsody(unit);
+  const globalDeclination = count <= 1 ? 0 : -(index / Math.max(1, count - 1)) * 0.12;
+
+  if (intonation === 'rise') {
+    return -0.7 + phraseProgress * 1.9 + accent * 0.35 + micro;
+  }
+  if (intonation === 'fall') {
+    return 0.72 - phraseProgress * 1.8 + accent * 0.35 + micro;
+  }
+  if (intonation === 'question') {
+    const questionLift = unit.phraseEnd ? 1.85 : phraseProgress > 0.72 ? (phraseProgress - 0.72) * 1.2 : 0;
+    return phraseArc + accent * 0.8 + micro + questionLift + globalDeclination;
+  }
+
+  const reset = unit.phraseStart ? 0.18 : 0;
+  const finalLowering = unit.phraseEnd ? -0.2 : 0;
+  return phraseArc + accent + micro + reset + finalLowering + globalDeclination;
+}
+
+// Kept as a simple public contour helper for tests and external callers.
 export function prosodyOffset(
   index: number,
   count: number,
