@@ -264,7 +264,7 @@ function annotateRuns(
   }
 }
 
-function finalizeStructure(units: VoiceUnit[]): void {
+export function finalizeVoiceUnits(units: VoiceUnit[]): void {
   if (units.length === 0) return;
   const final = units[units.length - 1]!;
   final.boundaryAfter = 'sentence';
@@ -391,7 +391,7 @@ export function parseVoiceScript(text: string): VoiceScript {
     index += 1;
   }
 
-  finalizeStructure(units);
+  finalizeVoiceUnits(units);
   return { units, unsupported: [...new Set(unsupported)] };
 }
 
