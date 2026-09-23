@@ -175,8 +175,16 @@ export class VoiceMode {
         </section>
 
         <aside class="voice-controls-panel">
+          <div class="voice-control-group voice-expression-group">
+            <div class="voice-section-label compact"><span>03</span><b>DELIVERY</b><em>speaking style</em></div>
+            <div class="voice-expression-grid" role="group" aria-label="Speaking style">
+              ${VOICE_EXPRESSION_PRESETS.map((preset) => `<button type="button" data-voice-expression="${preset}">${preset.toUpperCase()}</button>`).join('')}
+            </div>
+            <label><span id="voice-expression-label">STYLE INTENSITY 100%</span><input id="voice-expression-intensity" type="range" min="0" max="135" step="1" /></label>
+          </div>
+
           <div class="voice-control-group">
-            <div class="voice-section-label compact"><span>03</span><b>TIMBRE</b><em>voice character</em></div>
+            <div class="voice-section-label compact"><span>04</span><b>TIMBRE</b><em>voice character</em></div>
             <label><span>VOICE</span><select id="voice-character">
               ${VOICE_CHARACTER_PRESETS.map((preset) => `<option value="${preset}">${preset.toUpperCase()}</option>`).join('')}
             </select></label>
