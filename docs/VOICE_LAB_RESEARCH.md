@@ -139,3 +139,23 @@ VOICE LAB follows that interaction model with high-level DELIVERY presets that a
 - NARRATION: restrained pitch movement, slightly longer phrase-final timing, stable energy
 
 Each preset has a continuous STYLE INTENSITY control. The preset forms the base layer; mora-level PITCH / ENERGY / TIMING drawing remains an independent correction layer on top.
+
+
+### Local delivery spans
+
+VOICE LAB now supports local speaking-style spans inside one utterance instead of applying one DELIVERY preset to the entire line. This keeps the global delivery preset as the baseline and lets selected passages override it.
+
+Markup syntax:
+- `[whisper]...[/]`
+- `[excited:120]...[/]`
+- `[calm]...[/]`
+- `[serious]...[/]`
+- `[narration]...[/]`
+
+The optional number is style intensity as a percentage, clamped to 0–135%.
+
+The editor can insert these tags around the current text selection on touch devices. Tags are zero-width control metadata: they are removed from spoken text, do not create synthetic phrase boundaries, and are converted to per-mora expression controls for the local DSP engine.
+
+For System TTS, the same markup is split into sequential speech segments. Each segment receives its own approximate rate, pitch, and volume derived from the local delivery style. This preserves local style changes without exposing the markup to the OS speech engine.
+
+Manual PITCH / ENERGY / TIMING curves still apply after delivery selection, so a local speaking preset can be fine-tuned mora by mora.

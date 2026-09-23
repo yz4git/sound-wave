@@ -132,6 +132,30 @@ describe('Voice Lab synthesis plan', () => {
     expect(whisper.units[0]!.duration).toBeGreaterThan(neutral.units[0]!.duration);
   });
 
+  it('lets local delivery override the global delivery for selected morae', () => {
+    const synth = new VoiceSynth();
+    const script = parseVoiceScript('あさひ');
+    const calmSettings: VoiceSynthSettings = {
+      ...SETTINGS,
+      expression: { preset: 'calm', intensity: 1 },
+    };
+    const globalCalm = synth.plan(script, calmSettings);
+    const localExcited = synth.plan(script, calmSettings, {
+      localExpressions: [
+        null,
+        { preset: 'excited', intensity: 1 },
+        null,
+      ],
+    });
+
+    expect(localExcited.units[0]!.expression.preset).toBe('calm');
+    expect(localExcited.units[1]!.expression.preset).toBe('excited');
+    expect(localExcited.units[2]!.expression.preset).toBe('calm');
+    expect(localExcited.units[1]!.pitchMidi).toBeGreaterThan(globalCalm.units[1]!.pitchMidi);
+    expect(localExcited.units[1]!.energyScale).toBeGreaterThan(globalCalm.units[1]!.energyScale);
+    expect(localExcited.units[1]!.duration).toBeLessThan(globalCalm.units[1]!.duration);
+  });
+
   it('preserves longer sentence pauses than accent phrase pauses', () => {
     const synth = new VoiceSynth();
     const accentPlan = synth.plan(parseVoiceScript('あさ ひる'), SETTINGS);

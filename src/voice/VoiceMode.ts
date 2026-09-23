@@ -1,8 +1,9 @@
 import type { VocalStyle } from '../compose/VocalGenerator';
 import { downloadBlob } from '../compose/SongExport';
 import { VOICE_CHARACTER_PRESETS, validVoiceCharacterPreset, type VoiceCharacterPreset } from '../compose/VoiceCharacter';
-import { parseVoiceScript, type VoiceIntonation } from './VoiceScript';
+import { type VoiceIntonation } from './VoiceScript';
 import { VoiceSynth, type VoiceProsodyEdits, type VoiceSynthSettings } from './VoiceSynth';
+import { parseVoiceMarkup, removeVoiceMarkup, wrapVoiceSelection, type VoiceMarkupScript } from './VoiceMarkup';
 import {
   VOICE_EXPRESSION_PRESETS,
   validVoiceExpressionPreset,
@@ -22,6 +23,7 @@ const STORAGE_KEY = 'sound-wave-voice-lab-settings-v1';
 const DEFAULT_TEXT = 'こんにちは。おんせい ごうせいの じっけんです。ことばの たかさと いきおいを かえてみましょう。';
 const STYLES: readonly VocalStyle[] = ['warm', 'bright', 'airy'];
 const INTONATIONS: readonly VoiceIntonation[] = ['natural', 'flat', 'rise', 'fall', 'question'];
+const LOCAL_DELIVERY_PRESETS = ['calm', 'excited', 'serious', 'whisper', 'narration'] as const;
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
@@ -56,6 +58,7 @@ export class VoiceMode {
   private drawingProsody = false;
   private lastDrawIndex: number | null = null;
   private lastDrawValue = 0;
+  private systemSpeechGeneration = 0;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -152,6 +155,13 @@ export class VoiceMode {
         <section class="voice-content-panel">
           <div class="voice-section-label"><span>01</span><b>CONTENT</b><em>what is said</em></div>
           <textarea id="voice-text" rows="5" maxlength="420" spellcheck="false" aria-label="Speech text">${DEFAULT_TEXT}</textarea>
+          <div class="voice-local-delivery">
+            <span>SELECT TEXT → LOCAL DELIVERY</span>
+            <div role="group" aria-label="Local speaking style">
+              ${LOCAL_DELIVERY_PRESETS.map((preset) => `<button type="button" data-local-delivery="${preset}">${preset.toUpperCase()}</button>`).join('')}
+              <button type="button" id="voice-clear-local">CLEAR TAGS</button>
+            </div>
+          </div>
           <div class="voice-engine" role="group" aria-label="Voice engine">
             <button type="button" data-voice-engine="local">SOUND WAVE DSP</button>
             <button type="button" data-voice-engine="system">SYSTEM TTS</button>
@@ -233,6 +243,27 @@ export class VoiceMode {
       this.resetProsodyEdits();
       this.refreshPlan();
     });
+
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-local-delivery]')) {
+      button.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        const preset = button.dataset.localDelivery;
+        if (!validVoiceExpressionPreset(preset) || preset === 'neutral') return;
+        this.applyLocalDelivery(preset);
+      }, { passive: false });
+    }
+    this.required<HTMLButtonElement>('#voice-clear-local').addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      const cleaned = removeVoiceMarkup(text.value);
+      if (cleaned === text.value) {
+        this.setStatus('NO LOCAL DELIVERY TAGS');
+        return;
+      }
+      text.value = cleaned;
+      this.resetProsodyEdits();
+      this.refreshPlan();
+      this.setStatus('LOCAL DELIVERY TAGS CLEARED');
+    }, { passive: false });
 
     const contour = this.required<HTMLElement>('#voice-contour');
     contour.addEventListener('pointerdown', (event) => {
@@ -397,16 +428,41 @@ export class VoiceMode {
     this.required<HTMLElement>('#voice-energy-label').textContent = `ENERGY ${Math.round(this.settings.energy * 100)}%`;
   }
 
+  private applyLocalDelivery(preset: Exclude<VoiceExpressionSettings['preset'], 'neutral'>): void {
+    const textarea = this.required<HTMLTextAreaElement>('#voice-text');
+    const wrapped = wrapVoiceSelection(
+      textarea.value,
+      textarea.selectionStart ?? 0,
+      textarea.selectionEnd ?? 0,
+      {
+        preset,
+        intensity: this.settings.expression.intensity,
+      },
+    );
+    if (!wrapped) {
+      this.setStatus('SELECT TEXT FIRST · THEN CHOOSE LOCAL DELIVERY');
+      textarea.focus();
+      return;
+    }
+
+    textarea.value = wrapped.text;
+    textarea.focus();
+    textarea.setSelectionRange(wrapped.selectionStart, wrapped.selectionEnd);
+    this.resetProsodyEdits();
+    this.refreshPlan();
+    this.setStatus(`LOCAL ${preset.toUpperCase()} · ${Math.round(this.settings.expression.intensity * 100)}%`);
+  }
+
   private refreshPlan(): void {
     const text = this.required<HTMLTextAreaElement>('#voice-text').value;
-    const script = parseVoiceScript(text);
+    const script = parseVoiceMarkup(text);
     const unitsEl = this.required<HTMLElement>('#voice-units');
     const contourEl = this.required<HTMLElement>('#voice-contour');
     unitsEl.replaceChildren();
     contourEl.replaceChildren();
 
     this.ensureProsodyEditLength(script.units.length);
-    const plan = this.synth.plan(script, this.settings, this.getProsodyEdits());
+    const plan = this.synth.plan(script, this.settings, this.getProsodyEdits(script.localExpressions));
     const preview = plan.units.slice(0, 72);
     preview.forEach((timed, index) => {
       const unit = timed.unit;
@@ -419,6 +475,12 @@ export class VoiceMode {
       if (unit.devoiced) token.classList.add('devoiced');
       if (unit.longVowel) token.classList.add('long-vowel');
       if (unit.geminateBefore) token.classList.add('geminate');
+      const localExpression = script.localExpressions[index];
+      if (localExpression) {
+        token.classList.add('local-delivery');
+        token.dataset.localDelivery = localExpression.preset;
+        token.title = `${localExpression.preset.toUpperCase()} ${Math.round(localExpression.intensity * 100)}%`;
+      }
       unitsEl.append(token);
 
       const point = document.createElement('i');
@@ -448,7 +510,7 @@ export class VoiceMode {
     if (this.settings.engine === 'local') {
       note.textContent = script.unsupported.length > 0
         ? `LOCAL DSP · かな/カナ/ROMAJI対応 · 未対応文字: ${script.unsupported.slice(0, 8).join(' ')} · 漢字文はSYSTEM TTSへ`
-        : `LOCAL DSP · ${script.units.length} morae · ${this.settings.expression.preset.toUpperCase()} delivery · draw pitch / energy / timing`;
+        : `LOCAL DSP · ${script.units.length} morae · ${this.settings.expression.preset.toUpperCase()} delivery${script.markupUsed ? ' + local spans' : ''} · draw pitch / energy / timing`;
       this.setStatus(script.units.length > 0 ? 'READY · LOCAL DSP' : 'ENTER KANA OR ROMAJI');
     } else {
       note.textContent = 'SYSTEM TTS · device/browser voice · kanji and general text supported · availability varies by OS';
@@ -477,11 +539,14 @@ export class VoiceMode {
     this.durationEdits = resize(this.durationEdits, 1);
   }
 
-  private getProsodyEdits(): VoiceProsodyEdits {
+  private getProsodyEdits(
+    localExpressions: readonly (VoiceExpressionSettings | null)[] = [],
+  ): VoiceProsodyEdits {
     return {
       pitchOffsets: this.pitchEdits,
       energyScales: this.energyEdits,
       durationScales: this.durationEdits,
+      localExpressions,
     };
   }
 
@@ -517,7 +582,7 @@ export class VoiceMode {
     const rect = contour.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
 
-    const script = parseVoiceScript(this.required<HTMLTextAreaElement>('#voice-text').value);
+    const script = parseVoiceMarkup(this.required<HTMLTextAreaElement>('#voice-text').value);
     if (script.units.length === 0) return;
     this.ensureProsodyEditLength(script.units.length);
 
@@ -543,7 +608,7 @@ export class VoiceMode {
     this.lastDrawIndex = index;
     this.lastDrawValue = value;
 
-    const plan = this.synth.plan(script, this.settings, this.getProsodyEdits());
+    const plan = this.synth.plan(script, this.settings, this.getProsodyEdits(script.localExpressions));
     const timed = plan.units[index];
     if (timed) {
       const point = contour.children[index] as HTMLElement | undefined;
@@ -575,6 +640,7 @@ export class VoiceMode {
   private stop(): void {
     this.clearPlaybackTimers();
     this.synth.stop();
+    this.systemSpeechGeneration += 1;
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
     if (this.active) this.setStatus(this.settings.engine === 'local' ? 'READY · LOCAL DSP' : 'READY · SYSTEM TTS');
@@ -588,12 +654,13 @@ export class VoiceMode {
       return;
     }
 
+    const script = parseVoiceMarkup(text);
     if (this.settings.engine === 'system') {
-      this.playSystem(text);
+      this.playSystem(script);
       return;
     }
 
-    const script = parseVoiceScript(text);
+
     if (script.units.length === 0) {
       this.setStatus('LOCAL DSP NEEDS KANA OR ROMAJI');
       return;
@@ -601,7 +668,7 @@ export class VoiceMode {
 
     try {
       this.setStatus('SCHEDULING · LOW-LATENCY STREAM');
-      const plan = await this.synth.play(script, this.settings, this.getProsodyEdits());
+      const plan = await this.synth.play(script, this.settings, this.getProsodyEdits(script.localExpressions));
       this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
       this.setStatus(`SPEAKING · ${script.units.length} UNITS · ${plan.duration.toFixed(1)}s`);
       for (const timed of plan.units.slice(0, 72)) {
@@ -624,48 +691,80 @@ export class VoiceMode {
     }
   }
 
-  private playSystem(text: string): void {
+  private playSystem(script: VoiceMarkupScript): void {
     if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
       this.setStatus('SYSTEM TTS UNAVAILABLE');
       return;
     }
-    const utterance = new SpeechSynthesisUtterance(text);
+
+    const segments = script.speechSegments.filter((segment) => segment.text.trim().length > 0);
+    if (segments.length === 0) {
+      this.setStatus('ENTER TEXT');
+      return;
+    }
+
+    const generation = ++this.systemSpeechGeneration;
     const voices = window.speechSynthesis.getVoices();
-    utterance.voice = voices.find((voice) => voice.lang.toLowerCase().startsWith('ja'))
-      ?? voices.find((voice) => voice.lang.toLowerCase().startsWith('en'))
+    const voice = voices.find((candidate) => candidate.lang.toLowerCase().startsWith('ja'))
+      ?? voices.find((candidate) => candidate.lang.toLowerCase().startsWith('en'))
       ?? null;
-    utterance.lang = utterance.voice?.lang ?? 'ja-JP';
-    const expression = voiceExpressionControl(this.settings.expression);
-    utterance.rate = clamp(
-      this.settings.rate / expression.durationScale,
-      0.55,
-      1.75,
-    );
-    utterance.pitch = clamp(
-      0.7
-        + (this.settings.pitch - 45) / 31 * 0.8
-        + (this.settings.tone + expression.toneOffset) * 0.12
-        + expression.pitchShift * 0.06,
-      0.5,
-      1.75,
-    );
-    utterance.volume = clamp(this.settings.energy * expression.energyScale, 0.35, 1);
-    utterance.onstart = () => {
-      this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
-      this.setStatus(`SYSTEM TTS · ${utterance.voice?.name ?? 'DEFAULT VOICE'}`);
+    let segmentIndex = 0;
+
+    const speakNext = (): void => {
+      if (generation !== this.systemSpeechGeneration) return;
+      const segment = segments[segmentIndex];
+      if (!segment) {
+        this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
+        this.setStatus('READY · SYSTEM TTS');
+        return;
+      }
+      segmentIndex += 1;
+
+      const expressionSettings = segment.expression ?? this.settings.expression;
+      const expression = voiceExpressionControl(expressionSettings);
+      const utterance = new SpeechSynthesisUtterance(segment.text);
+      utterance.voice = voice;
+      utterance.lang = voice?.lang ?? 'ja-JP';
+      utterance.rate = clamp(
+        this.settings.rate / expression.durationScale,
+        0.55,
+        1.75,
+      );
+      utterance.pitch = clamp(
+        0.7
+          + (this.settings.pitch - 45) / 31 * 0.8
+          + (this.settings.tone + expression.toneOffset) * 0.12
+          + expression.pitchShift * 0.06,
+        0.5,
+        1.75,
+      );
+      utterance.volume = clamp(this.settings.energy * expression.energyScale, 0.35, 1);
+      utterance.onstart = () => {
+        if (generation !== this.systemSpeechGeneration) return;
+        this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
+        this.setStatus(
+          `SYSTEM TTS · ${expressionSettings.preset.toUpperCase()} · ${voice?.name ?? 'DEFAULT VOICE'}`,
+        );
+      };
+      utterance.onend = () => {
+        if (generation !== this.systemSpeechGeneration) return;
+        speakNext();
+      };
+      utterance.onerror = () => {
+        if (generation !== this.systemSpeechGeneration) return;
+        this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
+        this.setStatus('SYSTEM TTS FAILED');
+      };
+      window.speechSynthesis.speak(utterance);
     };
-    utterance.onend = () => {
-      this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
-      this.setStatus('READY · SYSTEM TTS');
-    };
-    utterance.onerror = () => this.setStatus('SYSTEM TTS FAILED');
-    window.speechSynthesis.speak(utterance);
+
+    speakNext();
   }
 
   private async exportWav(): Promise<void> {
     if (this.settings.engine !== 'local') return;
     const text = this.required<HTMLTextAreaElement>('#voice-text').value.trim();
-    const script = parseVoiceScript(text);
+    const script = parseVoiceMarkup(text);
     if (script.units.length === 0) {
       this.setStatus('LOCAL DSP NEEDS KANA OR ROMAJI');
       return;
@@ -677,8 +776,8 @@ export class VoiceMode {
     button.textContent = 'RENDERING…';
     this.setStatus('RENDERING WAV · REAL-TIME LOCAL CAPTURE');
     try {
-      const blob = await this.synth.renderWav(script, this.settings, this.getProsodyEdits());
-      downloadBlob(blob, `${safeFilename(text)}.wav`);
+      const blob = await this.synth.renderWav(script, this.settings, this.getProsodyEdits(script.localExpressions));
+      downloadBlob(blob, `${safeFilename(script.plainText)}.wav`);
       this.setStatus(`WAV EXPORTED · ${Math.round(blob.size / 1024)} KB`);
     } catch (error) {
       console.warn('VOICE LAB WAV export failed.', error);
