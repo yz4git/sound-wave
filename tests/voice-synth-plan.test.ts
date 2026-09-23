@@ -66,6 +66,36 @@ describe('Voice Lab synthesis plan', () => {
     expect(edited.units[1]!.manualPitchOffset).toBe(1.5);
   });
 
+  it('applies independent mora energy and duration edits', () => {
+    const synth = new VoiceSynth();
+    const script = parseVoiceScript('あさ ひる');
+    const base = synth.plan(script, SETTINGS);
+    const edited = synth.plan(script, SETTINGS, {
+      energyScales: [1, 1.35, 0.7, 1],
+      durationScales: [1, 1.5, 0.65, 1],
+    });
+
+    expect(edited.units[1]!.energyScale).toBeGreaterThan(base.units[1]!.energyScale);
+    expect(edited.units[2]!.energyScale).toBeLessThan(base.units[2]!.energyScale);
+    expect(edited.units[1]!.duration).toBeGreaterThan(base.units[1]!.duration);
+    expect(edited.units[2]!.duration).toBeLessThan(base.units[2]!.duration);
+    expect(edited.units[1]!.manualEnergyScale).toBeCloseTo(1.35, 8);
+    expect(edited.units[2]!.manualDurationScale).toBeCloseTo(0.65, 8);
+  });
+
+  it('changes downstream mora start times when timing is edited', () => {
+    const synth = new VoiceSynth();
+    const script = parseVoiceScript('あいう');
+    const base = synth.plan(script, SETTINGS);
+    const stretched = synth.plan(script, SETTINGS, {
+      durationScales: [1.6, 1, 1],
+    });
+
+    expect(stretched.units[0]!.start).toBeCloseTo(base.units[0]!.start, 8);
+    expect(stretched.units[1]!.start).toBeGreaterThan(base.units[1]!.start);
+    expect(stretched.duration).toBeGreaterThan(base.duration);
+  });
+
   it('preserves longer sentence pauses than accent phrase pauses', () => {
     const synth = new VoiceSynth();
     const accentPlan = synth.plan(parseVoiceScript('あさ ひる'), SETTINGS);
