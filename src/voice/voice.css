@@ -376,6 +376,35 @@
   border-bottom: 1px solid rgba(126, 202, 255, .09);
 }
 
+.voice-expression-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.voice-expression-grid button {
+  appearance: none;
+  min-height: 31px;
+  border: 1px solid rgba(126, 204, 255, .12);
+  border-radius: 7px;
+  background: rgba(8, 16, 28, .72);
+  color: rgba(225, 240, 252, .5);
+  font: 800 8px/1 system-ui, sans-serif;
+  letter-spacing: .04em;
+  touch-action: manipulation;
+}
+
+.voice-expression-grid button.active {
+  color: #f4fbff;
+  border-color: rgba(130, 211, 255, .46);
+  background: linear-gradient(180deg, rgba(58, 145, 205, .27), rgba(61, 75, 120, .18));
+  box-shadow: inset 0 0 0 1px rgba(143, 214, 255, .05), 0 0 12px rgba(77, 160, 220, .07);
+}
+
+.voice-expression-group input[type="range"] {
+  accent-color: #b48cff;
+}
+
 .voice-controls-panel label {
   display: grid;
   gap: 5px;
@@ -532,4 +561,9 @@
     min-width: 46px;
     padding: 0 6px;
   }
+}
+
+@media (max-height: 540px) and (orientation: landscape) {
+  .voice-expression-grid button { min-height: 25px; }
+  .voice-expression-grid { gap: 3px; }
 }
