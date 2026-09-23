@@ -26,8 +26,8 @@ describe('Voice Lab speech planning', () => {
     const phraseEnds = script.units.filter((unit) => unit.phraseEnd);
 
     expect(phraseEnds.length).toBe(3);
-    expect(script.units[1]?.phraseStart).toBe(true);
     expect(script.units[2]?.phraseStart).toBe(true);
+    expect(script.units[4]?.phraseStart).toBe(true);
   });
 
   it('reports kanji instead of silently inventing a reading', () => {
