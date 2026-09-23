@@ -1,0 +1,29 @@
+name: Voice Natural Speech Verify
+
+on:
+  push:
+    branches: [chatgpt/voice-lab-natural-speech]
+    paths:
+      - src/voice/**
+      - tests/voice-script.test.ts
+      - tests/voice-synth-plan.test.ts
+      - docs/VOICE_LAB_RESEARCH.md
+      - .github/workflows/voice-natural-speech-verify.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npx vitest run tests/voice-script.test.ts tests/voice-synth-plan.test.ts
+      - run: npm run build
+      - run: npm run validate:prod
