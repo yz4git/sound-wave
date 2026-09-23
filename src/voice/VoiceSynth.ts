@@ -4,7 +4,12 @@ import type { VocalPhraseControl } from '../compose/VocalPhraseModel';
 import { VocalWorkletBridge, vocalEventToWorklet, type VocalWorkletStatus } from '../compose/VocalWorkletBridge';
 import type { VoiceCharacterPreset } from '../compose/VoiceCharacter';
 import { WavCapture } from '../compose/SongExport';
-import { prosodyOffset, type VoiceIntonation, type VoiceScript, type VoiceUnit } from './VoiceScript';
+import {
+  prosodyOffsetForUnit,
+  type VoiceIntonation,
+  type VoiceScript,
+  type VoiceUnit,
+} from './VoiceScript';
 
 export interface VoiceSynthSettings {
   style: VocalStyle;
@@ -21,6 +26,7 @@ export interface VoiceTimedUnit {
   start: number;
   duration: number;
   pitchMidi: number;
+  energyScale: number;
 }
 
 export interface VoicePlaybackPlan {
@@ -38,30 +44,58 @@ function octaveForMidi(midi: number): number {
   return Math.floor(Math.round(midi) / 12) - 1;
 }
 
-function unitDuration(unit: VoiceUnit, rate: number): number {
-  const consonantHeavy = /^[kstshfpgbzcjtd]/i.test(unit.syllable);
-  const nasal = unit.syllable === 'n' || unit.syllable === 'nn';
-  const base = nasal ? 0.16 : consonantHeavy ? 0.18 : 0.17;
-  return clamp(base / clamp(rate, 0.55, 1.8), 0.085, 0.34);
+function midiToHz(midi: number): number {
+  return 440 * 2 ** ((midi - 69) / 12);
 }
 
-function phraseControlFor(index: number, count: number, unit: VoiceUnit, energy: number): VocalPhraseControl {
-  const progressStart = count <= 1 ? 0 : index / count;
-  const progressEnd = count <= 1 ? 1 : (index + 1) / count;
-  const crestStart = 0.9 + Math.sin(progressStart * Math.PI) * 0.08;
-  const crestEnd = 0.9 + Math.sin(progressEnd * Math.PI) * 0.08;
+function unitDuration(unit: VoiceUnit, rate: number): number {
+  const consonantHeavy = /^(k|ky|s|sh|t|ch|ts|h|f|p|g|gy|z|j|d|b)/i.test(unit.syllable);
+  const nasal = unit.moraicN;
+  let base = nasal ? 0.155 : consonantHeavy ? 0.174 : 0.165;
+
+  // Long vowels remain a full mora, but ordinary phrase-final morae lengthen
+  // slightly while devoiced high vowels compress substantially.
+  if (unit.longVowel) base *= 1.28;
+  if (unit.devoiced) base *= 0.76;
+  if (unit.accentEnd && !unit.phraseEnd) base *= 1.035;
+  if (unit.phraseEnd) base *= 1.1;
+
+  return clamp(base / clamp(rate, 0.55, 1.8), 0.072, 0.38);
+}
+
+function unitEnergyScale(unit: VoiceUnit): number {
+  let scale = 1;
+  if (unit.accentStart) scale *= 1.02;
+  if (unit.accentEnd) scale *= 0.98;
+  if (unit.phraseEnd) scale *= 0.94;
+  if (unit.longVowel) scale *= 0.97;
+  if (unit.devoiced) scale *= 0.56;
+  return scale;
+}
+
+function phraseControlFor(unit: VoiceUnit, energy: number): VocalPhraseControl {
+  const progressStart = unit.phraseCount <= 1
+    ? 0
+    : unit.phraseIndex / Math.max(1, unit.phraseCount);
+  const progressEnd = unit.phraseCount <= 1
+    ? 1
+    : (unit.phraseIndex + 1) / Math.max(1, unit.phraseCount);
+  const crestStart = 0.9 + Math.sin(progressStart * Math.PI) * 0.075;
+  const crestEnd = 0.9 + Math.sin(progressEnd * Math.PI) * 0.075;
+  const boundaryRelease = unit.phraseEnd ? 0.91 : unit.accentEnd ? 0.97 : 1;
+
   return {
     phraseIndex: 0,
     phraseStartStep: 0,
-    phraseEndStep: count,
+    phraseEndStep: unit.phraseCount,
     progressStart,
     progressEnd,
-    energyStart: clamp(crestStart * energy, 0.72, 1.16),
-    energyEnd: clamp(crestEnd * energy * (unit.phraseEnd ? 0.94 : 1), 0.7, 1.16),
+    energyStart: clamp(crestStart * energy, 0.7, 1.16),
+    energyEnd: clamp(crestEnd * energy * boundaryRelease, 0.68, 1.16),
     centeringStart: unit.phraseEnd ? 0.025 : 0,
-    centeringEnd: unit.phraseEnd ? 0.1 : 0.02,
-    aspirationDepth: clamp(0.07 + (1 - energy) * 0.05, 0.05, 0.13),
-    sourceTractCoupling: 0.0085,
+    centeringEnd: unit.phraseEnd ? 0.11 : unit.accentEnd ? 0.045 : 0.015,
+    aspirationDepth: clamp(0.068 + (1 - energy) * 0.05 + (unit.devoiced ? 0.035 : 0), 0.05, 0.145),
+    sourceTractCoupling: unit.devoiced ? 0.0065 : 0.0085,
   };
 }
 
@@ -136,19 +170,28 @@ export class VoiceSynth {
   plan(script: VoiceScript, settings: VoiceSynthSettings): VoicePlaybackPlan {
     const units: VoiceTimedUnit[] = [];
     let cursor = 0;
-    let previousMidi = settings.pitch;
 
     script.units.forEach((unit, index) => {
-      const offset = prosodyOffset(index, script.units.length, settings.intonation, unit.phraseStart, unit.phraseEnd);
-      const microMotion = Math.sin(index * 1.71) * 0.18;
-      const pitchMidi = clamp(settings.pitch + offset + microMotion, 40, 82);
+      if (unit.geminateBefore) {
+        cursor += clamp(0.068 / clamp(settings.rate, 0.7, 1.5), 0.042, 0.105);
+      }
+
+      const offset = prosodyOffsetForUnit(unit, index, script.units.length, settings.intonation);
+      const pitchMidi = clamp(settings.pitch + offset, 40, 82);
       const duration = unitDuration(unit, settings.rate);
-      units.push({ unit, start: cursor, duration, pitchMidi });
+      const energyScale = unitEnergyScale(unit);
+
+      units.push({
+        unit,
+        start: cursor,
+        duration,
+        pitchMidi,
+        energyScale,
+      });
+
       cursor += duration + unit.pauseAfter / clamp(settings.rate, 0.7, 1.4);
-      previousMidi = pitchMidi;
     });
 
-    void previousMidi;
     return { duration: cursor + 0.08, units };
   }
 
@@ -160,7 +203,7 @@ export class VoiceSynth {
     this.worklet.clear();
     const plan = this.plan(script, settings);
     const startAt = this.context.currentTime + 0.055;
-    let previousMidi: number | null = null;
+    let previousPitchMidi: number | null = null;
 
     plan.units.forEach((timed, index) => {
       const unit = timed.unit;
@@ -170,17 +213,17 @@ export class VoiceSynth {
         pitch: pitchClassForMidi(roundedMidi),
         octave: octaveForMidi(roundedMidi),
         durationSteps: 1,
-        velocity: clamp(0.7 * settings.energy, 0.4, 0.95),
+        velocity: clamp(0.7 * settings.energy * timed.energyScale, 0.28, 0.95),
         syllable: unit.syllable,
         vowel: unit.vowel,
         nextVowel: plan.units[index + 1]?.unit.vowel ?? null,
-        articulate: true,
+        articulate: !unit.longVowel,
         phraseStart: unit.phraseStart,
         phraseEnd: unit.phraseEnd,
-        glideFromMidi: previousMidi,
+        glideFromMidi: previousPitchMidi === null ? null : Math.round(previousPitchMidi),
       };
 
-      const phrase = phraseControlFor(index, Math.max(1, plan.units.length), unit, settings.energy);
+      const phrase = phraseControlFor(unit, settings.energy * timed.energyScale);
       const workletEvent = vocalEventToWorklet(
         event,
         settings.style,
@@ -193,28 +236,81 @@ export class VoiceSynth {
         { preset: settings.character, tone: settings.tone },
       );
 
+      // Keep mora-level F0 continuous instead of quantizing speech to sung
+      // semitone steps. The VocalEvent still provides a safe discrete pitch
+      // class for the existing formant/source-filter path.
+      workletEvent.targetHz = midiToHz(timed.pitchMidi);
+      workletEvent.glideFromHz = previousPitchMidi === null || unit.phraseStart
+        ? null
+        : midiToHz(previousPitchMidi);
+
       workletEvent.karaoke = {
         ...workletEvent.karaoke,
-        scoopCents: 0,
-        fallCents: unit.phraseEnd ? 3 : 0,
+        scoopCents: unit.phraseStart ? 1.5 : 0,
+        fallCents: unit.phraseEnd ? 2.5 : unit.accentEnd ? 1 : 0,
         vibratoGain: 0,
       };
+
       workletEvent.style = {
         ...workletEvent.style,
         vibratoDepthCents: 0,
-        intensityModDepth: Math.min(workletEvent.style.intensityModDepth, 0.008),
-        jitterCents: Math.min(workletEvent.style.jitterCents, 0.42),
+        intensityModDepth: Math.min(workletEvent.style.intensityModDepth, 0.006),
+        jitterCents: Math.min(workletEvent.style.jitterCents, 0.34),
+        shimmerDepth: Math.min(workletEvent.style.shimmerDepth, 0.004),
         doubleLevel: 0,
-        onsetPitchCents: unit.phraseStart ? 2 : 0,
+        onsetPitchCents: unit.phraseStart ? 1.8 : 0,
+        attackSeconds: workletEvent.style.attackSeconds * (unit.geminateBefore ? 0.78 : 1),
+        releaseSeconds: workletEvent.style.releaseSeconds * (unit.phraseEnd ? 1.08 : 0.88),
       };
+
+      if (unit.geminateBefore) {
+        workletEvent.phoneme = {
+          ...workletEvent.phoneme,
+          closureSeconds: Math.max(workletEvent.phoneme.closureSeconds, 0.042),
+          burstSeconds: workletEvent.phoneme.burstSeconds * 1.08,
+          noiseMix: clamp(workletEvent.phoneme.noiseMix * 1.08, 0, 1),
+        };
+      }
+
+      if (unit.devoiced) {
+        workletEvent.phoneme = {
+          ...workletEvent.phoneme,
+          voicedMix: workletEvent.phoneme.voicedMix * 0.14,
+          aspirationMix: Math.max(0.24, workletEvent.phoneme.aspirationMix),
+          noiseMix: Math.max(0.11, workletEvent.phoneme.noiseMix),
+        };
+        workletEvent.formants = workletEvent.formants.map((band) => ({
+          ...band,
+          gain: band.gain * 0.48,
+        }));
+        workletEvent.style = {
+          ...workletEvent.style,
+          breathLevel: workletEvent.style.breathLevel * 1.5,
+          glottalOpenQuotient: clamp(workletEvent.style.glottalOpenQuotient + 0.055, 0.46, 0.88),
+          intensityModDepth: workletEvent.style.intensityModDepth * 0.45,
+        };
+        workletEvent.velocity = clamp(workletEvent.velocity * 0.7, 0.2, 0.72);
+      }
+
+      if (unit.longVowel) {
+        workletEvent.phoneme = {
+          ...workletEvent.phoneme,
+          closureSeconds: 0,
+          burstSeconds: 0,
+          fricationSeconds: 0,
+          noiseMix: workletEvent.phoneme.noiseMix * 0.32,
+          aspirationMix: workletEvent.phoneme.aspirationMix * 0.78,
+        };
+      }
+
       workletEvent.ensemble = {
         label: 'LEAD',
         harmonyTargetHz: null,
         harmonyGainScale: 0,
       };
-      workletEvent.velocity = clamp(workletEvent.velocity * settings.energy, 0.32, 0.95);
+      workletEvent.velocity = clamp(workletEvent.velocity * settings.energy * timed.energyScale, 0.22, 0.95);
       this.worklet.schedule(workletEvent);
-      previousMidi = roundedMidi;
+      previousPitchMidi = timed.pitchMidi;
     });
 
     return plan;
