@@ -3,12 +3,19 @@ import { downloadBlob } from '../compose/SongExport';
 import { VOICE_CHARACTER_PRESETS, validVoiceCharacterPreset, type VoiceCharacterPreset } from '../compose/VoiceCharacter';
 import { parseVoiceScript, type VoiceIntonation } from './VoiceScript';
 import { VoiceSynth, type VoiceProsodyEdits, type VoiceSynthSettings } from './VoiceSynth';
+import {
+  VOICE_EXPRESSION_PRESETS,
+  validVoiceExpressionPreset,
+  voiceExpressionControl,
+  type VoiceExpressionSettings,
+} from './VoiceExpression';
 
 type VoiceEngine = 'local' | 'system';
 type ProsodyLane = 'pitch' | 'energy' | 'duration';
 
 interface VoiceLabSettings extends VoiceSynthSettings {
   engine: VoiceEngine;
+  expression: VoiceExpressionSettings;
 }
 
 const STORAGE_KEY = 'sound-wave-voice-lab-settings-v1';
@@ -87,6 +94,10 @@ export class VoiceMode {
       pitch: 60,
       energy: 0.92,
       intonation: 'natural',
+      expression: {
+        preset: 'neutral',
+        intensity: 1,
+      },
     };
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -101,6 +112,12 @@ export class VoiceMode {
         pitch: clamp(Number(parsed.pitch) || 60, 45, 76),
         energy: clamp(Number(parsed.energy) || 0.92, 0.55, 1.15),
         intonation: validIntonation(parsed.intonation) ? parsed.intonation : fallback.intonation,
+        expression: {
+          preset: validVoiceExpressionPreset(parsed.expression?.preset)
+            ? parsed.expression.preset
+            : fallback.expression.preset,
+          intensity: clamp(Number(parsed.expression?.intensity) || 1, 0, 1.35),
+        },
       };
     } catch {
       return fallback;
