@@ -59,6 +59,9 @@ for (const voiceLabFeature of ['VOICE LAB', 'PROSODY DRAW', 'DRAW ENERGY', 'DRAW
 for (const expressionFeature of ['neutral', 'calm', 'excited', 'serious', 'whisper', 'narration', 'STYLE INTENSITY', 'voicingScale']) {
   if (!entryJavaScript.includes(expressionFeature)) fail(`production bundle is missing VOICE LAB expression feature: ${expressionFeature}`);
 }
+for (const localDeliveryFeature of ['SELECT TEXT', 'LOCAL DELIVERY', 'CLEAR TAGS', 'localExpressions', 'SELECT TEXT FIRST']) {
+  if (!entryJavaScript.includes(localDeliveryFeature)) fail(`production bundle is missing VOICE LAB local delivery feature: ${localDeliveryFeature}`);
+}
 for (const fullSongFeature of ['FULL SONG', 'songSections', 'PRE-CHORUS', 'INTERLUDE', 'BRIDGE']) {
   if (!entryJavaScript.includes(fullSongFeature)) fail(`production bundle is missing full-song structure: ${fullSongFeature}`);
 }
