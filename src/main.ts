@@ -16,6 +16,7 @@ import { modifierDefinition, type ModifierId } from './game/RunModifiers';
 import { pressureDanger, type PressureEvent } from './game/PressureSystem';
 import { JamLab } from './jam/JamLabEntry';
 import { RhythmPlay } from './rhythm/RhythmPlayEntry';
+import { installFreshPagePolicy } from './pwa/FreshPage';
 import { Renderer } from './ui/Renderer';
 import { loadProfile, saveProfile, updateProfile } from './game/Profile';
 
@@ -689,10 +690,4 @@ showTitleScreen();
 syncHud();
 requestAnimationFrame(frame);
 
-if ('serviceWorker' in navigator && location.protocol === 'https:') {
-  window.addEventListener('load', () => {
-    void navigator.serviceWorker.register('./service-worker.js', { updateViaCache: 'none' })
-      .then((registration) => registration.update())
-      .catch((error: unknown) => console.warn('Service worker registration failed.', error));
-  });
-}
+void installFreshPagePolicy();
