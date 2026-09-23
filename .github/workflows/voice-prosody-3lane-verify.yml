@@ -1,0 +1,28 @@
+name: Voice Prosody 3-Lane Verify
+
+on:
+  push:
+    branches: [chatgpt/voice-lab-prosody-3lane]
+    paths:
+      - src/voice/**
+      - tests/voice-synth-plan.test.ts
+      - scripts/validate-production.mjs
+      - .github/workflows/voice-prosody-3lane-verify.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: npx vitest run tests/voice-script.test.ts tests/voice-synth-plan.test.ts
+      - run: npm run build
+      - run: npm run validate:prod
