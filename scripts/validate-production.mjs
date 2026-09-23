@@ -56,6 +56,9 @@ for (const voiceCharacterFeature of ['SOFT', 'NATURAL', 'CLEAR', 'AIRY', 'POWER'
 for (const voiceLabFeature of ['VOICE LAB', 'PROSODY DRAW', 'DRAW ENERGY', 'DRAW TIMING', 'manualEnergyScale', 'manualDurationScale']) {
   if (!entryJavaScript.includes(voiceLabFeature)) fail(`production bundle is missing VOICE LAB prosody editor: ${voiceLabFeature}`);
 }
+for (const expressionFeature of ['neutral', 'calm', 'excited', 'serious', 'whisper', 'narration', 'STYLE INTENSITY', 'voicingScale']) {
+  if (!entryJavaScript.includes(expressionFeature)) fail(`production bundle is missing VOICE LAB expression feature: ${expressionFeature}`);
+}
 for (const fullSongFeature of ['FULL SONG', 'songSections', 'PRE-CHORUS', 'INTERLUDE', 'BRIDGE']) {
   if (!entryJavaScript.includes(fullSongFeature)) fail(`production bundle is missing full-song structure: ${fullSongFeature}`);
 }

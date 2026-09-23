@@ -3,12 +3,19 @@ import { downloadBlob } from '../compose/SongExport';
 import { VOICE_CHARACTER_PRESETS, validVoiceCharacterPreset, type VoiceCharacterPreset } from '../compose/VoiceCharacter';
 import { parseVoiceScript, type VoiceIntonation } from './VoiceScript';
 import { VoiceSynth, type VoiceProsodyEdits, type VoiceSynthSettings } from './VoiceSynth';
+import {
+  VOICE_EXPRESSION_PRESETS,
+  validVoiceExpressionPreset,
+  voiceExpressionControl,
+  type VoiceExpressionSettings,
+} from './VoiceExpression';
 
 type VoiceEngine = 'local' | 'system';
 type ProsodyLane = 'pitch' | 'energy' | 'duration';
 
 interface VoiceLabSettings extends VoiceSynthSettings {
   engine: VoiceEngine;
+  expression: VoiceExpressionSettings;
 }
 
 const STORAGE_KEY = 'sound-wave-voice-lab-settings-v1';
@@ -87,6 +94,10 @@ export class VoiceMode {
       pitch: 60,
       energy: 0.92,
       intonation: 'natural',
+      expression: {
+        preset: 'neutral',
+        intensity: 1,
+      },
     };
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -101,6 +112,12 @@ export class VoiceMode {
         pitch: clamp(Number(parsed.pitch) || 60, 45, 76),
         energy: clamp(Number(parsed.energy) || 0.92, 0.55, 1.15),
         intonation: validIntonation(parsed.intonation) ? parsed.intonation : fallback.intonation,
+        expression: {
+          preset: validVoiceExpressionPreset(parsed.expression?.preset)
+            ? parsed.expression.preset
+            : fallback.expression.preset,
+          intensity: clamp(Number(parsed.expression?.intensity) || 1, 0, 1.35),
+        },
       };
     } catch {
       return fallback;
@@ -158,8 +175,16 @@ export class VoiceMode {
         </section>
 
         <aside class="voice-controls-panel">
+          <div class="voice-control-group voice-expression-group">
+            <div class="voice-section-label compact"><span>03</span><b>DELIVERY</b><em>speaking style</em></div>
+            <div class="voice-expression-grid" role="group" aria-label="Speaking style">
+              ${VOICE_EXPRESSION_PRESETS.map((preset) => `<button type="button" data-voice-expression="${preset}">${preset.toUpperCase()}</button>`).join('')}
+            </div>
+            <label><span id="voice-expression-label">STYLE INTENSITY 100%</span><input id="voice-expression-intensity" type="range" min="0" max="135" step="1" /></label>
+          </div>
+
           <div class="voice-control-group">
-            <div class="voice-section-label compact"><span>03</span><b>TIMBRE</b><em>voice character</em></div>
+            <div class="voice-section-label compact"><span>04</span><b>TIMBRE</b><em>voice character</em></div>
             <label><span>VOICE</span><select id="voice-character">
               ${VOICE_CHARACTER_PRESETS.map((preset) => `<option value="${preset}">${preset.toUpperCase()}</option>`).join('')}
             </select></label>
@@ -276,6 +301,21 @@ export class VoiceMode {
       }, { passive: false });
     }
 
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-voice-expression]')) {
+      button.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        const preset = button.dataset.voiceExpression;
+        if (!validVoiceExpressionPreset(preset)) return;
+        this.settings.expression.preset = preset;
+        this.changed();
+      }, { passive: false });
+    }
+
+    this.required<HTMLInputElement>('#voice-expression-intensity').addEventListener('input', (event) => {
+      this.settings.expression.intensity = Number((event.target as HTMLInputElement).value) / 100;
+      this.changed(false);
+    });
+
     this.required<HTMLSelectElement>('#voice-character').addEventListener('change', (event) => {
       const value = (event.target as HTMLSelectElement).value;
       if (!validVoiceCharacterPreset(value)) return;
@@ -321,6 +361,12 @@ export class VoiceMode {
   }
 
   private syncControls(): void {
+    this.required<HTMLInputElement>('#voice-expression-intensity').value = String(
+      Math.round(this.settings.expression.intensity * 100),
+    );
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-voice-expression]')) {
+      button.classList.toggle('active', button.dataset.voiceExpression === this.settings.expression.preset);
+    }
     this.required<HTMLSelectElement>('#voice-character').value = this.settings.character;
     this.required<HTMLSelectElement>('#voice-style').value = this.settings.style;
     this.required<HTMLSelectElement>('#voice-intonation').value = this.settings.intonation;
@@ -343,6 +389,8 @@ export class VoiceMode {
   }
 
   private syncLabels(): void {
+    this.required<HTMLElement>('#voice-expression-label').textContent =
+      `STYLE INTENSITY ${Math.round(this.settings.expression.intensity * 100)}%`;
     this.required<HTMLElement>('#voice-tone-label').textContent = `TONE ${this.settings.tone >= 0 ? '+' : ''}${Math.round(this.settings.tone * 100)}`;
     this.required<HTMLElement>('#voice-rate-label').textContent = `RATE ${this.settings.rate.toFixed(2)}×`;
     this.required<HTMLElement>('#voice-pitch-label').textContent = `PITCH ${Math.round(this.settings.pitch)}`;
@@ -400,7 +448,7 @@ export class VoiceMode {
     if (this.settings.engine === 'local') {
       note.textContent = script.unsupported.length > 0
         ? `LOCAL DSP · かな/カナ/ROMAJI対応 · 未対応文字: ${script.unsupported.slice(0, 8).join(' ')} · 漢字文はSYSTEM TTSへ`
-        : `LOCAL DSP · ${script.units.length} morae · draw pitch / energy / timing`;
+        : `LOCAL DSP · ${script.units.length} morae · ${this.settings.expression.preset.toUpperCase()} delivery · draw pitch / energy / timing`;
       this.setStatus(script.units.length > 0 ? 'READY · LOCAL DSP' : 'ENTER KANA OR ROMAJI');
     } else {
       note.textContent = 'SYSTEM TTS · device/browser voice · kanji and general text supported · availability varies by OS';
@@ -587,9 +635,21 @@ export class VoiceMode {
       ?? voices.find((voice) => voice.lang.toLowerCase().startsWith('en'))
       ?? null;
     utterance.lang = utterance.voice?.lang ?? 'ja-JP';
-    utterance.rate = clamp(this.settings.rate, 0.6, 1.65);
-    utterance.pitch = clamp(0.7 + (this.settings.pitch - 45) / 31 * 0.8 + this.settings.tone * 0.12, 0.5, 1.7);
-    utterance.volume = clamp(this.settings.energy, 0.55, 1);
+    const expression = voiceExpressionControl(this.settings.expression);
+    utterance.rate = clamp(
+      this.settings.rate / expression.durationScale,
+      0.55,
+      1.75,
+    );
+    utterance.pitch = clamp(
+      0.7
+        + (this.settings.pitch - 45) / 31 * 0.8
+        + (this.settings.tone + expression.toneOffset) * 0.12
+        + expression.pitchShift * 0.06,
+      0.5,
+      1.75,
+    );
+    utterance.volume = clamp(this.settings.energy * expression.energyScale, 0.35, 1);
     utterance.onstart = () => {
       this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
       this.setStatus(`SYSTEM TTS · ${utterance.voice?.name ?? 'DEFAULT VOICE'}`);

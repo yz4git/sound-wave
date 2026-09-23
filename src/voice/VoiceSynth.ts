@@ -10,6 +10,11 @@ import {
   type VoiceScript,
   type VoiceUnit,
 } from './VoiceScript';
+import {
+  voiceExpressionControl,
+  voiceExpressionForUnit,
+  type VoiceExpressionSettings,
+} from './VoiceExpression';
 
 export interface VoiceSynthSettings {
   style: VocalStyle;
@@ -19,6 +24,7 @@ export interface VoiceSynthSettings {
   pitch: number;
   energy: number;
   intonation: VoiceIntonation;
+  expression?: VoiceExpressionSettings;
 }
 
 export interface VoiceProsodyEdits {
@@ -187,6 +193,8 @@ export class VoiceSynth {
     prosodyInput: VoiceProsodyInput = {},
   ): VoicePlaybackPlan {
     const edits = normalizeProsodyEdits(prosodyInput);
+    const expression = settings.expression ?? { preset: 'neutral', intensity: 1 };
+    const expressionControl = voiceExpressionControl(expression);
     const units: VoiceTimedUnit[] = [];
     let cursor = 0;
 
@@ -195,14 +203,28 @@ export class VoiceSynth {
         cursor += clamp(0.068 / clamp(settings.rate, 0.7, 1.5), 0.042, 0.105);
       }
 
-      const offset = prosodyOffsetForUnit(unit, index, script.units.length, settings.intonation);
+      const expressionUnit = voiceExpressionForUnit(unit, index, script.units.length, expression);
+      const offset = prosodyOffsetForUnit(unit, index, script.units.length, settings.intonation)
+        * expressionControl.pitchRangeScale;
       const manualPitchOffset = clamp(edits.pitchOffsets?.[index] ?? 0, -3.5, 3.5);
       const manualEnergyScale = clamp(edits.energyScales?.[index] ?? 1, 0.45, 1.55);
       const manualDurationScale = clamp(edits.durationScales?.[index] ?? 1, 0.6, 1.65);
 
-      const pitchMidi = clamp(settings.pitch + offset + manualPitchOffset, 40, 82);
-      const duration = clamp(unitDuration(unit, settings.rate) * manualDurationScale, 0.055, 0.54);
-      const energyScale = clamp(unitEnergyScale(unit) * manualEnergyScale, 0.28, 1.55);
+      const pitchMidi = clamp(
+        settings.pitch + offset + expressionUnit.pitchOffset + manualPitchOffset,
+        40,
+        82,
+      );
+      const duration = clamp(
+        unitDuration(unit, settings.rate) * expressionUnit.durationScale * manualDurationScale,
+        0.05,
+        0.58,
+      );
+      const energyScale = clamp(
+        unitEnergyScale(unit) * expressionUnit.energyScale * manualEnergyScale,
+        0.22,
+        1.65,
+      );
 
       units.push({
         unit,
@@ -232,6 +254,8 @@ export class VoiceSynth {
 
     this.worklet.clear();
     const plan = this.plan(script, settings, prosodyInput);
+    const expression = settings.expression ?? { preset: 'neutral', intensity: 1 };
+    const expressionControl = voiceExpressionControl(expression);
     const startAt = this.context.currentTime + 0.055;
     let previousPitchMidi: number | null = null;
 
@@ -263,7 +287,10 @@ export class VoiceSynth {
         undefined,
         undefined,
         index % 16,
-        { preset: settings.character, tone: settings.tone },
+        {
+          preset: settings.character,
+          tone: clamp(settings.tone + expressionControl.toneOffset, -1, 1),
+        },
       );
 
       workletEvent.targetHz = midiToHz(timed.pitchMidi);
@@ -286,9 +313,45 @@ export class VoiceSynth {
         shimmerDepth: Math.min(workletEvent.style.shimmerDepth, 0.004),
         doubleLevel: 0,
         onsetPitchCents: unit.phraseStart ? 1.8 : 0,
-        attackSeconds: workletEvent.style.attackSeconds * (unit.geminateBefore ? 0.78 : 1),
+        breathLevel: clamp(workletEvent.style.breathLevel * expressionControl.breathScale, 0, 1.2),
+        attackSeconds: workletEvent.style.attackSeconds
+          * expressionControl.attackScale
+          * (unit.geminateBefore ? 0.78 : 1),
         releaseSeconds: workletEvent.style.releaseSeconds * (unit.phraseEnd ? 1.08 : 0.88),
       };
+
+      workletEvent.voiceCharacter = {
+        ...workletEvent.voiceCharacter,
+        breathScale: clamp(workletEvent.voiceCharacter.breathScale * expressionControl.breathScale, 0.55, 2),
+        attackScale: clamp(workletEvent.voiceCharacter.attackScale * expressionControl.attackScale, 0.55, 1.6),
+        articulationScale: clamp(
+          workletEvent.voiceCharacter.articulationScale * expressionControl.articulationScale,
+          0.62,
+          1.42,
+        ),
+        sourceTiltScale: clamp(
+          workletEvent.voiceCharacter.sourceTiltScale * expressionControl.sourceTiltScale,
+          0.72,
+          1.42,
+        ),
+      };
+
+      if (expressionControl.voicingScale < 0.999) {
+        workletEvent.phoneme = {
+          ...workletEvent.phoneme,
+          voicedMix: workletEvent.phoneme.voicedMix * expressionControl.voicingScale,
+          aspirationMix: clamp(
+            workletEvent.phoneme.aspirationMix + (1 - expressionControl.voicingScale) * 0.18,
+            0,
+            1,
+          ),
+          noiseMix: clamp(
+            workletEvent.phoneme.noiseMix + (1 - expressionControl.voicingScale) * 0.09,
+            0,
+            1,
+          ),
+        };
+      }
 
       if (unit.geminateBefore) {
         workletEvent.phoneme = {

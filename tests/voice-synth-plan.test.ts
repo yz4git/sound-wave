@@ -96,6 +96,42 @@ describe('Voice Lab synthesis plan', () => {
     expect(stretched.duration).toBeGreaterThan(base.duration);
   });
 
+  it('layers expression presets underneath manual prosody edits', () => {
+    const synth = new VoiceSynth();
+    const script = parseVoiceScript('あさ ひる');
+    const neutral = synth.plan(script, SETTINGS);
+    const excitedSettings: VoiceSynthSettings = {
+      ...SETTINGS,
+      expression: { preset: 'excited', intensity: 1 },
+    };
+    const excited = synth.plan(script, excitedSettings);
+    const edited = synth.plan(script, excitedSettings, {
+      pitchOffsets: [0, -1.25, 0, 0],
+      energyScales: [1, 0.7, 1, 1],
+      durationScales: [1, 1.4, 1, 1],
+    });
+
+    expect(excited.units[0]!.pitchMidi).toBeGreaterThan(neutral.units[0]!.pitchMidi);
+    expect(excited.units[0]!.energyScale).toBeGreaterThan(neutral.units[0]!.energyScale);
+    expect(excited.units[0]!.duration).toBeLessThan(neutral.units[0]!.duration);
+    expect(edited.units[1]!.pitchMidi).toBeLessThan(excited.units[1]!.pitchMidi);
+    expect(edited.units[1]!.energyScale).toBeLessThan(excited.units[1]!.energyScale);
+    expect(edited.units[1]!.duration).toBeGreaterThan(excited.units[1]!.duration);
+  });
+
+  it('produces a quieter and slower whisper plan', () => {
+    const synth = new VoiceSynth();
+    const script = parseVoiceScript('しずかに はなす');
+    const neutral = synth.plan(script, SETTINGS);
+    const whisper = synth.plan(script, {
+      ...SETTINGS,
+      expression: { preset: 'whisper', intensity: 1 },
+    });
+
+    expect(whisper.units[0]!.energyScale).toBeLessThan(neutral.units[0]!.energyScale);
+    expect(whisper.units[0]!.duration).toBeGreaterThan(neutral.units[0]!.duration);
+  });
+
   it('preserves longer sentence pauses than accent phrase pauses', () => {
     const synth = new VoiceSynth();
     const accentPlan = synth.plan(parseVoiceScript('あさ ひる'), SETTINGS);

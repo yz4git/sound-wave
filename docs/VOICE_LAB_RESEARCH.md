@@ -119,3 +119,23 @@ VOICE LAB therefore exposes three independent mora-level drawing lanes:
 - TIMING: local mora-duration scale that also shifts following mora start times
 
 The automatic Japanese prosody remains underneath these edits, so manual drawing acts as a correction or expressive layer instead of replacing accent-phrase timing entirely.
+
+
+### Speaking-style presets as interpretable prosody layers
+
+Recent expressive-TTS work increasingly separates a high-level speaking style from the interpretable prosodic controls that actually realize it. Interspeech 2025 work on EME-TTS connects emotional expression with local emphasis, while Lina-Style demonstrates local word-level style control and independent style-intensity control. A 2026 causal-prosody study explicitly treats emotion as acting through duration, pitch, and energy rather than as an opaque waveform-level switch.
+
+References:
+- Li et al., *EME-TTS: Unlocking the Emphasis and Emotion Link in Speech Synthesis* (Interspeech 2025): https://www.isca-archive.org/interspeech_2025/li25i_interspeech.html
+- Lemerle et al., *Lina-Style: Word-Level Style Control in TTS via Interleaved Synthetic Data* (SSW 2025): https://www.isca-archive.org/ssw_2025/lemerle25_ssw.html
+- Mohanty, *Causal Prosody Mediation for Text-to-Speech: Counterfactual Training of Duration, Pitch, and Energy in FastSpeech2* (2026): https://arxiv.org/abs/2603.11683
+
+VOICE LAB follows that interaction model with high-level DELIVERY presets that are converted into explicit DSP/prosody changes:
+- NEUTRAL: preserves the automatic Japanese prosody model
+- CALM: narrower pitch range, lower energy, longer morae, softer attacks
+- EXCITED: higher pitch/range, stronger energy, shorter morae, faster attacks
+- SERIOUS: lower/darker pitch placement, firmer articulation, reduced breath
+- WHISPER: reduced periodic voicing, increased aspiration/noise, lower energy
+- NARRATION: restrained pitch movement, slightly longer phrase-final timing, stable energy
+
+Each preset has a continuous STYLE INTENSITY control. The preset forms the base layer; mora-level PITCH / ENERGY / TIMING drawing remains an independent correction layer on top.
