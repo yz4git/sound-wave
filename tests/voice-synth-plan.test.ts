@@ -53,6 +53,19 @@ describe('Voice Lab synthesis plan', () => {
     expect(devoiced.duration).toBeLessThan(voiced.duration);
   });
 
+  it('applies user-drawn mora pitch offsets without changing timing', () => {
+    const synth = new VoiceSynth();
+    const script = parseVoiceScript('あさ ひる');
+    const base = synth.plan(script, SETTINGS);
+    const edited = synth.plan(script, SETTINGS, [0, 1.5, -1.25, 0]);
+
+    expect(edited.units[0]!.start).toBeCloseTo(base.units[0]!.start, 8);
+    expect(edited.units[1]!.duration).toBeCloseTo(base.units[1]!.duration, 8);
+    expect(edited.units[1]!.pitchMidi - base.units[1]!.pitchMidi).toBeCloseTo(1.5, 6);
+    expect(edited.units[2]!.pitchMidi - base.units[2]!.pitchMidi).toBeCloseTo(-1.25, 6);
+    expect(edited.units[1]!.manualPitchOffset).toBe(1.5);
+  });
+
   it('preserves longer sentence pauses than accent phrase pauses', () => {
     const synth = new VoiceSynth();
     const accentPlan = synth.plan(parseVoiceScript('あさ ひる'), SETTINGS);
