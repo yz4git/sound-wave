@@ -48,8 +48,8 @@ export interface VoicePlaybackPlan {
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
 function normalizeProsodyEdits(input: VoiceProsodyInput): VoiceProsodyEdits {
-  if (Array.isArray(input)) return { pitchOffsets: input };
-  return input;
+  if (Array.isArray(input)) return { pitchOffsets: input as readonly number[] };
+  return input as VoiceProsodyEdits;
 }
 
 function pitchClassForMidi(midi: number): PitchClass {
