@@ -41,6 +41,8 @@ export class VoiceMode {
   private active = false;
   private playbackTimer = 0;
   private tokenTimers: number[] = [];
+  private prosodyEdits: number[] = [];
+  private drawingProsody = false;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -134,8 +136,12 @@ export class VoiceMode {
           <p class="voice-engine-note" id="voice-engine-note"></p>
 
           <div class="voice-prosody-preview">
-            <div class="voice-section-label compact"><span>02</span><b>PROSODY</b><em>pitch / timing / energy</em></div>
-            <div id="voice-contour" class="voice-contour" aria-label="Prosody contour"></div>
+            <div class="voice-section-label compact"><span>02</span><b>PROSODY DRAW</b><em>drag the contour · ±3 semitones</em></div>
+            <div class="voice-prosody-tools">
+              <span>DRAW F0 WITH TOUCH / POINTER</span>
+              <button type="button" id="voice-reset-prosody">RESET CURVE</button>
+            </div>
+            <div id="voice-contour" class="voice-contour" aria-label="Drawable prosody contour"></div>
             <div id="voice-units" class="voice-units" aria-label="Speech units"></div>
           </div>
         </section>
@@ -187,7 +193,38 @@ export class VoiceMode {
 
   private bindEvents(): void {
     const text = this.required<HTMLTextAreaElement>('#voice-text');
-    text.addEventListener('input', () => this.refreshPlan());
+    text.addEventListener('input', () => {
+      this.prosodyEdits = [];
+      this.refreshPlan();
+    });
+
+    const contour = this.required<HTMLElement>('#voice-contour');
+    contour.addEventListener('pointerdown', (event) => {
+      if (this.settings.engine !== 'local') return;
+      event.preventDefault();
+      this.drawingProsody = true;
+      contour.setPointerCapture(event.pointerId);
+      this.applyProsodyPointer(event);
+    }, { passive: false });
+    contour.addEventListener('pointermove', (event) => {
+      if (!this.drawingProsody || this.settings.engine !== 'local') return;
+      event.preventDefault();
+      this.applyProsodyPointer(event);
+    }, { passive: false });
+    const finishProsodyDraw = (event: PointerEvent): void => {
+      if (!this.drawingProsody) return;
+      this.drawingProsody = false;
+      if (contour.hasPointerCapture(event.pointerId)) contour.releasePointerCapture(event.pointerId);
+      this.refreshPlan();
+    };
+    contour.addEventListener('pointerup', finishProsodyDraw);
+    contour.addEventListener('pointercancel', finishProsodyDraw);
+    this.required<HTMLButtonElement>('#voice-reset-prosody').addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      this.prosodyEdits = [];
+      this.refreshPlan();
+      this.setStatus('PROSODY CURVE RESET');
+    }, { passive: false });
 
     this.required<HTMLButtonElement>('#voice-play').addEventListener('pointerdown', (event) => {
       event.preventDefault();
@@ -272,6 +309,8 @@ export class VoiceMode {
       button.classList.toggle('active', button.dataset.voiceEngine === this.settings.engine);
     }
     this.required<HTMLButtonElement>('#voice-export-wav').disabled = this.settings.engine !== 'local';
+    this.required<HTMLButtonElement>('#voice-reset-prosody').disabled = this.settings.engine !== 'local';
+    this.required<HTMLElement>('#voice-contour').classList.toggle('disabled', this.settings.engine !== 'local');
     this.syncLabels();
   }
 
@@ -290,7 +329,7 @@ export class VoiceMode {
     unitsEl.replaceChildren();
     contourEl.replaceChildren();
 
-    const plan = this.synth.plan(script, this.settings);
+    const plan = this.synth.plan(script, this.settings, this.prosodyEdits);
     const preview = plan.units.slice(0, 72);
     preview.forEach((timed, index) => {
       const unit = timed.unit;
@@ -316,12 +355,45 @@ export class VoiceMode {
     if (this.settings.engine === 'local') {
       note.textContent = script.unsupported.length > 0
         ? `LOCAL DSP · かな/カナ/ROMAJI対応 · 未対応文字: ${script.unsupported.slice(0, 8).join(' ')} · 漢字文はSYSTEM TTSへ`
-        : `LOCAL DSP · ${script.units.length} morae · accent phrases + devoicing · audio stays in this page`;
+        : `LOCAL DSP · ${script.units.length} morae · accent phrases + devoicing · draw F0 directly`;
       this.setStatus(script.units.length > 0 ? 'READY · LOCAL DSP' : 'ENTER KANA OR ROMAJI');
     } else {
       note.textContent = 'SYSTEM TTS · device/browser voice · kanji and general text supported · availability varies by OS';
       this.setStatus('READY · SYSTEM TTS');
     }
+  }
+
+  private applyProsodyPointer(event: PointerEvent): void {
+    const contour = this.required<HTMLElement>('#voice-contour');
+    const rect = contour.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    const script = parseVoiceScript(this.required<HTMLTextAreaElement>('#voice-text').value);
+    if (script.units.length === 0) return;
+
+    const x = clamp((event.clientX - rect.left) / rect.width, 0, 0.999999);
+    const y = clamp((event.clientY - rect.top) / rect.height, 0, 1);
+    const index = Math.min(script.units.length - 1, Math.floor(x * script.units.length));
+    const semitones = Math.round((0.5 - y) * 6 * 20) / 20;
+
+    if (this.prosodyEdits.length !== script.units.length) {
+      const next = new Array<number>(script.units.length).fill(0);
+      for (let cursor = 0; cursor < Math.min(this.prosodyEdits.length, next.length); cursor += 1) {
+        next[cursor] = this.prosodyEdits[cursor] ?? 0;
+      }
+      this.prosodyEdits = next;
+    }
+    this.prosodyEdits[index] = semitones;
+
+    const basePlan = this.synth.plan(script, this.settings, this.prosodyEdits);
+    const timed = basePlan.units[index];
+    const point = contour.children[index] as HTMLElement | undefined;
+    if (timed && point) {
+      const offset = timed.pitchMidi - this.settings.pitch;
+      point.style.setProperty('--voice-pitch', String(clamp((offset + 3) / 6, 0.05, 0.95)));
+      point.classList.add('edited');
+    }
+    this.setStatus(`PROSODY DRAW · MORA ${index + 1} · ${semitones >= 0 ? '+' : ''}${semitones.toFixed(2)} ST`);
   }
 
   private clearPlaybackTimers(): void {
@@ -361,7 +433,7 @@ export class VoiceMode {
 
     try {
       this.setStatus('SCHEDULING · LOW-LATENCY STREAM');
-      const plan = await this.synth.play(script, this.settings);
+      const plan = await this.synth.play(script, this.settings, this.prosodyEdits);
       this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
       this.setStatus(`SPEAKING · ${script.units.length} UNITS · ${plan.duration.toFixed(1)}s`);
       for (const timed of plan.units.slice(0, 72)) {
@@ -425,7 +497,7 @@ export class VoiceMode {
     button.textContent = 'RENDERING…';
     this.setStatus('RENDERING WAV · REAL-TIME LOCAL CAPTURE');
     try {
-      const blob = await this.synth.renderWav(script, this.settings);
+      const blob = await this.synth.renderWav(script, this.settings, this.prosodyEdits);
       downloadBlob(blob, `${safeFilename(text)}.wav`);
       this.setStatus(`WAV EXPORTED · ${Math.round(blob.size / 1024)} KB`);
     } catch (error) {
