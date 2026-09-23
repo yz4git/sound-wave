@@ -76,7 +76,7 @@ export function parseVoiceMarkup(text: string): VoiceMarkupScript {
       ? 1
       : clamp(Number(rawIntensity) / 100, 0, 1.35);
     stack.push({
-      preset: rawName,
+      preset: rawName as VoiceExpressionSettings['preset'],
       intensity,
     });
   }
