@@ -2,6 +2,7 @@ import type { VocalVowel } from '../compose/VocalGenerator';
 
 export type VoiceIntonation = 'natural' | 'flat' | 'rise' | 'fall' | 'question';
 export type VoiceBoundary = 'none' | 'accent' | 'sentence';
+export type VoicePitchAccent = 'auto' | 'low' | 'high';
 
 export interface VoiceUnit {
   index: number;
@@ -22,6 +23,8 @@ export interface VoiceUnit {
   longVowel: boolean;
   moraicN: boolean;
   devoiced: boolean;
+  /** Optional lexical pitch-accent state supplied by a Japanese front end. */
+  pitchAccent: VoicePitchAccent;
 }
 
 export interface VoiceScript {
@@ -170,6 +173,7 @@ function pushUnit(
     longVowel: flags.longVowel ?? false,
     moraicN: syllable === 'n' || syllable === 'nn',
     devoiced: false,
+    pitchAccent: 'auto',
   });
 }
 
@@ -396,6 +400,11 @@ export function parseVoiceScript(text: string): VoiceScript {
 }
 
 function accentPhraseOffset(unit: VoiceUnit): number {
+  if (unit.pitchAccent !== 'auto') {
+    const lexical = unit.pitchAccent === 'high' ? 0.44 : -0.42;
+    const declination = unit.pitchAccent === 'high' ? unit.accentIndex * 0.055 : 0;
+    return lexical - declination - (unit.accentEnd ? 0.08 : 0);
+  }
   if (unit.accentCount <= 1) return 0;
   if (unit.accentIndex === 0) return -0.48;
   const decline = Math.max(0, unit.accentIndex - 1) * 0.11;
@@ -427,7 +436,9 @@ export function prosodyOffsetForUnit(
   const phraseProgress = unit.phraseCount <= 1
     ? 0
     : unit.phraseIndex / Math.max(1, unit.phraseCount - 1);
-  const phraseArc = Math.sin(phraseProgress * Math.PI) * 0.24 - phraseProgress * 0.42;
+  const lexicalAccent = unit.pitchAccent !== 'auto';
+  const phraseArcBase = Math.sin(phraseProgress * Math.PI) * 0.24 - phraseProgress * 0.42;
+  const phraseArc = phraseArcBase * (lexicalAccent ? 0.25 : 1);
   const accent = accentPhraseOffset(unit);
   const micro = consonantMicroProsody(unit);
   const globalDeclination = count <= 1 ? 0 : -(index / Math.max(1, count - 1)) * 0.12;
@@ -443,8 +454,8 @@ export function prosodyOffsetForUnit(
     return phraseArc + accent * 0.8 + micro + questionLift + globalDeclination;
   }
 
-  const reset = unit.phraseStart ? 0.18 : 0;
-  const finalLowering = unit.phraseEnd ? -0.2 : 0;
+  const reset = unit.phraseStart ? (lexicalAccent ? 0.09 : 0.18) : 0;
+  const finalLowering = unit.phraseEnd ? (lexicalAccent ? -0.05 : -0.2) : 0;
   return phraseArc + accent + micro + reset + finalLowering + globalDeclination;
 }
 
