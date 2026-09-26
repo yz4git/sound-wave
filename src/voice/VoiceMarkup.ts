@@ -12,6 +12,8 @@ import {
 export interface VoiceSpeechSegment {
   text: string;
   expression: VoiceExpressionSettings | null;
+  plainStart: number;
+  plainEnd: number;
 }
 
 export interface VoiceMarkupScript extends VoiceScript {
@@ -41,17 +43,31 @@ export function parseVoiceMarkup(text: string): VoiceMarkupScript {
   const stack: VoiceExpressionSettings[] = [];
   let markupUsed = false;
   let cursor = 0;
+  let plainCursor = 0;
 
   const appendSegment = (segment: string): void => {
     if (!segment) return;
     plainParts.push(segment);
     const active = stack[stack.length - 1] ?? null;
+    const segmentStart = plainCursor;
+    const segmentEnd = segmentStart + segment.length;
     const lastSpeech = speechSegments[speechSegments.length - 1];
     const sameExpression = lastSpeech
       && lastSpeech.expression?.preset === active?.preset
-      && lastSpeech.expression?.intensity === active?.intensity;
-    if (sameExpression) lastSpeech.text += segment;
-    else speechSegments.push({ text: segment, expression: active ? { ...active } : null });
+      && lastSpeech.expression?.intensity === active?.intensity
+      && lastSpeech.plainEnd === segmentStart;
+    if (sameExpression) {
+      lastSpeech.text += segment;
+      lastSpeech.plainEnd = segmentEnd;
+    } else {
+      speechSegments.push({
+        text: segment,
+        expression: active ? { ...active } : null,
+        plainStart: segmentStart,
+        plainEnd: segmentEnd,
+      });
+    }
+    plainCursor = segmentEnd;
 
     const parsed = parseVoiceScript(segment);
     neutralizeSyntheticFinalBoundary(parsed.units);
