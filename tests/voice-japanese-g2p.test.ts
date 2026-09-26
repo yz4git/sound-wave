@@ -155,11 +155,11 @@ describe('VOICE LAB Japanese G2P mapping', () => {
     expect(script.units[1]?.geminateBefore).toBe(true);
 
     const mismatch = buildScriptFromJapaneseFrontend([{
-      string: 'かな',
-      read: 'カナ',
-      pron: 'カナ',
+      string: 'かなさ',
+      read: 'カナサ',
+      pron: 'カナサ',
       acc: 0,
-      mora_size: 2,
+      mora_size: 3,
       chain_flag: -1,
     }]).script;
     expect(applyOpenJTalkFullContext(mismatch, labels)).toBe(false);
