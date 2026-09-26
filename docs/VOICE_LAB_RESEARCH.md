@@ -296,3 +296,20 @@ The Japanese front end now retains a source-text range for every analyzed mora. 
 This enables text such as `今日は[whisper]静かに話します[/]` to use Open JTalk reading/pitch accent for the full sentence while applying WHISPER only to the selected source range.
 
 Manual PITCH / ENERGY / TIMING curves are also persisted locally per exact text signature and mora count. Only non-neutral edits are stored, recent entries are bounded, malformed values are clamped on restore, and RESET ALL removes the stored curve for the current text. The text itself is not used as the storage key; a stable local signature plus mora count prevents curves from leaking onto unrelated utterances.
+
+### 10. Japanese timing refinement: long vowels, geminates, devoicing and boundaries
+
+The speech planner now treats Japanese temporal contrasts relationally instead of as fixed millisecond decorations.
+
+- **Long vowels:** the continuation mora is lengthened enough that the complete V+V: span stays clearly above a short vowel across rate changes. Japanese vowel-length perception is primarily durational, and published production studies report long/short ratios well above 2:1 in controlled speech.
+- **Geminates:** sokuon pre-closure now depends on the duration of the preceding mora. This preserves a closure-to-vowel relationship across slow and fast speech rather than adding the same gap at every rate.
+- **High-vowel devoicing:** devoiced /i, u/ receive stronger temporal compression in addition to reduced voicing/energy. When Open JTalk supplies a lexical-high state, the planner conservatively preserves that mora instead of fully devoicing it so the lexical accent is not erased.
+- **Phrase boundaries:** punctuation pauses now compress sublinearly with speaking rate. Sentence boundaries remain perceptually stronger than internal accent-phrase boundaries at fast rates.
+- **Lexical F0 transitions:** low/high changes from dictionary pitch accent use a shorter speech-only glide window. Same-state morae keep the existing smooth transition, avoiding staircase pitch.
+
+References:
+- Sano & Guillemot, *Contrast enhancement and the distribution of vowel duration in Japanese* (Journal of Phonetics 108, 2025): https://www.sciencedirect.com/science/article/pii/S0095447024000925
+- Hirata, *Effects of speaking rate on the vowel length distinction in Japanese*: https://www.sciencedirect.com/science/article/pii/S0095447004000282
+- Hirata & Whiton, *Effects of speaking rate on the single/geminate stop distinction in Japanese*: https://pubmed.ncbi.nlm.nih.gov/16240824/
+- Kilbourn-Ceron, *Durational Evidence That Tokyo Japanese Vowel Devoicing Is Not Gradient Reduction*: https://pmc.ncbi.nlm.nih.gov/articles/PMC6476939/
+- Shaw & Kawahara et al., recent Japanese geminate articulatory work: https://pubmed.ncbi.nlm.nih.gov/39785713/
