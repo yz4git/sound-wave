@@ -25,11 +25,24 @@ export interface JapaneseUnitSourceRange {
   end: number;
 }
 
+export interface JapaneseFullContextMora {
+  phonemes: string[];
+  vowel: string | null;
+  devoiced: boolean;
+  geminateBefore: boolean;
+  pauseAfter: boolean;
+  accentA1: number | null;
+  accentA2: number | null;
+  accentA3: number | null;
+}
+
 export interface JapaneseG2PAnalysis {
   script: VoiceScript;
   reading: string;
   nodes: JapaneseFrontendNode[];
   unitSourceRanges: JapaneseUnitSourceRange[];
+  labels: string[];
+  fullContextMatched: boolean;
   source: 'open-jtalk';
 }
 
@@ -195,6 +208,131 @@ export async function initializeJapaneseG2P(
   return initializePromise;
 }
 
+function fullContextPhone(label: string): string | null {
+  const match = label.match(/-([^+]+)\+/);
+  return match?.[1] ?? null;
+}
+
+function fullContextAccent(label: string): {
+  a1: number | null;
+  a2: number | null;
+  a3: number | null;
+} {
+  const match = label.match(/\/A:([\d-]+)\+([\d-]+)\+([\d-]+)/);
+  if (!match) return { a1: null, a2: null, a3: null };
+  const parse = (value: string | undefined): number | null => {
+    if (!value || value === 'xx') return null;
+    const result = Number(value);
+    return Number.isFinite(result) ? result : null;
+  };
+  return {
+    a1: parse(match[1]),
+    a2: parse(match[2]),
+    a3: parse(match[3]),
+  };
+}
+
+function isFullContextVowel(phone: string): boolean {
+  return /^[aeiouAEIOU]$/.test(phone);
+}
+
+export function parseOpenJTalkFullContext(labels: readonly string[]): JapaneseFullContextMora[] {
+  const moras: JapaneseFullContextMora[] = [];
+  let pendingPhonemes: string[] = [];
+  let pendingGeminate = false;
+
+  for (const label of labels) {
+    const phone = fullContextPhone(label);
+    if (!phone || phone === 'sil') continue;
+
+    if (phone === 'pau') {
+      const previous = moras[moras.length - 1];
+      if (previous) previous.pauseAfter = true;
+      pendingPhonemes = [];
+      continue;
+    }
+
+    if (phone === 'cl') {
+      pendingGeminate = true;
+      pendingPhonemes.push(phone);
+      continue;
+    }
+
+    pendingPhonemes.push(phone);
+    const closesMora = isFullContextVowel(phone) || phone === 'N';
+    if (!closesMora) continue;
+
+    const accent = fullContextAccent(label);
+    moras.push({
+      phonemes: pendingPhonemes,
+      vowel: isFullContextVowel(phone) ? phone.toLowerCase() : null,
+      devoiced: /^[AEIOU]$/.test(phone),
+      geminateBefore: pendingGeminate,
+      pauseAfter: false,
+      accentA1: accent.a1,
+      accentA2: accent.a2,
+      accentA3: accent.a3,
+    });
+    pendingPhonemes = [];
+    pendingGeminate = false;
+  }
+
+  return moras;
+}
+
+export function applyOpenJTalkFullContext(
+  script: VoiceScript,
+  labels: readonly string[],
+): boolean {
+  const moras = parseOpenJTalkFullContext(labels);
+  if (moras.length !== script.units.length || moras.length === 0) return false;
+
+  for (let index = 0; index < moras.length; index += 1) {
+    const mora = moras[index]!;
+    const unit = script.units[index]!;
+    const previous = index > 0 ? moras[index - 1] : undefined;
+    const next = moras[index + 1];
+
+    if (mora.geminateBefore) unit.geminateBefore = true;
+
+    const vowelOnly = mora.phonemes.filter((phone) => phone !== 'cl').length === 1
+      && mora.vowel !== null;
+    if (
+      vowelOnly
+      && previous?.vowel
+      && mora.vowel === previous.vowel
+      && !unit.moraicN
+    ) {
+      unit.longVowel = true;
+    }
+
+    if (mora.pauseAfter && unit.boundaryAfter === 'none') {
+      unit.boundaryAfter = 'accent';
+      unit.pauseAfter = Math.max(unit.pauseAfter, 0.08);
+    }
+
+    const fullContextPhraseBoundary = mora.accentA2 !== null
+      && mora.accentA3 !== null
+      && mora.accentA2 === mora.accentA3
+      && next?.accentA2 === 1;
+    if (fullContextPhraseBoundary && unit.boundaryAfter === 'none') {
+      unit.boundaryAfter = 'accent';
+      unit.pauseAfter = Math.max(unit.pauseAfter, 0.012);
+    }
+  }
+
+  finalizeVoiceUnits(script.units);
+
+  // Open JTalk's uppercase vowel phones encode context-sensitive devoicing.
+  // Apply these after finalizeVoiceUnits(), whose built-in heuristic is kept as
+  // the fallback path for kana/romaji text that never goes through Open JTalk.
+  for (let index = 0; index < moras.length; index += 1) {
+    script.units[index]!.devoiced = moras[index]!.devoiced;
+  }
+
+  return true;
+}
+
 export function pitchAccentPattern(moraCount: number, accentNucleus: number): VoicePitchAccent[] {
   if (moraCount <= 0) return [];
   const nucleus = Math.max(0, Math.min(moraCount, Math.round(accentNucleus)));
@@ -330,12 +468,22 @@ export async function analyzeJapaneseText(
   onProgress?.({ stage: 'analyze', progress: 0.96, message: 'ANALYZING READING + PITCH ACCENT' });
   const nodes = await callWorker<JapaneseFrontendNode[]>('runFrontend', [text]);
   const { script, reading, unitSourceRanges } = buildScriptFromJapaneseFrontend(nodes, text);
-  onProgress?.({ stage: 'ready', progress: 1, message: 'KANJI G2P READY' });
+  const labels = await callWorker<string[]>('extractFullContext', [text, {}]);
+  const fullContextMatched = applyOpenJTalkFullContext(script, labels);
+  onProgress?.({
+    stage: 'ready',
+    progress: 1,
+    message: fullContextMatched
+      ? 'JAPANESE G2P + FULL CONTEXT READY'
+      : 'JAPANESE G2P READY',
+  });
   return {
     script,
     reading,
     nodes,
     unitSourceRanges,
+    labels,
+    fullContextMatched,
     source: 'open-jtalk',
   };
 }
