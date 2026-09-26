@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  finalizeVoiceUnits,
   parseVoiceScript,
   prosodyOffset,
   prosodyOffsetForUnit,
@@ -51,6 +52,16 @@ describe('Voice Lab speech planning', () => {
     expect(script.units[0]?.syllable).toBe('su');
     expect(script.units[0]?.devoiced).toBe(true);
     expect(script.units[1]?.devoiced).toBe(false);
+  });
+
+  it('preserves lexical-high morae instead of fully devoicing them', () => {
+    const script = parseVoiceScript('すき');
+    expect(script.units[0]?.devoiced).toBe(true);
+
+    script.units[0]!.pitchAccent = 'high';
+    finalizeVoiceUnits(script.units);
+
+    expect(script.units[0]?.devoiced).toBe(false);
   });
 
   it('reports kanji instead of silently inventing a reading', () => {
