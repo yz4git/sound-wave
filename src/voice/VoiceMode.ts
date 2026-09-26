@@ -3,7 +3,13 @@ import { downloadBlob } from '../compose/SongExport';
 import { VOICE_CHARACTER_PRESETS, validVoiceCharacterPreset, type VoiceCharacterPreset } from '../compose/VoiceCharacter';
 import { type VoiceIntonation } from './VoiceScript';
 import { VoiceSynth, type VoiceProsodyEdits, type VoiceSynthSettings } from './VoiceSynth';
-import { parseVoiceMarkup, removeVoiceMarkup, wrapVoiceSelection, type VoiceMarkupScript } from './VoiceMarkup';
+import {
+  mapLocalExpressionsToRanges,
+  parseVoiceMarkup,
+  removeVoiceMarkup,
+  wrapVoiceSelection,
+  type VoiceMarkupScript,
+} from './VoiceMarkup';
 import {
   analyzeJapaneseText,
   containsKanji,
@@ -11,6 +17,12 @@ import {
 } from './JapaneseG2P';
 import type { VoiceScript } from './VoiceScript';
 import { getVoiceProsodyWindow } from './VoiceProsodyWindow';
+import {
+  clearVoiceProsodySnapshot,
+  loadVoiceProsodySnapshot,
+  saveVoiceProsodySnapshot,
+  voiceProsodyKey,
+} from './VoiceProsodyStore';
 import {
   VOICE_EXPRESSION_PRESETS,
   validVoiceExpressionPreset,
@@ -70,6 +82,7 @@ export class VoiceMode {
   private japaneseAnalysis: JapaneseG2PAnalysis | null = null;
   private japaneseAnalysisSource = '';
   private japaneseAnalyzing = false;
+  private prosodyLoadedSignature = '';
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -261,6 +274,7 @@ export class VoiceMode {
     const text = this.required<HTMLTextAreaElement>('#voice-text');
     text.addEventListener('input', () => {
       this.resetProsodyEdits();
+      this.prosodyLoadedSignature = '';
       this.clearJapaneseAnalysis();
       this.refreshPlan();
     });
@@ -306,6 +320,7 @@ export class VoiceMode {
       this.drawingProsody = false;
       this.lastDrawIndex = null;
       if (contour.hasPointerCapture(event.pointerId)) contour.releasePointerCapture(event.pointerId);
+      this.persistProsodyEdits();
       this.refreshPlan();
     };
     contour.addEventListener('pointerup', finishProsodyDraw);
@@ -343,6 +358,7 @@ export class VoiceMode {
     this.required<HTMLButtonElement>('#voice-reset-prosody').addEventListener('pointerdown', (event) => {
       event.preventDefault();
       this.resetProsodyEdits();
+      this.clearPersistedProsodyEdits();
       this.refreshPlan();
       this.setStatus('PITCH / ENERGY / TIMING RESET');
     }, { passive: false });
