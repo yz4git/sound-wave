@@ -62,6 +62,12 @@ for (const expressionFeature of ['neutral', 'calm', 'excited', 'serious', 'whisp
 for (const localDeliveryFeature of ['SELECT TEXT', 'LOCAL DELIVERY', 'CLEAR TAGS', 'localExpressions', 'SELECT TEXT FIRST']) {
   if (!entryJavaScript.includes(localDeliveryFeature)) fail(`production bundle is missing VOICE LAB local delivery feature: ${localDeliveryFeature}`);
 }
+for (const speechSourceFeature of ['speechSourceMix', 'speechSourceTilt', 'speechCoarticulation', 'speechPulseNoise', 'geminateClosureSeconds']) {
+  if (!entryJavaScript.includes(speechSourceFeature)) fail(`production bundle is missing VOICE LAB speech source feature: ${speechSourceFeature}`);
+}
+for (const workletSpeechFeature of ['speechTiltState', 'speechSourceMix', 'speechSourceTilt', 'speechCoarticulation', 'speechPulseNoise']) {
+  if (!vocalWorklet.includes(workletSpeechFeature)) fail(`vocal worklet is missing speech source feature: ${workletSpeechFeature}`);
+}
 for (const fullSongFeature of ['FULL SONG', 'songSections', 'PRE-CHORUS', 'INTERLUDE', 'BRIDGE']) {
   if (!entryJavaScript.includes(fullSongFeature)) fail(`production bundle is missing full-song structure: ${fullSongFeature}`);
 }
