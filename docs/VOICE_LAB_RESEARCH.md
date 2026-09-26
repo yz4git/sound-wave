@@ -256,3 +256,35 @@ Reference:
 - Liu et al., *Sarashina2.2-TTS: Tackling Kanji Polyphony in Japanese Speech Generation via Data Scaling and Targeted Data Synthesis* (2026): https://arxiv.org/abs/2606.25369
 
 VOICE LAB's local DSP currently avoids guessing kanji readings. That remains preferable to silently producing a wrong reading. The next front-end quality step should be an optional browser Japanese G2P layer (Open JTalk/WASM or equivalent), with the raw kana mode retained for deterministic manual control.
+
+### 8. On-demand Open JTalk front end for kanji + lexical pitch accent
+
+A browser-local Japanese front end is now practical without shipping a neural TTS model. `openjtalkjs` exposes browser/WASM APIs for G2P, full-context labels, and the NJD front-end. The NJD nodes expose the surface form, kana reading/pronunciation, accent nucleus (`acc`), mora count, and accent-chain flag. This is the information VOICE LAB needs before synthesis; the existing Sound Wave DSP can remain responsible for waveform generation.
+
+References:
+- openjtalkjs browser API and NJD fields: https://www.npmjs.com/package/@keanu-thakalath/openjtalkjs
+- kokoro-js-jp browser Japanese pipeline: https://github.com/nerosui/kokoro-js-jp
+- @piper-plus/g2p 0.4.2 / Open JTalk dictionary handling: https://github.com/ayutaz/piper-plus/releases
+
+Implementation choice:
+- **No automatic heavy startup.** Kana/romaji still use the built-in parser immediately.
+- A user explicitly taps **KANJI G2P** when the local DSP input contains kanji.
+- The runtime is pinned to the known browser assets published by `kokoro-js-jp@0.2.0`.
+- First use warms the verified Open JTalk dictionary archive (~24 MB transfer) plus the small browser runtime/voice assets; the browser HTTP cache is reused afterwards.
+- Processing remains client-side. The source text is passed to the local Open JTalk Worker, not to a remote synthesis API.
+
+The front end maps Open JTalk readings back into the existing Voice Script mora representation. Accent phrases are reconstructed from `chain_flag`, and `acc` is converted into explicit low/high states:
+- `acc = 0`: heiban — initial low, then high with no lexical drop
+- `acc = 1`: atamadaka — first mora high, then low
+- `acc = n > 1`: initial low, high through the nucleus, then low
+
+These lexical states take priority over the older generic accent-phrase arc. Generic declination, consonant microprosody, phrase-final lowering, expression presets and manual PITCH drawing are still retained at reduced strength around the lexical pattern. This prevents a short phrase-final fall from incorrectly erasing a two-mora lexical high.
+
+Current deliberate limitation:
+- Local DELIVERY markup and KANJI G2P are not combined in the first integration. The user can either analyze plain kanji text, or use kana plus local style tags. Mixing both requires retaining source-character-to-mora alignment across Open JTalk tokenization and will be implemented separately rather than guessed.
+
+Why this is preferable to immediately switching to neural TTS:
+- It addresses reading and lexical pitch accent, two Japanese-specific errors the old parser could not solve.
+- It keeps the existing low-latency AudioWorklet renderer and manual prosody controls.
+- It avoids making every iPhone session download a neural acoustic model.
+- It creates a clean front-end boundary so a future optional neural renderer can reuse the same Japanese analysis and editing UI.
