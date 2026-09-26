@@ -5,15 +5,22 @@ export type JapaneseConsonant =
   | 'k'
   | 't'
   | 's'
+  | 'sh'
+  | 'ch'
+  | 'ts'
   | 'h'
   | 'f'
   | 'p'
   | 'b'
+  | 'd'
   | 'g'
   | 'z'
+  | 'j'
   | 'n'
   | 'm'
   | 'y'
+  | 'w'
+  | 'v'
   | 'r'
   | 'l'
   | 'N';
@@ -51,7 +58,7 @@ const TIMINGS: Record<JapaneseConsonant, Omit<JapanesePhonemeTiming, 'consonant'
     closureSeconds: 0.028,
     burstSeconds: 0.014,
     fricationSeconds: 0.012,
-    voicingDelaySeconds: 0.036,
+    voicingDelaySeconds: 0.052,
     noiseMix: 0.2,
     voicedMix: 0.08,
     nasalMix: 0,
@@ -63,7 +70,7 @@ const TIMINGS: Record<JapaneseConsonant, Omit<JapanesePhonemeTiming, 'consonant'
     closureSeconds: 0.024,
     burstSeconds: 0.011,
     fricationSeconds: 0.017,
-    voicingDelaySeconds: 0.032,
+    voicingDelaySeconds: 0.029,
     noiseMix: 0.22,
     voicedMix: 0.06,
     nasalMix: 0,
@@ -81,6 +88,42 @@ const TIMINGS: Record<JapaneseConsonant, Omit<JapanesePhonemeTiming, 'consonant'
     nasalMix: 0,
     aspirationMix: 0.1,
     coarticulationLead: 0.2,
+    moraicN: false,
+  },
+  sh: {
+    closureSeconds: 0,
+    burstSeconds: 0,
+    fricationSeconds: 0.06,
+    voicingDelaySeconds: 0.044,
+    noiseMix: 0.25,
+    voicedMix: 0.04,
+    nasalMix: 0,
+    aspirationMix: 0.11,
+    coarticulationLead: 0.21,
+    moraicN: false,
+  },
+  ch: {
+    closureSeconds: 0.016,
+    burstSeconds: 0.008,
+    fricationSeconds: 0.043,
+    voicingDelaySeconds: 0.034,
+    noiseMix: 0.27,
+    voicedMix: 0.04,
+    nasalMix: 0,
+    aspirationMix: 0.12,
+    coarticulationLead: 0.18,
+    moraicN: false,
+  },
+  ts: {
+    closureSeconds: 0.014,
+    burstSeconds: 0.007,
+    fricationSeconds: 0.057,
+    voicingDelaySeconds: 0.035,
+    noiseMix: 0.28,
+    voicedMix: 0.04,
+    nasalMix: 0,
+    aspirationMix: 0.1,
+    coarticulationLead: 0.17,
     moraicN: false,
   },
   h: {
@@ -111,7 +154,7 @@ const TIMINGS: Record<JapaneseConsonant, Omit<JapanesePhonemeTiming, 'consonant'
     closureSeconds: 0.032,
     burstSeconds: 0.012,
     fricationSeconds: 0.008,
-    voicingDelaySeconds: 0.039,
+    voicingDelaySeconds: 0.03,
     noiseMix: 0.17,
     voicedMix: 0.04,
     nasalMix: 0,
@@ -129,6 +172,18 @@ const TIMINGS: Record<JapaneseConsonant, Omit<JapanesePhonemeTiming, 'consonant'
     nasalMix: 0,
     aspirationMix: 0.04,
     coarticulationLead: 0.17,
+    moraicN: false,
+  },
+  d: {
+    closureSeconds: 0.024,
+    burstSeconds: 0.01,
+    fricationSeconds: 0.004,
+    voicingDelaySeconds: 0.012,
+    noiseMix: 0.09,
+    voicedMix: 0.46,
+    nasalMix: 0,
+    aspirationMix: 0.035,
+    coarticulationLead: 0.18,
     moraicN: false,
   },
   g: {
@@ -152,6 +207,18 @@ const TIMINGS: Record<JapaneseConsonant, Omit<JapanesePhonemeTiming, 'consonant'
     voicedMix: 0.32,
     nasalMix: 0,
     aspirationMix: 0.03,
+    coarticulationLead: 0.2,
+    moraicN: false,
+  },
+  j: {
+    closureSeconds: 0.01,
+    burstSeconds: 0.005,
+    fricationSeconds: 0.04,
+    voicingDelaySeconds: 0.01,
+    noiseMix: 0.19,
+    voicedMix: 0.36,
+    nasalMix: 0,
+    aspirationMix: 0.025,
     coarticulationLead: 0.2,
     moraicN: false,
   },
@@ -191,16 +258,40 @@ const TIMINGS: Record<JapaneseConsonant, Omit<JapanesePhonemeTiming, 'consonant'
     coarticulationLead: 0.28,
     moraicN: false,
   },
-  r: {
-    closureSeconds: 0.01,
-    burstSeconds: 0.006,
-    fricationSeconds: 0.022,
+  w: {
+    closureSeconds: 0,
+    burstSeconds: 0,
+    fricationSeconds: 0.012,
     voicingDelaySeconds: 0,
-    noiseMix: 0.02,
-    voicedMix: 0.56,
+    noiseMix: 0.006,
+    voicedMix: 0.84,
     nasalMix: 0,
     aspirationMix: 0,
-    coarticulationLead: 0.23,
+    coarticulationLead: 0.31,
+    moraicN: false,
+  },
+  v: {
+    closureSeconds: 0,
+    burstSeconds: 0,
+    fricationSeconds: 0.038,
+    voicingDelaySeconds: 0.008,
+    noiseMix: 0.14,
+    voicedMix: 0.4,
+    nasalMix: 0,
+    aspirationMix: 0.04,
+    coarticulationLead: 0.2,
+    moraicN: false,
+  },
+  r: {
+    closureSeconds: 0.008,
+    burstSeconds: 0.004,
+    fricationSeconds: 0.008,
+    voicingDelaySeconds: 0,
+    noiseMix: 0.012,
+    voicedMix: 0.68,
+    nasalMix: 0,
+    aspirationMix: 0,
+    coarticulationLead: 0.28,
     moraicN: false,
   },
   l: {
@@ -232,11 +323,19 @@ const TIMINGS: Record<JapaneseConsonant, Omit<JapanesePhonemeTiming, 'consonant'
 export function consonantForSyllable(syllable: string): JapaneseConsonant {
   const normalized = syllable.trim().toLowerCase();
   if (normalized === 'n' || normalized === 'nn') return 'N';
+  if (normalized.startsWith('sh')) return 'sh';
+  if (normalized.startsWith('ch')) return 'ch';
+  if (normalized.startsWith('ts')) return 'ts';
+  if (normalized.startsWith('j')) return 'j';
+
   const first = normalized.charAt(0);
   if (VOWELS.has(first as VocalVowel)) return 'vowel';
-  if (first === 'k' || first === 't' || first === 's' || first === 'h' || first === 'f'
-    || first === 'p' || first === 'b' || first === 'g' || first === 'z' || first === 'n'
-    || first === 'm' || first === 'y' || first === 'r' || first === 'l') return first;
+  if (
+    first === 'k' || first === 't' || first === 's' || first === 'h' || first === 'f'
+    || first === 'p' || first === 'b' || first === 'd' || first === 'g' || first === 'z'
+    || first === 'n' || first === 'm' || first === 'y' || first === 'w' || first === 'v'
+    || first === 'r' || first === 'l'
+  ) return first;
   return 'vowel';
 }
 
