@@ -3,7 +3,13 @@ import { downloadBlob } from '../compose/SongExport';
 import { VOICE_CHARACTER_PRESETS, validVoiceCharacterPreset, type VoiceCharacterPreset } from '../compose/VoiceCharacter';
 import { type VoiceIntonation } from './VoiceScript';
 import { VoiceSynth, type VoiceProsodyEdits, type VoiceSynthSettings } from './VoiceSynth';
-import { parseVoiceMarkup, removeVoiceMarkup, wrapVoiceSelection, type VoiceMarkupScript } from './VoiceMarkup';
+import {
+  mapLocalExpressionsToRanges,
+  parseVoiceMarkup,
+  removeVoiceMarkup,
+  wrapVoiceSelection,
+  type VoiceMarkupScript,
+} from './VoiceMarkup';
 import {
   analyzeJapaneseText,
   containsKanji,
@@ -11,6 +17,12 @@ import {
 } from './JapaneseG2P';
 import type { VoiceScript } from './VoiceScript';
 import { getVoiceProsodyWindow } from './VoiceProsodyWindow';
+import {
+  clearVoiceProsodySnapshot,
+  loadVoiceProsodySnapshot,
+  saveVoiceProsodySnapshot,
+  voiceProsodyKey,
+} from './VoiceProsodyStore';
 import {
   VOICE_EXPRESSION_PRESETS,
   validVoiceExpressionPreset,
@@ -70,6 +82,7 @@ export class VoiceMode {
   private japaneseAnalysis: JapaneseG2PAnalysis | null = null;
   private japaneseAnalysisSource = '';
   private japaneseAnalyzing = false;
+  private prosodyLoadedSignature = '';
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -261,6 +274,7 @@ export class VoiceMode {
     const text = this.required<HTMLTextAreaElement>('#voice-text');
     text.addEventListener('input', () => {
       this.resetProsodyEdits();
+      this.prosodyLoadedSignature = '';
       this.clearJapaneseAnalysis();
       this.refreshPlan();
     });
@@ -306,6 +320,7 @@ export class VoiceMode {
       this.drawingProsody = false;
       this.lastDrawIndex = null;
       if (contour.hasPointerCapture(event.pointerId)) contour.releasePointerCapture(event.pointerId);
+      this.persistProsodyEdits();
       this.refreshPlan();
     };
     contour.addEventListener('pointerup', finishProsodyDraw);
@@ -343,6 +358,7 @@ export class VoiceMode {
     this.required<HTMLButtonElement>('#voice-reset-prosody').addEventListener('pointerdown', (event) => {
       event.preventDefault();
       this.resetProsodyEdits();
+      this.clearPersistedProsodyEdits();
       this.refreshPlan();
       this.setStatus('PITCH / ENERGY / TIMING RESET');
     }, { passive: false });
@@ -500,6 +516,7 @@ export class VoiceMode {
   private clearJapaneseAnalysis(): void {
     this.japaneseAnalysis = null;
     this.japaneseAnalysisSource = '';
+    this.prosodyLoadedSignature = '';
     const status = this.root.querySelector<HTMLElement>('#voice-japanese-status');
     if (status) {
       status.textContent = 'Open JTalk reading + pitch accent · first use downloads ~24MB dictionary';
@@ -514,12 +531,17 @@ export class VoiceMode {
   } {
     const markup = parseVoiceMarkup(text);
     const analyzed = this.japaneseAnalysis !== null
-      && this.japaneseAnalysisSource === text
-      && !markup.markupUsed;
+      && this.japaneseAnalysisSource === text;
+    const localExpressions = analyzed
+      ? mapLocalExpressionsToRanges(
+          markup.speechSegments,
+          this.japaneseAnalysis!.unitSourceRanges,
+        )
+      : markup.localExpressions;
     return {
       script: analyzed ? this.japaneseAnalysis!.script : markup,
       markup,
-      localExpressions: analyzed ? [] : markup.localExpressions,
+      localExpressions,
       analyzed,
     };
   }
@@ -537,10 +559,6 @@ export class VoiceMode {
     }
 
     const markup = parseVoiceMarkup(text);
-    if (markup.markupUsed) {
-      this.setStatus('KANJI G2P · CLEAR LOCAL DELIVERY TAGS FIRST');
-      return false;
-    }
     if (!containsKanji(markup.plainText)) {
       this.setStatus('KANJI G2P · NO KANJI TO ANALYZE');
       return false;
@@ -561,9 +579,14 @@ export class VoiceMode {
       this.japaneseAnalysis = analysis;
       this.japaneseAnalysisSource = text;
       this.resetProsodyEdits();
+      this.prosodyLoadedSignature = '';
       this.refreshPlan();
       detail.textContent = `OPEN JTALK · ${analysis.script.units.length} morae · ${analysis.reading.slice(0, 48)}${analysis.reading.length > 48 ? '…' : ''}`;
-      this.setStatus('KANJI G2P READY · READING + PITCH ACCENT');
+      this.setStatus(
+        markup.markupUsed
+          ? 'KANJI G2P READY · PITCH ACCENT + LOCAL DELIVERY'
+          : 'KANJI G2P READY · READING + PITCH ACCENT',
+      );
       return true;
     } catch (error) {
       console.warn('VOICE LAB Japanese G2P failed.', error);
@@ -587,6 +610,7 @@ export class VoiceMode {
     unitsEl.replaceChildren();
     contourEl.replaceChildren();
 
+    this.restoreProsodyEdits(text, script.units.length);
     this.ensureProsodyEditLength(script.units.length);
     const plan = this.synth.plan(script, this.settings, this.getProsodyEdits(localExpressions));
     const window = getVoiceProsodyWindow(plan.units.length, this.prosodyPage);
@@ -651,7 +675,7 @@ export class VoiceMode {
     const note = this.required<HTMLElement>('#voice-engine-note');
     if (this.settings.engine === 'local') {
       note.textContent = analyzed
-        ? `LOCAL DSP · OPEN JTALK G2P · ${script.units.length} morae · lexical pitch accent + draw controls`
+        ? `LOCAL DSP · OPEN JTALK G2P · ${script.units.length} morae · lexical pitch accent${markup.markupUsed ? ' + local delivery' : ''} + saved draw controls`
         : script.unsupported.length > 0
           ? `LOCAL DSP · KANJI DETECTED · SPEAK auto-runs reading + pitch accent`
           : `LOCAL DSP · ${script.units.length} morae · ${this.settings.expression.preset.toUpperCase()} delivery${markup.markupUsed ? ' + local spans' : ''} · draw pitch / energy / timing`;
@@ -675,6 +699,56 @@ export class VoiceMode {
     this.energyEdits = [];
     this.durationEdits = [];
     this.lastDrawIndex = null;
+  }
+
+  private restoreProsodyEdits(text: string, unitCount: number): void {
+    const signature = `${voiceProsodyKey(text)}:${unitCount}`;
+    if (this.prosodyLoadedSignature === signature) return;
+    this.prosodyLoadedSignature = signature;
+
+    try {
+      const snapshot = loadVoiceProsodySnapshot(localStorage, text, unitCount);
+      if (!snapshot) {
+        this.resetProsodyEdits();
+        return;
+      }
+      this.pitchEdits = snapshot.pitch;
+      this.energyEdits = snapshot.energy;
+      this.durationEdits = snapshot.duration;
+      this.lastDrawIndex = null;
+    } catch {
+      this.resetProsodyEdits();
+    }
+  }
+
+  private persistProsodyEdits(): void {
+    const text = this.required<HTMLTextAreaElement>('#voice-text').value;
+    const { script } = this.resolveLocalScript(text);
+    if (script.units.length === 0) return;
+    this.ensureProsodyEditLength(script.units.length);
+
+    try {
+      saveVoiceProsodySnapshot(
+        localStorage,
+        text,
+        script.units.length,
+        this.pitchEdits,
+        this.energyEdits,
+        this.durationEdits,
+      );
+      this.prosodyLoadedSignature = `${voiceProsodyKey(text)}:${script.units.length}`;
+    } catch {
+      // Private browsing / restricted storage: keep session edits only.
+    }
+  }
+
+  private clearPersistedProsodyEdits(): void {
+    const text = this.required<HTMLTextAreaElement>('#voice-text').value;
+    try {
+      clearVoiceProsodySnapshot(localStorage, text);
+    } catch {
+      // Ignore restricted storage.
+    }
   }
 
   private ensureProsodyEditLength(count: number): void {

@@ -68,6 +68,9 @@ for (const japaneseG2PFeature of ['KANJI G2P', 'OPEN JTALK', 'pitchAccent', 'ope
 for (const longFormVoiceFeature of ['voice-prosody-page-label', 'Previous prosody page', 'Next prosody page', 'VOICE LAB could not resume.']) {
   if (!entryJavaScript.includes(longFormVoiceFeature)) fail(`production bundle is missing VOICE LAB long-form stability feature: ${longFormVoiceFeature}`);
 }
+for (const persistedVoiceFeature of ['sound-wave-voice-prosody-edits-v1', 'saved draw controls', 'unitSourceRanges', 'plainStart', 'plainEnd']) {
+  if (!entryJavaScript.includes(persistedVoiceFeature)) fail(`production bundle is missing VOICE LAB persistent/local-kanji feature: ${persistedVoiceFeature}`);
+}
 for (const speechSourceFeature of ['speechSourceMix', 'speechSourceTilt', 'speechCoarticulation', 'speechPulseNoise', 'geminateClosureSeconds']) {
   if (!entryJavaScript.includes(speechSourceFeature)) fail(`production bundle is missing VOICE LAB speech source feature: ${speechSourceFeature}`);
 }

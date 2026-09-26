@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  mapLocalExpressionsToRanges,
   parseVoiceMarkup,
   removeVoiceMarkup,
   wrapVoiceSelection,
@@ -41,6 +42,33 @@ describe('Voice Lab local delivery markup', () => {
       .toEqual(['global', 'whisper', 'global', 'excited']);
     expect(script.speechSegments[1]?.expression?.intensity).toBe(1.2);
     expect(script.speechSegments.map((segment) => segment.text).join('')).toBe(script.plainText);
+  });
+
+  it('tracks plain-text ranges and maps local styles onto analyzed mora ranges', () => {
+    const script = parseVoiceMarkup('今日は[whisper:120]静かに[/]話します');
+
+    expect(script.plainText).toBe('今日は静かに話します');
+    expect(script.speechSegments.map((segment) => [
+      segment.text,
+      segment.plainStart,
+      segment.plainEnd,
+      segment.expression?.preset ?? 'global',
+    ])).toEqual([
+      ['今日は', 0, 3, 'global'],
+      ['静かに', 3, 6, 'whisper'],
+      ['話します', 6, 10, 'global'],
+    ]);
+
+    const mapped = mapLocalExpressionsToRanges(script.speechSegments, [
+      { start: 0, end: 1 },
+      { start: 3, end: 4 },
+      { start: 4, end: 5 },
+      { start: 6, end: 7 },
+    ]);
+
+    expect(mapped.map((value) => value?.preset ?? 'global'))
+      .toEqual(['global', 'whisper', 'whisper', 'global']);
+    expect(mapped[1]?.intensity).toBe(1.2);
   });
 
   it('supports nested local delivery with the innermost style taking effect', () => {
