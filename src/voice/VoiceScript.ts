@@ -436,7 +436,9 @@ export function prosodyOffsetForUnit(
   const phraseProgress = unit.phraseCount <= 1
     ? 0
     : unit.phraseIndex / Math.max(1, unit.phraseCount - 1);
-  const phraseArc = Math.sin(phraseProgress * Math.PI) * 0.24 - phraseProgress * 0.42;
+  const lexicalAccent = unit.pitchAccent !== 'auto';
+  const phraseArcBase = Math.sin(phraseProgress * Math.PI) * 0.24 - phraseProgress * 0.42;
+  const phraseArc = phraseArcBase * (lexicalAccent ? 0.25 : 1);
   const accent = accentPhraseOffset(unit);
   const micro = consonantMicroProsody(unit);
   const globalDeclination = count <= 1 ? 0 : -(index / Math.max(1, count - 1)) * 0.12;
@@ -452,8 +454,8 @@ export function prosodyOffsetForUnit(
     return phraseArc + accent * 0.8 + micro + questionLift + globalDeclination;
   }
 
-  const reset = unit.phraseStart ? 0.18 : 0;
-  const finalLowering = unit.phraseEnd ? -0.2 : 0;
+  const reset = unit.phraseStart ? (lexicalAccent ? 0.09 : 0.18) : 0;
+  const finalLowering = unit.phraseEnd ? (lexicalAccent ? -0.05 : -0.2) : 0;
   return phraseArc + accent + micro + reset + finalLowering + globalDeclination;
 }
 
