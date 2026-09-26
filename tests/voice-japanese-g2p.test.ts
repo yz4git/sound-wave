@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   buildScriptFromJapaneseFrontend,
+  containsAmbiguousJapaneseLongVowel,
   containsKanji,
+  needsJapanesePronunciationAnalysis,
   pitchAccentPattern,
   type JapaneseFrontendNode,
 } from '../src/voice/JapaneseG2P';
@@ -119,6 +121,15 @@ describe('VOICE LAB Japanese G2P mapping', () => {
     expect(high.pitchAccent).toBe('high');
     expect(prosodyOffsetForUnit(high, 1, 2, 'natural'))
       .toBeGreaterThan(prosodyOffsetForUnit(low, 0, 2, 'natural'));
+  });
+
+  it('routes ambiguous kana ou/ei sequences through Open JTalk', () => {
+    expect(containsAmbiguousJapaneseLongVowel('がっこう')).toBe(true);
+    expect(containsAmbiguousJapaneseLongVowel('せいかつ')).toBe(true);
+    expect(containsAmbiguousJapaneseLongVowel('きょう')).toBe(true);
+    expect(containsAmbiguousJapaneseLongVowel('かさ')).toBe(false);
+    expect(needsJapanesePronunciationAnalysis('思う')).toBe(true);
+    expect(needsJapanesePronunciationAnalysis('おもう')).toBe(true);
   });
 
   it('detects kanji without treating kana as kanji', () => {
