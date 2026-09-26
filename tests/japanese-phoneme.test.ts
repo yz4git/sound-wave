@@ -12,6 +12,13 @@ describe('Japanese phoneme timing', () => {
     expect(consonantForSyllable('ba')).toBe('b');
     expect(consonantForSyllable('ga')).toBe('g');
     expect(consonantForSyllable('za')).toBe('z');
+    expect(consonantForSyllable('shi')).toBe('sh');
+    expect(consonantForSyllable('chi')).toBe('ch');
+    expect(consonantForSyllable('tsu')).toBe('ts');
+    expect(consonantForSyllable('ji')).toBe('j');
+    expect(consonantForSyllable('da')).toBe('d');
+    expect(consonantForSyllable('wa')).toBe('w');
+    expect(consonantForSyllable('vu')).toBe('v');
     expect(consonantForSyllable('na')).toBe('n');
     expect(consonantForSyllable('n')).toBe('N');
   });
@@ -23,6 +30,28 @@ describe('Japanese phoneme timing', () => {
       expect(timing.burstSeconds).toBeGreaterThan(0);
       expect(timing.voicingDelaySeconds).toBeGreaterThanOrEqual(0);
     }
+  });
+
+  it('models Japanese affricates as closure plus sustained frication', () => {
+    for (const syllable of ['chi', 'tsu', 'ji']) {
+      const timing = phonemeTimingFor(syllable);
+      expect(timing.closureSeconds).toBeGreaterThan(0);
+      expect(timing.fricationSeconds).toBeGreaterThan(0.035);
+      expect(timing.noiseMix).toBeGreaterThan(0.15);
+    }
+    expect(phonemeTimingFor('chi').voicedMix).toBeLessThan(phonemeTimingFor('ji').voicedMix);
+  });
+
+  it('keeps Japanese /k/ VOT longer than /p/ and /t/', () => {
+    const k = phonemeTimingFor('ka').voicingDelaySeconds;
+    const t = phonemeTimingFor('ta').voicingDelaySeconds;
+    const p = phonemeTimingFor('pa').voicingDelaySeconds;
+
+    expect(k).toBeGreaterThan(t);
+    expect(k).toBeGreaterThan(p);
+    expect(k).toBeGreaterThan(0.045);
+    expect(t).toBeGreaterThanOrEqual(0.025);
+    expect(p).toBeGreaterThanOrEqual(0.025);
   });
 
   it('gives fricatives an audible but bounded frication window', () => {
