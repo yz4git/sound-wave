@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  applyOpenJTalkFullContext,
   buildScriptFromJapaneseFrontend,
   containsAmbiguousJapaneseLongVowel,
   containsKanji,
   needsJapanesePronunciationAnalysis,
+  parseOpenJTalkFullContext,
   pitchAccentPattern,
   type JapaneseFrontendNode,
 } from '../src/voice/JapaneseG2P';
@@ -103,6 +105,64 @@ describe('VOICE LAB Japanese G2P mapping', () => {
     expect(unitSourceRanges[1]?.end).toBeLessThanOrEqual(2);
     expect(unitSourceRanges[2]).toEqual({ start: 2, end: 3 });
     expect(unitSourceRanges.slice(3).every((range) => range.start >= 3)).toBe(true);
+  });
+
+  it('parses full-context devoicing, sokuon and pause markers', () => {
+    const labels = [
+      'xx^xx-s+U=k/A:-2+1+3',
+      'xx^s-U+k=a/A:-2+1+3',
+      's^U-cl+k=a/A:-1+2+3',
+      'U^cl-k+a=pau/A:-1+2+3',
+      'cl^k-a+pau=xx/A:0+3+3',
+      'k^a-pau+xx=xx/A:xx+xx+xx',
+    ];
+
+    const moras = parseOpenJTalkFullContext(labels);
+    expect(moras).toHaveLength(2);
+    expect(moras[0]).toMatchObject({
+      vowel: 'u',
+      devoiced: true,
+      geminateBefore: false,
+    });
+    expect(moras[1]).toMatchObject({
+      vowel: 'a',
+      devoiced: false,
+      geminateBefore: true,
+      pauseAfter: true,
+    });
+  });
+
+  it('applies full-context timing hints only when mora alignment is exact', () => {
+    const script = buildScriptFromJapaneseFrontend([{
+      string: 'すっか',
+      read: 'スッカ',
+      pron: 'スッカ',
+      acc: 1,
+      mora_size: 2,
+      chain_flag: -1,
+    }]).script;
+
+    const labels = [
+      'xx^xx-s+U=cl/A:-1+1+2',
+      'xx^s-U+cl=k/A:-1+1+2',
+      's^U-cl+k=a/A:0+2+2',
+      'U^cl-k+a=sil/A:0+2+2',
+      'cl^k-a+sil=xx/A:0+2+2',
+    ];
+
+    expect(applyOpenJTalkFullContext(script, labels)).toBe(true);
+    expect(script.units[0]?.devoiced).toBe(true);
+    expect(script.units[1]?.geminateBefore).toBe(true);
+
+    const mismatch = buildScriptFromJapaneseFrontend([{
+      string: 'かな',
+      read: 'カナ',
+      pron: 'カナ',
+      acc: 0,
+      mora_size: 2,
+      chain_flag: -1,
+    }]).script;
+    expect(applyOpenJTalkFullContext(mismatch, labels)).toBe(false);
   });
 
   it('turns lexical high and low states into distinct F0 offsets', () => {
