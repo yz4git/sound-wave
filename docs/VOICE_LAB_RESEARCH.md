@@ -313,3 +313,16 @@ References:
 - Hirata & Whiton, *Effects of speaking rate on the single/geminate stop distinction in Japanese*: https://pubmed.ncbi.nlm.nih.gov/16240824/
 - Kilbourn-Ceron, *Durational Evidence That Tokyo Japanese Vowel Devoicing Is Not Gradient Reduction*: https://pmc.ncbi.nlm.nih.gov/articles/PMC6476939/
 - Shaw & Kawahara et al., recent Japanese geminate articulatory work: https://pubmed.ncbi.nlm.nih.gov/39785713/
+
+### 11. Ambiguous kana long vowels, consonant-aware coarticulation and sentence finality
+
+VOICE LAB now routes ambiguous kana sequences such as おう and えい through the existing Open JTalk front end instead of guessing from spelling alone. This preserves the lightweight built-in parser for ordinary kana while using morphological/pronunciation analysis only when orthography is insufficient to determine whether a sequence is a long vowel or a true vowel sequence.
+
+The AudioWorklet coarticulation model also differentiates consonant classes. Postalveolar/palatal sequences such as /sh ch j y/ begin next-vowel formant movement earlier and more strongly, while /s ts/ remain more abrupt. This follows Japanese acoustic descriptions in which transitional formant structure differs across sibilant and palatal contexts.
+
+Japanese sentence finality is now represented as a subtle voice-quality layer on phrase-final units. Declaratives receive a small amount of final F0 lowering, increased glottal closure/irregularity, amplitude reduction and release breath. Questions suppress most creak so the rising boundary remains clear. DELIVERY presets modulate the amount: SERIOUS/NARRATION allow more creak, WHISPER favors breath, and EXCITED minimizes final creak.
+
+References:
+- Venditti, *The J_ToBI model of Japanese intonation*: finality cues include final F0 lowering, segmental lengthening, creaky voice, amplitude lowering and pauses: https://www.cs.columbia.edu/~jjv/pubs/jtobi_Ch-07-final.pdf
+- Japanese intonational-phrase work reporting creaky vowels at IP-final positions: https://www.researchgate.net/publication/51399721_The_Intonation_of_Gapping_and_Coordination_in_Japanese_Evidence_for_Intonational_Phrase_and_Utterance
+- Japanese coarticulation / formant-transition evidence: https://pmc.ncbi.nlm.nih.gov/articles/PMC2677363/
