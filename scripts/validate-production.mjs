@@ -80,6 +80,9 @@ for (const japaneseTimingFeature of ['speechPitchTransitionScale', 'pitchAccent'
 for (const finalityFeature of ['speechFinalCreak', 'speechFinalBreath', 'おう / えい']) {
   if (!entryJavaScript.includes(finalityFeature)) fail(`production bundle is missing VOICE LAB Japanese finality/pronunciation feature: ${finalityFeature}`);
 }
+for (const fullContextFeature of ['FULL CONTEXT', 'extractFullContext', 'fullContextMatched', 'JAPANESE G2P + FULL CONTEXT READY']) {
+  if (!entryJavaScript.includes(fullContextFeature)) fail(`production bundle is missing VOICE LAB Open JTalk full-context feature: ${fullContextFeature}`);
+}
 for (const fullSongFeature of ['FULL SONG', 'songSections', 'PRE-CHORUS', 'INTERLUDE', 'BRIDGE']) {
   if (!entryJavaScript.includes(fullSongFeature)) fail(`production bundle is missing full-song structure: ${fullSongFeature}`);
 }

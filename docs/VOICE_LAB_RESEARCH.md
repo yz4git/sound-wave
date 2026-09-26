@@ -326,3 +326,23 @@ References:
 - Venditti, *The J_ToBI model of Japanese intonation*: finality cues include final F0 lowering, segmental lengthening, creaky voice, amplitude lowering and pauses: https://www.cs.columbia.edu/~jjv/pubs/jtobi_Ch-07-final.pdf
 - Japanese intonational-phrase work reporting creaky vowels at IP-final positions: https://www.researchgate.net/publication/51399721_The_Intonation_of_Gapping_and_Coordination_in_Japanese_Evidence_for_Intonational_Phrase_and_Utterance
 - Japanese coarticulation / formant-transition evidence: https://pmc.ncbi.nlm.nih.gov/articles/PMC2677363/
+
+### 12. Open JTalk full-context labels as phonology overrides
+
+The browser Open JTalk runtime already used by VOICE LAB exposes `extractFullContext`, so the same lazily downloaded dictionary/voice assets can now provide phoneme-level context without adding another model download.
+
+VOICE LAB uses the full-context labels conservatively:
+- uppercase vowel phones (`A/E/I/O/U`) override the built-in high-vowel devoicing heuristic for analyzed text
+- `cl` confirms sokuon/geminate timing before the following mora
+- `pau` confirms an internal pause/boundary
+- A1/A2/A3 transitions can confirm accent-phrase boundaries
+- long-vowel identity remains sourced from NJD `pron`, because repeated vowel phones alone cannot safely distinguish a long vowel from a true vowel sequence
+
+The override is applied only when the number of mora groups reconstructed from full-context labels exactly matches the Voice Script mora count. If alignment fails, the existing NJD reading/pitch-accent path remains active and the full-context hints are ignored rather than partially applied.
+
+This is important because Open JTalk's full-context labels encode context-sensitive decisions after the pronunciation front end. In particular, uppercase vowel phones represent devoiced Japanese vowels, and `cl` represents the closure corresponding to sokuon. These are more reliable than re-deriving the same decisions from raw kana after morphological analysis has already happened.
+
+References:
+- openjtalkjs browser API: `extractFullContextAsync`, `runFrontendAsync`, and Web Worker support: https://github.com/keanu-thakalath/openjtalkjs
+- pyopenjtalk full-context examples and API: https://github.com/r9y9/pyopenjtalk
+- Piper/Open JTalk prosody use of A1/A2/A3 and full-context phones: https://ayousanz.hatenadiary.jp/entry/2026/04/04/002217
