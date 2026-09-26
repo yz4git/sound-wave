@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { parseVoiceScript } from '../src/voice/VoiceScript';
-import { VoiceSynth, type VoiceSynthSettings } from '../src/voice/VoiceSynth';
+import {
+  VoiceSynth,
+  geminatePreclosureSeconds,
+  japaneseBoundaryPauseSeconds,
+  speechPitchTransitionScaleFor,
+  type VoiceSynthSettings,
+} from '../src/voice/VoiceSynth';
 
 const SETTINGS: VoiceSynthSettings = {
   style: 'warm',
@@ -51,6 +57,50 @@ describe('Voice Lab synthesis plan', () => {
     expect(devoiced.unit.devoiced).toBe(true);
     expect(devoiced.energyScale).toBeLessThan(voiced.energyScale);
     expect(devoiced.duration).toBeLessThan(voiced.duration);
+  });
+
+  it('keeps Japanese long-vowel contrast clearly longer than a short mora', () => {
+    const synth = new VoiceSynth();
+    const shortPlan = synth.plan(parseVoiceScript('かさ'), SETTINGS);
+    const longPlan = synth.plan(parseVoiceScript('かーさ'), SETTINGS);
+
+    const shortVowel = shortPlan.units[0]!.duration;
+    const longVowelSpan = longPlan.units[0]!.duration + longPlan.units[1]!.duration;
+
+    expect(longPlan.units[1]!.unit.longVowel).toBe(true);
+    expect(longVowelSpan / shortVowel).toBeGreaterThan(2.2);
+    expect(longVowelSpan / shortVowel).toBeLessThan(3.2);
+  });
+
+  it('scales sokuon pre-closure with the preceding mora and speech rate', () => {
+    const normal = geminatePreclosureSeconds(1, 0.17);
+    const fast = geminatePreclosureSeconds(1.5, 0.11);
+    const slow = geminatePreclosureSeconds(0.7, 0.24);
+
+    expect(slow).toBeGreaterThan(normal);
+    expect(normal).toBeGreaterThan(fast);
+    expect(fast).toBeGreaterThanOrEqual(0.043);
+    expect(slow).toBeLessThanOrEqual(0.098);
+  });
+
+  it('preserves phrase-boundary pauses better than simple inverse-rate scaling', () => {
+    const sentence = parseVoiceScript('あ。').units[0]!;
+    const accent = parseVoiceScript('あ、').units[0]!;
+    const fastSentence = japaneseBoundaryPauseSeconds(sentence, 1.6);
+    const fastAccent = japaneseBoundaryPauseSeconds(accent, 1.6);
+
+    expect(fastSentence).toBeGreaterThan(fastAccent);
+    expect(fastSentence).toBeGreaterThan(sentence.pauseAfter / 1.6);
+  });
+
+  it('sharpens lexical high-low F0 transitions without snapping every mora', () => {
+    const script = parseVoiceScript('あいう');
+    script.units[0]!.pitchAccent = 'low';
+    script.units[1]!.pitchAccent = 'high';
+    script.units[2]!.pitchAccent = 'high';
+
+    expect(speechPitchTransitionScaleFor(script.units[1]!, script.units[0])).toBeLessThan(0.8);
+    expect(speechPitchTransitionScaleFor(script.units[2]!, script.units[1])).toBe(1);
   });
 
   it('applies user-drawn mora pitch offsets without changing timing', () => {

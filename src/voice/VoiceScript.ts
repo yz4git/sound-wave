@@ -307,11 +307,12 @@ export function finalizeVoiceUnits(units: VoiceUnit[]): void {
       && !unit.moraicN
       && isVoicelessConsonant(unit.syllable)
       && (nextVoiceless || beforePause);
+    const lexicallyProminent = unit.pitchAccent === 'high';
 
-    // Avoid fully suppressing adjacent high-vowel morae; real speech typically
-    // preserves enough timing/energy for intelligibility when devoicing
-    // environments repeat.
-    unit.devoiced = candidate && !previousDevoiced;
+    // Consecutive devoicing varies considerably between speakers. Keep one
+    // voiced high-vowel target between candidates, and preserve lexical-high
+    // morae so the dictionary accent remains audible instead of disappearing.
+    unit.devoiced = candidate && !previousDevoiced && !lexicallyProminent;
     previousDevoiced = unit.devoiced;
   }
 }

@@ -642,9 +642,13 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       active.transitionFromHz ?? active.glideFromHz ?? active.targetHz,
     );
     const intervalSemitones = Math.abs(12 * Math.log2(active.targetHz / fromHz));
+    const speechPitchTransitionScale = Math.max(
+      0.55,
+      Math.min(1.25, style.speechPitchTransitionScale || 1),
+    );
     const glideDuration = Math.min(
       0.11,
-      Math.max(0.045, 0.052 + intervalSemitones * 0.006),
+      Math.max(0.032, (0.052 + intervalSemitones * 0.006) * speechPitchTransitionScale),
       noteDuration * 0.34,
     );
 
