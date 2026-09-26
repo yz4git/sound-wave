@@ -135,7 +135,7 @@ export function geminatePreclosureSeconds(
   const reference = precedingMoraDuration
     ?? 0.165 / normalizedRate;
   const targetTotalClosure = clamp(reference * 0.82, 0.095, 0.145);
-  return clamp(targetTotalClosure - 0.052, 0.043, 0.098);
+  return clamp(targetTotalClosure - 0.052, 0.06, 0.098);
 }
 
 export function japaneseBoundaryPauseSeconds(unit: VoiceUnit, rate: number): number {
