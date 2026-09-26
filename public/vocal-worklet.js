@@ -508,11 +508,17 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     const low = this.fricationLowState;
     const high = noise - low;
 
-    if (consonant === 's' || consonant === 'z' || consonant === 't') return high;
+    if (consonant === 's' || consonant === 'ts') return high;
+    if (consonant === 'sh') return high * 0.82 + noise * 0.18;
+    if (consonant === 'ch') return high * 0.76 + noise * 0.24;
+    if (consonant === 'z' || consonant === 'j') return high * 0.58 + low * 0.42;
+    if (consonant === 't') return high * 0.86 + noise * 0.14;
     if (consonant === 'f') return high * 0.68 + low * 0.32;
+    if (consonant === 'v') return high * 0.48 + low * 0.52;
     if (consonant === 'h') return low * 0.74 + noise * 0.26;
     if (consonant === 'k' || consonant === 'g') return high * 0.58 + noise * 0.42;
-    if (consonant === 'p' || consonant === 'b') return noise * 0.72 + low * 0.28;
+    if (consonant === 'p' || consonant === 'b' || consonant === 'd') return noise * 0.72 + low * 0.28;
+    if (consonant === 'w' || consonant === 'y') return low * 0.9 + noise * 0.1;
     return low;
   }
 
