@@ -90,6 +90,14 @@ export interface VocalWorkletEvent {
     radiationGainDb: number;
     doubleDelaySeconds: number;
     doubleLevel: number;
+    /** Speech-only blend toward a smoother LF-inspired glottal source. */
+    speechSourceMix?: number;
+    /** Additional one-pole spectral tilt applied to the speech source. */
+    speechSourceTilt?: number;
+    /** Preserve adjacent tract state and strengthen vowel anticipation in speech. */
+    speechCoarticulation?: number;
+    /** Phase-synchronous aspiration/noise mixed into speech phonation. */
+    speechPulseNoise?: number;
   };
 }
 

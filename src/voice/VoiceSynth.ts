@@ -53,6 +53,84 @@ export interface VoicePlaybackPlan {
   units: VoiceTimedUnit[];
 }
 
+export interface SpeechSourceProfile {
+  sourceMix: number;
+  sourceTilt: number;
+  coarticulation: number;
+  pulseNoise: number;
+  geminateClosureSeconds: number;
+}
+
+export function speechSourceProfileFor(expression: VoiceExpressionSettings): SpeechSourceProfile {
+  const neutral: SpeechSourceProfile = {
+    sourceMix: 0.91,
+    sourceTilt: 0.62,
+    coarticulation: 0.82,
+    pulseNoise: 0.055,
+    geminateClosureSeconds: 0.052,
+  };
+  const target: SpeechSourceProfile = expression.preset === 'whisper'
+    ? {
+        sourceMix: 0.8,
+        sourceTilt: 0.78,
+        coarticulation: 0.82,
+        pulseNoise: 0.18,
+        geminateClosureSeconds: 0.052,
+      }
+    : expression.preset === 'excited'
+      ? {
+          sourceMix: 0.86,
+          sourceTilt: 0.5,
+          coarticulation: 0.72,
+          pulseNoise: 0.045,
+          geminateClosureSeconds: 0.05,
+        }
+      : expression.preset === 'calm'
+        ? {
+            sourceMix: 0.94,
+            sourceTilt: 0.7,
+            coarticulation: 0.88,
+            pulseNoise: 0.07,
+            geminateClosureSeconds: 0.054,
+          }
+        : expression.preset === 'serious'
+          ? {
+              sourceMix: 0.92,
+              sourceTilt: 0.56,
+              coarticulation: 0.78,
+              pulseNoise: 0.04,
+              geminateClosureSeconds: 0.052,
+            }
+          : expression.preset === 'narration'
+            ? {
+                sourceMix: 0.93,
+                sourceTilt: 0.63,
+                coarticulation: 0.84,
+                pulseNoise: 0.055,
+                geminateClosureSeconds: 0.053,
+              }
+            : neutral;
+
+  if (expression.preset === 'neutral') return neutral;
+  const amount = clamp(expression.intensity, 0, 1.35);
+  const lerp = (a: number, b: number): number => a + (b - a) * amount;
+  return {
+    sourceMix: clamp(lerp(neutral.sourceMix, target.sourceMix), 0.72, 0.98),
+    sourceTilt: clamp(lerp(neutral.sourceTilt, target.sourceTilt), 0.38, 0.84),
+    coarticulation: clamp(lerp(neutral.coarticulation, target.coarticulation), 0.62, 0.94),
+    pulseNoise: clamp(lerp(neutral.pulseNoise, target.pulseNoise), 0.025, 0.22),
+    geminateClosureSeconds: clamp(
+      lerp(neutral.geminateClosureSeconds, target.geminateClosureSeconds),
+      0.048,
+      0.058,
+    ),
+  };
+}
+
+export function geminatePreclosureSeconds(rate: number): number {
+  return clamp(0.088 / clamp(rate, 0.7, 1.5), 0.06, 0.13);
+}
+
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
 function normalizeProsodyEdits(input: VoiceProsodyInput): VoiceProsodyEdits {
@@ -201,7 +279,7 @@ export class VoiceSynth {
 
     script.units.forEach((unit, index) => {
       if (unit.geminateBefore) {
-        cursor += clamp(0.068 / clamp(settings.rate, 0.7, 1.5), 0.042, 0.105);
+        cursor += geminatePreclosureSeconds(settings.rate);
       }
 
       const expression = edits.localExpressions?.[index] ?? globalExpression;
@@ -264,6 +342,7 @@ export class VoiceSynth {
     plan.units.forEach((timed, index) => {
       const unit = timed.unit;
       const expressionControl = voiceExpressionControl(timed.expression);
+      const speechSource = speechSourceProfileFor(timed.expression);
       const roundedMidi = Math.round(timed.pitchMidi);
       const event: VocalEvent = {
         step: index,
@@ -321,6 +400,10 @@ export class VoiceSynth {
           * expressionControl.attackScale
           * (unit.geminateBefore ? 0.78 : 1),
         releaseSeconds: workletEvent.style.releaseSeconds * (unit.phraseEnd ? 1.08 : 0.88),
+        speechSourceMix: speechSource.sourceMix,
+        speechSourceTilt: speechSource.sourceTilt,
+        speechCoarticulation: speechSource.coarticulation,
+        speechPulseNoise: speechSource.pulseNoise,
       };
 
       workletEvent.voiceCharacter = {
@@ -359,7 +442,10 @@ export class VoiceSynth {
       if (unit.geminateBefore) {
         workletEvent.phoneme = {
           ...workletEvent.phoneme,
-          closureSeconds: Math.max(workletEvent.phoneme.closureSeconds, 0.042),
+          closureSeconds: Math.max(
+            workletEvent.phoneme.closureSeconds,
+            speechSource.geminateClosureSeconds,
+          ),
           burstSeconds: workletEvent.phoneme.burstSeconds * 1.08,
           noiseMix: clamp(workletEvent.phoneme.noiseMix * 1.08, 0, 1),
         };

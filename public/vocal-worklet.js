@@ -59,6 +59,7 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     this.currentHz = 110;
     this.previousFlow = 0;
     this.sourceState = 0;
+    this.speechTiltState = 0;
     this.outputState = 0;
 
     this.formantY1 = new Float64Array(5);
@@ -190,7 +191,8 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
   }
 
   prepareActive(event) {
-    const carry = event.articulate ? 0.78 : 0.975;
+    const speechCoarticulation = clamp01(event.style?.speechCoarticulation || 0);
+    const carry = event.articulate ? 0.78 + speechCoarticulation * 0.1 : 0.975;
     for (let index = 0; index < 5; index += 1) {
       this.formantY1[index] *= carry;
       this.formantY2[index] *= carry;
@@ -293,7 +295,9 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     );
     const start = noteDuration * (1 - lead);
     const progress = smoothstep((elapsed - start) / Math.max(0.001, noteDuration - start));
-    return progress * (event.phoneme.moraicN ? 0.58 : 0.24);
+    const speechCoarticulation = clamp01(event.style?.speechCoarticulation || 0);
+    const vowelMix = 0.24 + speechCoarticulation * 0.16;
+    return progress * (event.phoneme.moraicN ? 0.58 : vowelMix);
   }
 
   harmonicCollision(frequency, bandwidth, resonance) {
@@ -504,11 +508,17 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     const low = this.fricationLowState;
     const high = noise - low;
 
-    if (consonant === 's' || consonant === 'z' || consonant === 't') return high;
+    if (consonant === 's' || consonant === 'ts') return high;
+    if (consonant === 'sh') return high * 0.82 + noise * 0.18;
+    if (consonant === 'ch') return high * 0.76 + noise * 0.24;
+    if (consonant === 'z' || consonant === 'j') return high * 0.58 + low * 0.42;
+    if (consonant === 't') return high * 0.86 + noise * 0.14;
     if (consonant === 'f') return high * 0.68 + low * 0.32;
+    if (consonant === 'v') return high * 0.48 + low * 0.52;
     if (consonant === 'h') return low * 0.74 + noise * 0.26;
     if (consonant === 'k' || consonant === 'g') return high * 0.58 + noise * 0.42;
-    if (consonant === 'p' || consonant === 'b') return noise * 0.72 + low * 0.28;
+    if (consonant === 'p' || consonant === 'b' || consonant === 'd') return noise * 0.72 + low * 0.28;
+    if (consonant === 'w' || consonant === 'y') return low * 0.9 + noise * 0.1;
     return low;
   }
 
@@ -590,6 +600,7 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       this.phase -= Math.floor(this.phase);
       this.advanceModulation(this.lastVibratoRate);
       this.envelopeState *= 0.996;
+      this.speechTiltState *= 0.997;
       this.outputState *= 0.998;
       this.nasalState *= 0.996;
       this.fricationLowState *= 0.996;
@@ -748,9 +759,24 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     const highPitchSoftening = clamp01((this.currentHz - 520) / 520);
     const releaseSoftening = releaseProgress * 0.46;
     const derivativeMix = 7.2 - highPitchSoftening * 1.28 - releaseSoftening;
-    const rawSource = flow * (0.54 + highPitchSoftening * 0.035)
+    const singingSource = flow * (0.54 + highPitchSoftening * 0.035)
       + derivative * derivativeMix;
-    this.sourceState += (rawSource - this.sourceState) * 0.62;
+
+    // Speech mode uses a less impulsive LF-inspired excitation. A reduced
+    // differentiated-flow component plus a one-pole tilt produces the
+    // naturally decaying high-frequency spectrum of voiced speech and avoids
+    // the buzzy, organ-like quality of a pulse-heavy singing source.
+    const speechSourceMix = clamp01(style.speechSourceMix || 0);
+    const speechTilt = clamp01(style.speechSourceTilt || 0);
+    const speechRaw = flow * (0.7 + highPitchSoftening * 0.025)
+      + derivative * (4.15 - highPitchSoftening * 0.72 - releaseSoftening * 0.45);
+    const tiltFollow = 0.12 + (1 - speechTilt) * 0.28;
+    this.speechTiltState += (speechRaw - this.speechTiltState) * tiltFollow;
+    const tiltedSpeechSource = speechRaw * (1 - speechTilt * 0.7)
+      + this.speechTiltState * (speechTilt * 0.7);
+    const rawSource = singingSource * (1 - speechSourceMix)
+      + tiltedSpeechSource * speechSourceMix;
+    this.sourceState += (rawSource - this.sourceState) * (0.54 + speechSourceMix * 0.08);
 
     const coupling = Math.max(
       0,
@@ -811,6 +837,16 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       * (0.22 + glottalOpen * 0.78)
       * (1 + articulation.aspirationMix * 0.75);
 
+    const speechPulseNoise = clamp01(style.speechPulseNoise || 0);
+    const openingCenter = dynamicOpenQuotient * 0.2;
+    const openingDistance = Math.abs(this.phase - openingCenter);
+    const pulseWindow = Math.exp(-openingDistance * openingDistance / 0.012);
+    const pulseAspiration = (noise - this.shimmerState)
+      * style.breathLevel
+      * speechPulseNoise
+      * pulseWindow
+      * (0.35 + glottalOpen * 0.65);
+
     const releaseBreathGain = active.phraseEnd
       ? clamp01((0.11 - remaining) / 0.11)
       : 0;
@@ -843,6 +879,7 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       vocal * amplitudeVibrato * shimmer
       + breath
       + aspiration
+      + pulseAspiration
       + releaseBreath
       + articulation.noise
     ) * this.envelopeState * 0.415;
