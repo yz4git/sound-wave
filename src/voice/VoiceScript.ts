@@ -2,6 +2,7 @@ import type { VocalVowel } from '../compose/VocalGenerator';
 
 export type VoiceIntonation = 'natural' | 'flat' | 'rise' | 'fall' | 'question';
 export type VoiceBoundary = 'none' | 'accent' | 'sentence';
+export type VoicePitchAccent = 'auto' | 'low' | 'high';
 
 export interface VoiceUnit {
   index: number;
@@ -22,6 +23,8 @@ export interface VoiceUnit {
   longVowel: boolean;
   moraicN: boolean;
   devoiced: boolean;
+  /** Optional lexical pitch-accent state supplied by a Japanese front end. */
+  pitchAccent: VoicePitchAccent;
 }
 
 export interface VoiceScript {
@@ -170,6 +173,7 @@ function pushUnit(
     longVowel: flags.longVowel ?? false,
     moraicN: syllable === 'n' || syllable === 'nn',
     devoiced: false,
+    pitchAccent: 'auto',
   });
 }
 
@@ -396,6 +400,11 @@ export function parseVoiceScript(text: string): VoiceScript {
 }
 
 function accentPhraseOffset(unit: VoiceUnit): number {
+  if (unit.pitchAccent !== 'auto') {
+    const lexical = unit.pitchAccent === 'high' ? 0.44 : -0.42;
+    const declination = unit.pitchAccent === 'high' ? unit.accentIndex * 0.055 : 0;
+    return lexical - declination - (unit.accentEnd ? 0.08 : 0);
+  }
   if (unit.accentCount <= 1) return 0;
   if (unit.accentIndex === 0) return -0.48;
   const decline = Math.max(0, unit.accentIndex - 1) * 0.11;
