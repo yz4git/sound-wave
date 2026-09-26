@@ -65,9 +65,6 @@ for (const localDeliveryFeature of ['SELECT TEXT', 'LOCAL DELIVERY', 'CLEAR TAGS
 for (const speechSourceFeature of ['speechSourceMix', 'speechSourceTilt', 'speechCoarticulation', 'speechPulseNoise', 'geminateClosureSeconds']) {
   if (!entryJavaScript.includes(speechSourceFeature)) fail(`production bundle is missing VOICE LAB speech source feature: ${speechSourceFeature}`);
 }
-for (const workletSpeechFeature of ['speechTiltState', 'speechSourceMix', 'speechSourceTilt', 'speechCoarticulation', 'speechPulseNoise']) {
-  if (!vocalWorklet.includes(workletSpeechFeature)) fail(`vocal worklet is missing speech source feature: ${workletSpeechFeature}`);
-}
 for (const fullSongFeature of ['FULL SONG', 'songSections', 'PRE-CHORUS', 'INTERLUDE', 'BRIDGE']) {
   if (!entryJavaScript.includes(fullSongFeature)) fail(`production bundle is missing full-song structure: ${fullSongFeature}`);
 }
@@ -102,6 +99,9 @@ for (const swFreshnessFeature of ["CACHE_PREFIX = 'sound-wave-'", "endsWith('/ve
 }
 
 const vocalWorklet = readFileSync(join(distDir, 'vocal-worklet.js'), 'utf8');
+for (const workletSpeechFeature of ['speechTiltState', 'speechSourceMix', 'speechSourceTilt', 'speechCoarticulation', 'speechPulseNoise']) {
+  if (!vocalWorklet.includes(workletSpeechFeature)) fail(`vocal worklet is missing speech source feature: ${workletSpeechFeature}`);
+}
 try { new Function(vocalWorklet); } catch (error) {
   fail(`dist/vocal-worklet.js has invalid JavaScript syntax: ${error instanceof Error ? error.message : String(error)}`);
 }
