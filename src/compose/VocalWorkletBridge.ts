@@ -98,6 +98,8 @@ export interface VocalWorkletEvent {
     speechCoarticulation?: number;
     /** Phase-synchronous aspiration/noise mixed into speech phonation. */
     speechPulseNoise?: number;
+    /** Speech-only multiplier for inter-mora F0 transition time. */
+    speechPitchTransitionScale?: number;
   };
 }
 
