@@ -10,6 +10,7 @@ import {
   type JapaneseG2PAnalysis,
 } from './JapaneseG2P';
 import type { VoiceScript } from './VoiceScript';
+import { getVoiceProsodyWindow } from './VoiceProsodyWindow';
 import {
   VOICE_EXPRESSION_PRESETS,
   validVoiceExpressionPreset,
@@ -61,6 +62,7 @@ export class VoiceMode {
   private energyEdits: number[] = [];
   private durationEdits: number[] = [];
   private prosodyLane: ProsodyLane = 'pitch';
+  private prosodyPage = 0;
   private drawingProsody = false;
   private lastDrawIndex: number | null = null;
   private lastDrawValue = 0;
@@ -189,8 +191,13 @@ export class VoiceMode {
                 <button type="button" data-prosody-lane="energy">ENERGY</button>
                 <button type="button" data-prosody-lane="duration">TIMING</button>
               </div>
-              <span id="voice-prosody-hint">DRAW F0 · ±3 ST</span>
+              <div class="voice-prosody-page" aria-label="Prosody page">
+                <button type="button" id="voice-prosody-prev" aria-label="Previous prosody page">‹</button>
+                <span id="voice-prosody-page-label">1 / 1</span>
+                <button type="button" id="voice-prosody-next" aria-label="Next prosody page">›</button>
+              </div>
               <button type="button" id="voice-reset-prosody">RESET ALL</button>
+              <span id="voice-prosody-hint">DRAW F0 · ±3 ST</span>
             </div>
             <div id="voice-contour" class="voice-contour pitch" aria-label="Drawable prosody contour"></div>
             <div id="voice-units" class="voice-units" aria-label="Speech units"></div>
@@ -313,6 +320,20 @@ export class VoiceMode {
         this.refreshPlan();
       }, { passive: false });
     }
+
+    this.required<HTMLButtonElement>('#voice-prosody-prev').addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      if (this.prosodyPage <= 0) return;
+      this.prosodyPage -= 1;
+      this.lastDrawIndex = null;
+      this.refreshPlan();
+    }, { passive: false });
+    this.required<HTMLButtonElement>('#voice-prosody-next').addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      this.prosodyPage += 1;
+      this.lastDrawIndex = null;
+      this.refreshPlan();
+    }, { passive: false });
 
     this.required<HTMLButtonElement>('#voice-analyze-japanese').addEventListener('pointerdown', (event) => {
       event.preventDefault();
@@ -568,8 +589,17 @@ export class VoiceMode {
 
     this.ensureProsodyEditLength(script.units.length);
     const plan = this.synth.plan(script, this.settings, this.getProsodyEdits(localExpressions));
-    const preview = plan.units.slice(0, 72);
-    preview.forEach((timed, index) => {
+    const window = getVoiceProsodyWindow(plan.units.length, this.prosodyPage);
+    this.prosodyPage = window.page;
+    const pageLabel = this.required<HTMLElement>('#voice-prosody-page-label');
+    pageLabel.textContent = `${window.page + 1} / ${window.pageCount}`;
+    const prevPage = this.required<HTMLButtonElement>('#voice-prosody-prev');
+    const nextPage = this.required<HTMLButtonElement>('#voice-prosody-next');
+    prevPage.disabled = window.page <= 0;
+    nextPage.disabled = window.page >= window.pageCount - 1;
+    const preview = plan.units.slice(window.start, window.end);
+    preview.forEach((timed) => {
+      const index = timed.unit.index;
       const unit = timed.unit;
       const token = document.createElement('i');
       token.textContent = unit.display;
@@ -591,6 +621,7 @@ export class VoiceMode {
       unitsEl.append(token);
 
       const point = document.createElement('i');
+      point.dataset.voiceIndex = String(index);
       const pitchOffset = timed.pitchMidi - this.settings.pitch;
       const pitchValue = clamp((pitchOffset + 3) / 6, 0.05, 0.95);
       const energyValue = clamp((timed.manualEnergyScale - 0.45) / 1.1, 0.05, 0.95);
@@ -704,9 +735,14 @@ export class VoiceMode {
     if (script.units.length === 0) return;
     this.ensureProsodyEditLength(script.units.length);
 
+    const window = getVoiceProsodyWindow(script.units.length, this.prosodyPage);
+    this.prosodyPage = window.page;
+    if (window.visibleCount <= 0) return;
+
     const x = clamp((event.clientX - rect.left) / rect.width, 0, 0.999999);
     const y = clamp((event.clientY - rect.top) / rect.height, 0, 1);
-    const index = Math.min(script.units.length - 1, Math.floor(x * script.units.length));
+    const visibleOffset = Math.min(window.visibleCount - 1, Math.floor(x * window.visibleCount));
+    const index = window.start + visibleOffset;
     const value = this.drawValueFromPointer(y);
 
     if (this.lastDrawIndex !== null && this.lastDrawIndex !== index) {
@@ -729,7 +765,7 @@ export class VoiceMode {
     const plan = this.synth.plan(script, this.settings, this.getProsodyEdits(localExpressions));
     const timed = plan.units[index];
     if (timed) {
-      const point = contour.children[index] as HTMLElement | undefined;
+      const point = contour.querySelector<HTMLElement>(`[data-voice-index="${index}"]`) ?? undefined;
       if (point) {
         const pitchValue = clamp((timed.pitchMidi - this.settings.pitch + 3) / 6, 0.05, 0.95);
         const energyValue = clamp((timed.manualEnergyScale - 0.45) / 1.1, 0.05, 0.95);
