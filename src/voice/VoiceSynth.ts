@@ -127,8 +127,37 @@ export function speechSourceProfileFor(expression: VoiceExpressionSettings): Spe
   };
 }
 
-export function geminatePreclosureSeconds(rate: number): number {
-  return clamp(0.088 / clamp(rate, 0.7, 1.5), 0.06, 0.13);
+export function geminatePreclosureSeconds(
+  rate: number,
+  precedingMoraDuration?: number,
+): number {
+  const normalizedRate = clamp(rate, 0.55, 1.8);
+  const reference = precedingMoraDuration
+    ?? 0.165 / normalizedRate;
+  const targetTotalClosure = clamp(reference * 0.78, 0.095, 0.145);
+  return clamp(targetTotalClosure - 0.052, 0.043, 0.098);
+}
+
+export function japaneseBoundaryPauseSeconds(unit: VoiceUnit, rate: number): number {
+  if (unit.pauseAfter <= 0) return 0;
+  const normalizedRate = clamp(rate, 0.55, 1.8);
+  const exponent = unit.boundaryAfter === 'sentence' ? 0.46 : 0.68;
+  const rateScale = 1 / (normalizedRate ** exponent);
+  const boundaryScale = unit.boundaryAfter === 'sentence' ? 1.04 : 0.94;
+  return clamp(unit.pauseAfter * rateScale * boundaryScale, 0.025, 0.52);
+}
+
+export function speechPitchTransitionScaleFor(
+  unit: VoiceUnit,
+  previousUnit: VoiceUnit | undefined,
+): number {
+  if (!previousUnit) return 0.82;
+  const lexicalStep = previousUnit.pitchAccent !== 'auto'
+    && unit.pitchAccent !== 'auto'
+    && previousUnit.pitchAccent !== unit.pitchAccent;
+  if (lexicalStep) return 0.72;
+  if (unit.accentStart || unit.phraseStart) return 0.84;
+  return 1;
 }
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
@@ -150,17 +179,26 @@ function midiToHz(midi: number): number {
   return 440 * 2 ** ((midi - 69) / 12);
 }
 
-function unitDuration(unit: VoiceUnit, rate: number): number {
+export function japaneseUnitDurationSeconds(unit: VoiceUnit, rate: number): number {
   const consonantHeavy = /^(k|ky|s|sh|t|ch|ts|h|f|p|g|gy|z|j|d|b)/i.test(unit.syllable);
   const nasal = unit.moraicN;
   let base = nasal ? 0.155 : consonantHeavy ? 0.174 : 0.165;
 
-  if (unit.longVowel) base *= 1.28;
-  if (unit.devoiced) base *= 0.76;
-  if (unit.accentEnd && !unit.phraseEnd) base *= 1.035;
-  if (unit.phraseEnd) base *= 1.1;
+  // A long-vowel continuation is its own mora. Making the continuation about
+  // 1.45× a short mora keeps the full V+V: contrast near the robust Japanese
+  // perceptual duration ratio while still allowing speech-rate compression.
+  if (unit.longVowel) base *= 1.45;
 
-  return clamp(base / clamp(rate, 0.55, 1.8), 0.072, 0.38);
+  // Tokyo-style high-vowel devoicing is realized with temporal compression,
+  // not just a quieter periodic source.
+  if (unit.devoiced) base *= unit.pitchAccent === 'high' ? 0.78 : 0.68;
+
+  // Phrase-final lengthening is stronger at a sentence edge than at an
+  // internal accent-phrase boundary.
+  if (unit.accentEnd && !unit.phraseEnd) base *= 1.045;
+  if (unit.phraseEnd) base *= 1.13;
+
+  return clamp(base / clamp(rate, 0.55, 1.8), 0.055, 0.44);
 }
 
 function unitEnergyScale(unit: VoiceUnit): number {
@@ -279,7 +317,8 @@ export class VoiceSynth {
 
     script.units.forEach((unit, index) => {
       if (unit.geminateBefore) {
-        cursor += geminatePreclosureSeconds(settings.rate);
+        const precedingMoraDuration = units[units.length - 1]?.duration;
+        cursor += geminatePreclosureSeconds(settings.rate, precedingMoraDuration);
       }
 
       const expression = edits.localExpressions?.[index] ?? globalExpression;
@@ -297,7 +336,7 @@ export class VoiceSynth {
         82,
       );
       const duration = clamp(
-        unitDuration(unit, settings.rate) * expressionUnit.durationScale * manualDurationScale,
+        japaneseUnitDurationSeconds(unit, settings.rate) * expressionUnit.durationScale * manualDurationScale,
         0.05,
         0.58,
       );
@@ -319,7 +358,7 @@ export class VoiceSynth {
         expression,
       });
 
-      cursor += duration + unit.pauseAfter / clamp(settings.rate, 0.7, 1.4);
+      cursor += duration + japaneseBoundaryPauseSeconds(unit, settings.rate);
     });
 
     return { duration: cursor + 0.08, units };
@@ -343,6 +382,8 @@ export class VoiceSynth {
       const unit = timed.unit;
       const expressionControl = voiceExpressionControl(timed.expression);
       const speechSource = speechSourceProfileFor(timed.expression);
+      const previousUnit = plan.units[index - 1]?.unit;
+      const pitchTransitionScale = speechPitchTransitionScaleFor(unit, previousUnit);
       const roundedMidi = Math.round(timed.pitchMidi);
       const event: VocalEvent = {
         step: index,
@@ -404,6 +445,7 @@ export class VoiceSynth {
         speechSourceTilt: speechSource.sourceTilt,
         speechCoarticulation: speechSource.coarticulation,
         speechPulseNoise: speechSource.pulseNoise,
+        speechPitchTransitionScale: pitchTransitionScale,
       };
 
       workletEvent.voiceCharacter = {
