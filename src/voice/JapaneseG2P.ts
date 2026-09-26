@@ -20,10 +20,16 @@ export interface JapaneseFrontendNode {
   chain_flag: number;
 }
 
+export interface JapaneseUnitSourceRange {
+  start: number;
+  end: number;
+}
+
 export interface JapaneseG2PAnalysis {
   script: VoiceScript;
   reading: string;
   nodes: JapaneseFrontendNode[];
+  unitSourceRanges: JapaneseUnitSourceRange[];
   source: 'open-jtalk';
 }
 
@@ -215,15 +221,31 @@ interface NodeSpan {
   node: JapaneseFrontendNode;
 }
 
-export function buildScriptFromJapaneseFrontend(nodes: JapaneseFrontendNode[]): {
+export function buildScriptFromJapaneseFrontend(
+  nodes: JapaneseFrontendNode[],
+  sourceText = '',
+): {
   script: VoiceScript;
   reading: string;
+  unitSourceRanges: JapaneseUnitSourceRange[];
 } {
   const readingParts: string[] = [];
   const spans: NodeSpan[] = [];
+  const unitSourceRanges: JapaneseUnitSourceRange[] = [];
   let unitCursor = 0;
+  let sourceCursor = 0;
 
   for (const node of nodes) {
+    const surface = node.string || '';
+    let sourceStart = sourceCursor;
+    let sourceEnd = sourceCursor;
+    if (sourceText && surface) {
+      const found = sourceText.indexOf(surface, sourceCursor);
+      sourceStart = found >= 0 ? found : sourceCursor;
+      sourceEnd = Math.min(sourceText.length, sourceStart + surface.length);
+      sourceCursor = sourceEnd;
+    }
+
     const pronunciation = node.pron || node.read || '';
     if (pronunciation && hasKana(pronunciation)) {
       const hira = kataToHira(pronunciation);
@@ -235,17 +257,34 @@ export function buildScriptFromJapaneseFrontend(nodes: JapaneseFrontendNode[]): 
           end: unitCursor + count - 1,
           node,
         });
+
+        const surfaceLength = Math.max(1, sourceEnd - sourceStart);
+        for (let localIndex = 0; localIndex < count; localIndex += 1) {
+          const start = sourceText
+            ? sourceStart + Math.floor(localIndex * surfaceLength / count)
+            : unitCursor + localIndex;
+          const end = sourceText
+            ? sourceStart + Math.max(
+                Math.floor((localIndex + 1) * surfaceLength / count),
+                Math.floor(localIndex * surfaceLength / count) + 1,
+              )
+            : unitCursor + localIndex + 1;
+          unitSourceRanges.push({
+            start,
+            end: sourceText ? Math.min(sourceEnd, end) : end,
+          });
+        }
         unitCursor += count;
       }
-    } else if (node.string) {
-      readingParts.push(node.string);
+    } else if (surface) {
+      readingParts.push(surface);
     }
   }
 
   const reading = readingParts.join('');
   const script = parseVoiceScript(reading);
   if (script.units.length === 0 || spans.length === 0) {
-    return { script, reading };
+    return { script, reading, unitSourceRanges };
   }
 
   const phraseGroups: NodeSpan[][] = [];
@@ -280,7 +319,7 @@ export function buildScriptFromJapaneseFrontend(nodes: JapaneseFrontendNode[]): 
   }
 
   finalizeVoiceUnits(script.units);
-  return { script, reading };
+  return { script, reading, unitSourceRanges };
 }
 
 export async function analyzeJapaneseText(
@@ -290,12 +329,13 @@ export async function analyzeJapaneseText(
   await initializeJapaneseG2P(onProgress);
   onProgress?.({ stage: 'analyze', progress: 0.96, message: 'ANALYZING READING + PITCH ACCENT' });
   const nodes = await callWorker<JapaneseFrontendNode[]>('runFrontend', [text]);
-  const { script, reading } = buildScriptFromJapaneseFrontend(nodes);
+  const { script, reading, unitSourceRanges } = buildScriptFromJapaneseFrontend(nodes, text);
   onProgress?.({ stage: 'ready', progress: 1, message: 'KANJI G2P READY' });
   return {
     script,
     reading,
     nodes,
+    unitSourceRanges,
     source: 'open-jtalk',
   };
 }
