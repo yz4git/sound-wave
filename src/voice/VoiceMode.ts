@@ -504,7 +504,10 @@ export class VoiceMode {
   }
 
   private async analyzeJapanese(): Promise<boolean> {
-    if (this.japaneseAnalyzing) return;
+    if (this.japaneseAnalyzing) {
+      this.setStatus('KANJI G2P · ANALYSIS ALREADY RUNNING');
+      return false;
+    }
     const textarea = this.required<HTMLTextAreaElement>('#voice-text');
     const text = textarea.value.trim();
     if (!text) {
@@ -615,13 +618,13 @@ export class VoiceMode {
       note.textContent = analyzed
         ? `LOCAL DSP · OPEN JTALK G2P · ${script.units.length} morae · lexical pitch accent + draw controls`
         : script.unsupported.length > 0
-          ? `LOCAL DSP · KANJI DETECTED · tap KANJI G2P for reading + pitch accent`
+          ? `LOCAL DSP · KANJI DETECTED · SPEAK auto-runs reading + pitch accent`
           : `LOCAL DSP · ${script.units.length} morae · ${this.settings.expression.preset.toUpperCase()} delivery${markup.markupUsed ? ' + local spans' : ''} · draw pitch / energy / timing`;
       this.setStatus(
         analyzed
           ? 'READY · LOCAL DSP + OPEN JTALK'
           : script.unsupported.length > 0
-            ? 'KANJI DETECTED · RUN KANJI G2P'
+            ? 'KANJI DETECTED · SPEAK TO AUTO-ANALYZE'
             : script.units.length > 0
               ? 'READY · LOCAL DSP'
               : 'ENTER KANA OR ROMAJI',
