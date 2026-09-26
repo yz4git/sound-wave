@@ -53,6 +53,71 @@ export interface VoicePlaybackPlan {
   units: VoiceTimedUnit[];
 }
 
+export interface SpeechSourceProfile {
+  sourceMix: number;
+  sourceTilt: number;
+  coarticulation: number;
+  pulseNoise: number;
+  geminateClosureSeconds: number;
+}
+
+export function speechSourceProfileFor(expression: VoiceExpressionSettings): SpeechSourceProfile {
+  switch (expression.preset) {
+    case 'whisper':
+      return {
+        sourceMix: 0.8,
+        sourceTilt: 0.78,
+        coarticulation: 0.82,
+        pulseNoise: 0.18,
+        geminateClosureSeconds: 0.052,
+      };
+    case 'excited':
+      return {
+        sourceMix: 0.86,
+        sourceTilt: 0.5,
+        coarticulation: 0.72,
+        pulseNoise: 0.045,
+        geminateClosureSeconds: 0.05,
+      };
+    case 'calm':
+      return {
+        sourceMix: 0.94,
+        sourceTilt: 0.7,
+        coarticulation: 0.88,
+        pulseNoise: 0.07,
+        geminateClosureSeconds: 0.054,
+      };
+    case 'serious':
+      return {
+        sourceMix: 0.92,
+        sourceTilt: 0.56,
+        coarticulation: 0.78,
+        pulseNoise: 0.04,
+        geminateClosureSeconds: 0.052,
+      };
+    case 'narration':
+      return {
+        sourceMix: 0.93,
+        sourceTilt: 0.63,
+        coarticulation: 0.84,
+        pulseNoise: 0.055,
+        geminateClosureSeconds: 0.053,
+      };
+    default:
+      return {
+        sourceMix: 0.91,
+        sourceTilt: 0.62,
+        coarticulation: 0.82,
+        pulseNoise: 0.055,
+        geminateClosureSeconds: 0.052,
+      };
+  }
+}
+
+export function geminatePreclosureSeconds(rate: number): number {
+  return clamp(0.088 / clamp(rate, 0.7, 1.5), 0.06, 0.13);
+}
+
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
 function normalizeProsodyEdits(input: VoiceProsodyInput): VoiceProsodyEdits {
@@ -201,7 +266,7 @@ export class VoiceSynth {
 
     script.units.forEach((unit, index) => {
       if (unit.geminateBefore) {
-        cursor += clamp(0.068 / clamp(settings.rate, 0.7, 1.5), 0.042, 0.105);
+        cursor += geminatePreclosureSeconds(settings.rate);
       }
 
       const expression = edits.localExpressions?.[index] ?? globalExpression;
@@ -264,6 +329,7 @@ export class VoiceSynth {
     plan.units.forEach((timed, index) => {
       const unit = timed.unit;
       const expressionControl = voiceExpressionControl(timed.expression);
+      const speechSource = speechSourceProfileFor(timed.expression);
       const roundedMidi = Math.round(timed.pitchMidi);
       const event: VocalEvent = {
         step: index,
@@ -321,6 +387,10 @@ export class VoiceSynth {
           * expressionControl.attackScale
           * (unit.geminateBefore ? 0.78 : 1),
         releaseSeconds: workletEvent.style.releaseSeconds * (unit.phraseEnd ? 1.08 : 0.88),
+        speechSourceMix: speechSource.sourceMix,
+        speechSourceTilt: speechSource.sourceTilt,
+        speechCoarticulation: speechSource.coarticulation,
+        speechPulseNoise: speechSource.pulseNoise,
       };
 
       workletEvent.voiceCharacter = {
@@ -359,7 +429,10 @@ export class VoiceSynth {
       if (unit.geminateBefore) {
         workletEvent.phoneme = {
           ...workletEvent.phoneme,
-          closureSeconds: Math.max(workletEvent.phoneme.closureSeconds, 0.042),
+          closureSeconds: Math.max(
+            workletEvent.phoneme.closureSeconds,
+            speechSource.geminateClosureSeconds,
+          ),
           burstSeconds: workletEvent.phoneme.burstSeconds * 1.08,
           noiseMix: clamp(workletEvent.phoneme.noiseMix * 1.08, 0, 1),
         };
