@@ -336,7 +336,7 @@ VOICE LAB uses the full-context labels conservatively:
 - `cl` confirms sokuon/geminate timing before the following mora
 - `pau` confirms an internal pause/boundary
 - A1/A2/A3 transitions can confirm accent-phrase boundaries
-- vowel-only repeated morae can confirm long-vowel continuation
+- long-vowel identity remains sourced from NJD `pron`, because repeated vowel phones alone cannot safely distinguish a long vowel from a true vowel sequence
 
 The override is applied only when the number of mora groups reconstructed from full-context labels exactly matches the Voice Script mora count. If alignment fails, the existing NJD reading/pitch-accent path remains active and the full-context hints are ignored rather than partially applied.
 
