@@ -503,23 +503,26 @@ export class VoiceMode {
     };
   }
 
-  private async analyzeJapanese(): Promise<void> {
-    if (this.japaneseAnalyzing) return;
+  private async analyzeJapanese(): Promise<boolean> {
+    if (this.japaneseAnalyzing) {
+      this.setStatus('KANJI G2P · ANALYSIS ALREADY RUNNING');
+      return false;
+    }
     const textarea = this.required<HTMLTextAreaElement>('#voice-text');
     const text = textarea.value.trim();
     if (!text) {
       this.setStatus('ENTER JAPANESE TEXT');
-      return;
+      return false;
     }
 
     const markup = parseVoiceMarkup(text);
     if (markup.markupUsed) {
       this.setStatus('KANJI G2P · CLEAR LOCAL DELIVERY TAGS FIRST');
-      return;
+      return false;
     }
     if (!containsKanji(markup.plainText)) {
       this.setStatus('KANJI G2P · NO KANJI TO ANALYZE');
-      return;
+      return false;
     }
 
     const button = this.required<HTMLButtonElement>('#voice-analyze-japanese');
@@ -540,11 +543,13 @@ export class VoiceMode {
       this.refreshPlan();
       detail.textContent = `OPEN JTALK · ${analysis.script.units.length} morae · ${analysis.reading.slice(0, 48)}${analysis.reading.length > 48 ? '…' : ''}`;
       this.setStatus('KANJI G2P READY · READING + PITCH ACCENT');
+      return true;
     } catch (error) {
       console.warn('VOICE LAB Japanese G2P failed.', error);
       this.clearJapaneseAnalysis();
       detail.textContent = 'Open JTalk failed · kana input and SYSTEM TTS remain available';
       this.setStatus('KANJI G2P UNAVAILABLE');
+      return false;
     } finally {
       this.japaneseAnalyzing = false;
       button.disabled = false;
@@ -613,13 +618,13 @@ export class VoiceMode {
       note.textContent = analyzed
         ? `LOCAL DSP · OPEN JTALK G2P · ${script.units.length} morae · lexical pitch accent + draw controls`
         : script.unsupported.length > 0
-          ? `LOCAL DSP · KANJI DETECTED · tap KANJI G2P for reading + pitch accent`
+          ? `LOCAL DSP · KANJI DETECTED · SPEAK auto-runs reading + pitch accent`
           : `LOCAL DSP · ${script.units.length} morae · ${this.settings.expression.preset.toUpperCase()} delivery${markup.markupUsed ? ' + local spans' : ''} · draw pitch / energy / timing`;
       this.setStatus(
         analyzed
           ? 'READY · LOCAL DSP + OPEN JTALK'
           : script.unsupported.length > 0
-            ? 'KANJI DETECTED · RUN KANJI G2P'
+            ? 'KANJI DETECTED · SPEAK TO AUTO-ANALYZE'
             : script.units.length > 0
               ? 'READY · LOCAL DSP'
               : 'ENTER KANA OR ROMAJI',
@@ -773,11 +778,19 @@ export class VoiceMode {
       return;
     }
 
-    const { script, localExpressions, analyzed } = this.resolveLocalScript(text);
-    if (containsKanji(markup.plainText) && !analyzed) {
-      this.setStatus('KANJI DETECTED · RUN KANJI G2P FIRST');
-      return;
+    let resolved = this.resolveLocalScript(text);
+    if (containsKanji(markup.plainText) && !resolved.analyzed) {
+      this.setStatus('KANJI DETECTED · AUTO G2P');
+      const analyzed = await this.analyzeJapanese();
+      if (!analyzed) {
+        this.setStatus('KANJI G2P FAILED · FALLING BACK TO SYSTEM TTS');
+        this.playSystem(markup);
+        return;
+      }
+      resolved = this.resolveLocalScript(text);
     }
+
+    const { script, localExpressions } = resolved;
     if (script.units.length === 0) {
       this.setStatus('LOCAL DSP NEEDS KANA OR ROMAJI');
       return;
@@ -882,11 +895,18 @@ export class VoiceMode {
     if (this.settings.engine !== 'local') return;
     const text = this.required<HTMLTextAreaElement>('#voice-text').value.trim();
     const markup = parseVoiceMarkup(text);
-    const { script, localExpressions, analyzed } = this.resolveLocalScript(text);
-    if (containsKanji(markup.plainText) && !analyzed) {
-      this.setStatus('KANJI DETECTED · RUN KANJI G2P FIRST');
-      return;
+    let resolved = this.resolveLocalScript(text);
+    if (containsKanji(markup.plainText) && !resolved.analyzed) {
+      this.setStatus('KANJI DETECTED · AUTO G2P FOR WAV');
+      const analyzed = await this.analyzeJapanese();
+      if (!analyzed) {
+        this.setStatus('WAV EXPORT NEEDS KANJI G2P · USE SYSTEM TTS TO LISTEN');
+        return;
+      }
+      resolved = this.resolveLocalScript(text);
     }
+
+    const { script, localExpressions } = resolved;
     if (script.units.length === 0) {
       this.setStatus('LOCAL DSP NEEDS KANA OR ROMAJI');
       return;
