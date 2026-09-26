@@ -62,7 +62,7 @@ for (const expressionFeature of ['neutral', 'calm', 'excited', 'serious', 'whisp
 for (const localDeliveryFeature of ['SELECT TEXT', 'LOCAL DELIVERY', 'CLEAR TAGS', 'localExpressions', 'SELECT TEXT FIRST']) {
   if (!entryJavaScript.includes(localDeliveryFeature)) fail(`production bundle is missing VOICE LAB local delivery feature: ${localDeliveryFeature}`);
 }
-for (const japaneseG2PFeature of ['KANJI G2P', 'OPEN JTALK', 'pitchAccent', 'open_jtalk_dic_utf_8-1.11.tar.gz', 'browser/worker.js']) {
+for (const japaneseG2PFeature of ['JAPANESE G2P', 'OPEN JTALK', 'pitchAccent', 'open_jtalk_dic_utf_8-1.11.tar.gz', 'browser/worker.js']) {
   if (!entryJavaScript.includes(japaneseG2PFeature)) fail(`production bundle is missing VOICE LAB Japanese G2P feature: ${japaneseG2PFeature}`);
 }
 for (const longFormVoiceFeature of ['voice-prosody-page-label', 'Previous prosody page', 'Next prosody page', 'VOICE LAB could not resume.']) {
@@ -76,6 +76,9 @@ for (const speechSourceFeature of ['speechSourceMix', 'speechSourceTilt', 'speec
 }
 for (const japaneseTimingFeature of ['speechPitchTransitionScale', 'pitchAccent', 'geminateClosureSeconds']) {
   if (!entryJavaScript.includes(japaneseTimingFeature)) fail(`production bundle is missing VOICE LAB Japanese timing feature: ${japaneseTimingFeature}`);
+}
+for (const finalityFeature of ['speechFinalCreak', 'speechFinalBreath', 'おう / えい']) {
+  if (!entryJavaScript.includes(finalityFeature)) fail(`production bundle is missing VOICE LAB Japanese finality/pronunciation feature: ${finalityFeature}`);
 }
 for (const fullSongFeature of ['FULL SONG', 'songSections', 'PRE-CHORUS', 'INTERLUDE', 'BRIDGE']) {
   if (!entryJavaScript.includes(fullSongFeature)) fail(`production bundle is missing full-song structure: ${fullSongFeature}`);
@@ -115,6 +118,9 @@ for (const workletSpeechFeature of ['speechTiltState', 'speechSourceMix', 'speec
   if (!vocalWorklet.includes(workletSpeechFeature)) fail(`vocal worklet is missing speech source feature: ${workletSpeechFeature}`);
 }
 if (!vocalWorklet.includes('speechPitchTransitionScale')) fail('vocal worklet is missing Japanese speech pitch transition control');
+for (const finalityWorkletFeature of ['speechFinalCreak', 'speechFinalBreath', 'finalityProgress']) {
+  if (!vocalWorklet.includes(finalityWorkletFeature)) fail(`vocal worklet is missing Japanese finality feature: ${finalityWorkletFeature}`);
+}
 try { new Function(vocalWorklet); } catch (error) {
   fail(`dist/vocal-worklet.js has invalid JavaScript syntax: ${error instanceof Error ? error.message : String(error)}`);
 }
