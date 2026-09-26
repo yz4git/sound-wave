@@ -23,6 +23,34 @@ export interface VoiceMarkupScript extends VoiceScript {
   markupUsed: boolean;
 }
 
+export interface VoiceTextRange {
+  start: number;
+  end: number;
+}
+
+export function mapLocalExpressionsToRanges(
+  segments: readonly VoiceSpeechSegment[],
+  ranges: readonly VoiceTextRange[],
+): (VoiceExpressionSettings | null)[] {
+  return ranges.map((range) => {
+    let best: VoiceSpeechSegment | null = null;
+    let bestOverlap = 0;
+
+    for (const segment of segments) {
+      const overlap = Math.max(
+        0,
+        Math.min(range.end, segment.plainEnd) - Math.max(range.start, segment.plainStart),
+      );
+      if (overlap > bestOverlap) {
+        bestOverlap = overlap;
+        best = segment;
+      }
+    }
+
+    return best?.expression ? { ...best.expression } : null;
+  });
+}
+
 const TAG = /\[(\/)?([a-z]+)?(?::(\d{1,3}))?\]/gi;
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
