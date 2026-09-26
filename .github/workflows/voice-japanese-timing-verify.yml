@@ -1,0 +1,33 @@
+name: Voice Japanese Timing Verify
+
+on:
+  push:
+    branches: [chatgpt/voice-lab-japanese-timing]
+    paths:
+      - src/voice/**
+      - src/compose/VocalWorkletBridge.ts
+      - public/vocal-worklet.js
+      - tests/voice-script.test.ts
+      - tests/voice-synth-plan.test.ts
+      - scripts/validate-production.mjs
+      - docs/VOICE_LAB_RESEARCH.md
+      - .github/workflows/voice-japanese-timing-verify.yml
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - run: node --check public/vocal-worklet.js
+      - run: npx vitest run tests/voice-script.test.ts tests/voice-expression.test.ts tests/voice-markup.test.ts tests/voice-synth-plan.test.ts tests/voice-speech-source.test.ts tests/japanese-phoneme.test.ts tests/voice-japanese-g2p.test.ts tests/voice-prosody-window.test.ts tests/voice-prosody-store.test.ts
+      - run: npm run build
+      - run: npm run validate:prod
