@@ -111,7 +111,7 @@
 
 .voice-content-panel {
   display: grid;
-  grid-template-rows: auto minmax(96px, .8fr) auto auto auto minmax(120px, 1.2fr);
+  grid-template-rows: auto minmax(96px, .8fr) auto auto auto auto minmax(120px, 1.2fr);
   gap: 10px;
   padding: 14px;
 }
@@ -231,6 +231,37 @@
   color: #fff;
   border-color: rgba(118, 205, 255, .58);
   background: linear-gradient(180deg, rgba(70, 167, 227, .28), rgba(37, 76, 114, .2));
+}
+
+.voice-japanese-tools {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.voice-japanese-tools button {
+  appearance: none;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(143, 215, 255, .22);
+  border-radius: 7px;
+  background: rgba(17, 33, 49, .78);
+  color: #a9dcff;
+  font: 800 8px/1 system-ui, sans-serif;
+  letter-spacing: .055em;
+  touch-action: manipulation;
+}
+
+.voice-japanese-tools button:disabled { opacity: .38; }
+
+.voice-japanese-tools span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: rgba(217, 235, 250, .42);
+  font: 650 8px/1.25 system-ui, sans-serif;
 }
 
 .voice-engine-note {
@@ -403,6 +434,15 @@
   border-bottom: 1px dotted rgba(124, 206, 255, .42);
 }
 .voice-units i.long-vowel { min-width: 27px; }
+.voice-units i.pitch-high {
+  color: rgba(240, 247, 255, .82);
+  background: rgba(117, 199, 255, .11);
+  transform: translateY(-1px);
+}
+.voice-units i.pitch-low {
+  color: rgba(201, 220, 237, .42);
+  background: rgba(82, 115, 145, .035);
+}
 .voice-units i.geminate::before {
   content: "·";
   margin-right: 2px;
@@ -580,7 +620,7 @@
     min-height: auto;
   }
   .voice-content-panel {
-    grid-template-rows: auto 130px auto auto auto 170px;
+    grid-template-rows: auto 130px auto auto auto auto 170px;
   }
   .voice-controls-panel {
     overflow: visible;
@@ -627,5 +667,15 @@
   .voice-local-delivery {
     grid-template-columns: 1fr;
     gap: 5px;
+  }
+}
+
+@media (max-width: 560px) {
+  .voice-japanese-tools {
+    grid-template-columns: auto 1fr;
+    gap: 6px;
+  }
+  .voice-japanese-tools span {
+    font-size: 7px;
   }
 }
