@@ -63,6 +63,46 @@ describe('VOICE LAB Japanese G2P mapping', () => {
     expect(secondPhrase.map((unit) => unit.pitchAccent)).toEqual(['low', 'high', 'high', 'high']);
   });
 
+  it('maps analyzed morae back to source-text ranges for local style alignment', () => {
+    const nodes: JapaneseFrontendNode[] = [
+      {
+        string: '今日',
+        read: 'キョー',
+        pron: 'キョー',
+        acc: 1,
+        mora_size: 2,
+        chain_flag: -1,
+      },
+      {
+        string: 'は',
+        read: 'ワ',
+        pron: 'ワ',
+        acc: 0,
+        mora_size: 1,
+        chain_flag: 1,
+      },
+      {
+        string: '静か',
+        read: 'シズカ',
+        pron: 'シズカ',
+        acc: 1,
+        mora_size: 3,
+        chain_flag: 0,
+      },
+    ];
+
+    const { script, unitSourceRanges } = buildScriptFromJapaneseFrontend(
+      nodes,
+      '今日は静か',
+    );
+
+    expect(unitSourceRanges).toHaveLength(script.units.length);
+    expect(unitSourceRanges[0]).toMatchObject({ start: 0 });
+    expect(unitSourceRanges[1]?.end).toBeLessThanOrEqual(2);
+    expect(unitSourceRanges[2]).toEqual({ start: 2, end: 3 });
+    expect(unitSourceRanges.slice(3).every((range) => range.start >= 3)).toBe(true);
+  });
+
   it('turns lexical high and low states into distinct F0 offsets', () => {
     const { script } = buildScriptFromJapaneseFrontend([{
       string: '橋',
