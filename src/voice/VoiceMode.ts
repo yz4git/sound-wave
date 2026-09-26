@@ -582,11 +582,11 @@ export class VoiceMode {
       this.resetProsodyEdits();
       this.prosodyLoadedSignature = '';
       this.refreshPlan();
-      detail.textContent = `OPEN JTALK · ${analysis.script.units.length} morae · ${analysis.reading.slice(0, 48)}${analysis.reading.length > 48 ? '…' : ''}`;
+      detail.textContent = `OPEN JTALK · ${analysis.script.units.length} morae · ${analysis.fullContextMatched ? 'FULL CONTEXT · ' : ''}${analysis.reading.slice(0, 48)}${analysis.reading.length > 48 ? '…' : ''}`;
       this.setStatus(
         markup.markupUsed
-          ? 'JAPANESE G2P READY · PITCH ACCENT + LOCAL DELIVERY'
-          : 'JAPANESE G2P READY · READING + PITCH ACCENT',
+          ? `JAPANESE G2P READY · ${analysis.fullContextMatched ? 'FULL CONTEXT + ' : ''}PITCH ACCENT + LOCAL DELIVERY`
+          : `JAPANESE G2P READY · ${analysis.fullContextMatched ? 'FULL CONTEXT + ' : ''}READING + PITCH ACCENT`,
       );
       return true;
     } catch (error) {
@@ -676,7 +676,7 @@ export class VoiceMode {
     const note = this.required<HTMLElement>('#voice-engine-note');
     if (this.settings.engine === 'local') {
       note.textContent = analyzed
-        ? `LOCAL DSP · OPEN JTALK G2P · ${script.units.length} morae · lexical pitch accent${markup.markupUsed ? ' + local delivery' : ''} + saved draw controls`
+        ? `LOCAL DSP · OPEN JTALK G2P · ${script.units.length} morae · ${this.japaneseAnalysis?.fullContextMatched ? 'full-context phonology + ' : ''}lexical pitch accent${markup.markupUsed ? ' + local delivery' : ''} + saved draw controls`
         : script.unsupported.length > 0
           ? `LOCAL DSP · KANJI DETECTED · SPEAK auto-runs reading + pitch accent`
           : `LOCAL DSP · ${script.units.length} morae · ${this.settings.expression.preset.toUpperCase()} delivery${markup.markupUsed ? ' + local spans' : ''} · draw pitch / energy / timing`;
