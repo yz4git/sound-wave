@@ -429,6 +429,8 @@ export class VoiceMode {
     for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-voice-engine]')) {
       button.classList.toggle('active', button.dataset.voiceEngine === this.settings.engine);
     }
+    this.required<HTMLButtonElement>('#voice-analyze-japanese').disabled =
+      this.settings.engine !== 'local' || this.japaneseAnalyzing;
     this.required<HTMLButtonElement>('#voice-export-wav').disabled = this.settings.engine !== 'local';
     this.required<HTMLButtonElement>('#voice-reset-prosody').disabled = this.settings.engine !== 'local';
     for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-prosody-lane]')) {
@@ -573,6 +575,8 @@ export class VoiceMode {
       if (unit.devoiced) token.classList.add('devoiced');
       if (unit.longVowel) token.classList.add('long-vowel');
       if (unit.geminateBefore) token.classList.add('geminate');
+      if (unit.pitchAccent === 'high') token.classList.add('pitch-high');
+      if (unit.pitchAccent === 'low') token.classList.add('pitch-low');
       const localExpression = localExpressions[index];
       if (localExpression) {
         token.classList.add('local-delivery');
@@ -690,7 +694,8 @@ export class VoiceMode {
     const rect = contour.getBoundingClientRect();
     if (rect.width <= 0 || rect.height <= 0) return;
 
-    const script = parseVoiceMarkup(this.required<HTMLTextAreaElement>('#voice-text').value);
+    const text = this.required<HTMLTextAreaElement>('#voice-text').value;
+    const { script, localExpressions } = this.resolveLocalScript(text);
     if (script.units.length === 0) return;
     this.ensureProsodyEditLength(script.units.length);
 
@@ -716,7 +721,7 @@ export class VoiceMode {
     this.lastDrawIndex = index;
     this.lastDrawValue = value;
 
-    const plan = this.synth.plan(script, this.settings, this.getProsodyEdits(script.localExpressions));
+    const plan = this.synth.plan(script, this.settings, this.getProsodyEdits(localExpressions));
     const timed = plan.units[index];
     if (timed) {
       const point = contour.children[index] as HTMLElement | undefined;
@@ -762,13 +767,17 @@ export class VoiceMode {
       return;
     }
 
-    const script = parseVoiceMarkup(text);
+    const markup = parseVoiceMarkup(text);
     if (this.settings.engine === 'system') {
-      this.playSystem(script);
+      this.playSystem(markup);
       return;
     }
 
-
+    const { script, localExpressions, analyzed } = this.resolveLocalScript(text);
+    if (containsKanji(markup.plainText) && !analyzed) {
+      this.setStatus('KANJI DETECTED · RUN KANJI G2P FIRST');
+      return;
+    }
     if (script.units.length === 0) {
       this.setStatus('LOCAL DSP NEEDS KANA OR ROMAJI');
       return;
@@ -776,7 +785,7 @@ export class VoiceMode {
 
     try {
       this.setStatus('SCHEDULING · LOW-LATENCY STREAM');
-      const plan = await this.synth.play(script, this.settings, this.getProsodyEdits(script.localExpressions));
+      const plan = await this.synth.play(script, this.settings, this.getProsodyEdits(localExpressions));
       this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
       this.setStatus(`SPEAKING · ${script.units.length} UNITS · ${plan.duration.toFixed(1)}s`);
       for (const timed of plan.units.slice(0, 72)) {
@@ -872,7 +881,12 @@ export class VoiceMode {
   private async exportWav(): Promise<void> {
     if (this.settings.engine !== 'local') return;
     const text = this.required<HTMLTextAreaElement>('#voice-text').value.trim();
-    const script = parseVoiceMarkup(text);
+    const markup = parseVoiceMarkup(text);
+    const { script, localExpressions, analyzed } = this.resolveLocalScript(text);
+    if (containsKanji(markup.plainText) && !analyzed) {
+      this.setStatus('KANJI DETECTED · RUN KANJI G2P FIRST');
+      return;
+    }
     if (script.units.length === 0) {
       this.setStatus('LOCAL DSP NEEDS KANA OR ROMAJI');
       return;
@@ -884,8 +898,8 @@ export class VoiceMode {
     button.textContent = 'RENDERING…';
     this.setStatus('RENDERING WAV · REAL-TIME LOCAL CAPTURE');
     try {
-      const blob = await this.synth.renderWav(script, this.settings, this.getProsodyEdits(script.localExpressions));
-      downloadBlob(blob, `${safeFilename(script.plainText)}.wav`);
+      const blob = await this.synth.renderWav(script, this.settings, this.getProsodyEdits(localExpressions));
+      downloadBlob(blob, `${safeFilename(markup.plainText)}.wav`);
       this.setStatus(`WAV EXPORTED · ${Math.round(blob.size / 1024)} KB`);
     } catch (error) {
       console.warn('VOICE LAB WAV export failed.', error);
