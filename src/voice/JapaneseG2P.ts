@@ -290,21 +290,13 @@ export function applyOpenJTalkFullContext(
   for (let index = 0; index < moras.length; index += 1) {
     const mora = moras[index]!;
     const unit = script.units[index]!;
-    const previous = index > 0 ? moras[index - 1] : undefined;
     const next = moras[index + 1];
 
     if (mora.geminateBefore) unit.geminateBefore = true;
 
-    const vowelOnly = mora.phonemes.filter((phone) => phone !== 'cl').length === 1
-      && mora.vowel !== null;
-    if (
-      vowelOnly
-      && previous?.vowel
-      && mora.vowel === previous.vowel
-      && !unit.moraicN
-    ) {
-      unit.longVowel = true;
-    }
+    // Long-vowel identity stays sourced from NJD pronunciation (pron),
+    // where Open JTalk has already resolved ー versus a genuine vowel
+    // sequence. Repeated full-context vowel phones alone are ambiguous.
 
     if (mora.pauseAfter && unit.boundaryAfter === 'none') {
       unit.boundaryAfter = 'accent';
