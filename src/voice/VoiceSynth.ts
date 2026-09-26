@@ -62,56 +62,69 @@ export interface SpeechSourceProfile {
 }
 
 export function speechSourceProfileFor(expression: VoiceExpressionSettings): SpeechSourceProfile {
-  switch (expression.preset) {
-    case 'whisper':
-      return {
+  const neutral: SpeechSourceProfile = {
+    sourceMix: 0.91,
+    sourceTilt: 0.62,
+    coarticulation: 0.82,
+    pulseNoise: 0.055,
+    geminateClosureSeconds: 0.052,
+  };
+  const target: SpeechSourceProfile = expression.preset === 'whisper'
+    ? {
         sourceMix: 0.8,
         sourceTilt: 0.78,
         coarticulation: 0.82,
         pulseNoise: 0.18,
         geminateClosureSeconds: 0.052,
-      };
-    case 'excited':
-      return {
-        sourceMix: 0.86,
-        sourceTilt: 0.5,
-        coarticulation: 0.72,
-        pulseNoise: 0.045,
-        geminateClosureSeconds: 0.05,
-      };
-    case 'calm':
-      return {
-        sourceMix: 0.94,
-        sourceTilt: 0.7,
-        coarticulation: 0.88,
-        pulseNoise: 0.07,
-        geminateClosureSeconds: 0.054,
-      };
-    case 'serious':
-      return {
-        sourceMix: 0.92,
-        sourceTilt: 0.56,
-        coarticulation: 0.78,
-        pulseNoise: 0.04,
-        geminateClosureSeconds: 0.052,
-      };
-    case 'narration':
-      return {
-        sourceMix: 0.93,
-        sourceTilt: 0.63,
-        coarticulation: 0.84,
-        pulseNoise: 0.055,
-        geminateClosureSeconds: 0.053,
-      };
-    default:
-      return {
-        sourceMix: 0.91,
-        sourceTilt: 0.62,
-        coarticulation: 0.82,
-        pulseNoise: 0.055,
-        geminateClosureSeconds: 0.052,
-      };
-  }
+      }
+    : expression.preset === 'excited'
+      ? {
+          sourceMix: 0.86,
+          sourceTilt: 0.5,
+          coarticulation: 0.72,
+          pulseNoise: 0.045,
+          geminateClosureSeconds: 0.05,
+        }
+      : expression.preset === 'calm'
+        ? {
+            sourceMix: 0.94,
+            sourceTilt: 0.7,
+            coarticulation: 0.88,
+            pulseNoise: 0.07,
+            geminateClosureSeconds: 0.054,
+          }
+        : expression.preset === 'serious'
+          ? {
+              sourceMix: 0.92,
+              sourceTilt: 0.56,
+              coarticulation: 0.78,
+              pulseNoise: 0.04,
+              geminateClosureSeconds: 0.052,
+            }
+          : expression.preset === 'narration'
+            ? {
+                sourceMix: 0.93,
+                sourceTilt: 0.63,
+                coarticulation: 0.84,
+                pulseNoise: 0.055,
+                geminateClosureSeconds: 0.053,
+              }
+            : neutral;
+
+  if (expression.preset === 'neutral') return neutral;
+  const amount = clamp(expression.intensity, 0, 1.35);
+  const lerp = (a: number, b: number): number => a + (b - a) * amount;
+  return {
+    sourceMix: clamp(lerp(neutral.sourceMix, target.sourceMix), 0.72, 0.98),
+    sourceTilt: clamp(lerp(neutral.sourceTilt, target.sourceTilt), 0.38, 0.84),
+    coarticulation: clamp(lerp(neutral.coarticulation, target.coarticulation), 0.62, 0.94),
+    pulseNoise: clamp(lerp(neutral.pulseNoise, target.pulseNoise), 0.025, 0.22),
+    geminateClosureSeconds: clamp(
+      lerp(neutral.geminateClosureSeconds, target.geminateClosureSeconds),
+      0.048,
+      0.058,
+    ),
+  };
 }
 
 export function geminatePreclosureSeconds(rate: number): number {
