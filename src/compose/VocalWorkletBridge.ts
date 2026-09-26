@@ -100,6 +100,10 @@ export interface VocalWorkletEvent {
     speechPulseNoise?: number;
     /** Speech-only multiplier for inter-mora F0 transition time. */
     speechPitchTransitionScale?: number;
+    /** Sentence-final irregular phonation amount for spoken Japanese. */
+    speechFinalCreak?: number;
+    /** Sentence-final breath release amount for spoken Japanese. */
+    speechFinalBreath?: number;
   };
 }
 

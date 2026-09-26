@@ -13,6 +13,7 @@ import {
 import {
   analyzeJapaneseText,
   containsKanji,
+  needsJapanesePronunciationAnalysis,
   type JapaneseG2PAnalysis,
 } from './JapaneseG2P';
 import type { VoiceScript } from './VoiceScript';
@@ -191,8 +192,8 @@ export class VoiceMode {
             <button type="button" data-voice-engine="system">SYSTEM TTS</button>
           </div>
           <div class="voice-japanese-tools">
-            <button type="button" id="voice-analyze-japanese">KANJI G2P</button>
-            <span id="voice-japanese-status">Open JTalk reading + pitch accent · first use downloads ~24MB dictionary</span>
+            <button type="button" id="voice-analyze-japanese">JAPANESE G2P</button>
+            <span id="voice-japanese-status">Open JTalk reading + pitch accent · kanji / おう / えい · first use ~24MB dictionary</span>
           </div>
           <p class="voice-engine-note" id="voice-engine-note"></p>
 
@@ -519,7 +520,7 @@ export class VoiceMode {
     this.prosodyLoadedSignature = '';
     const status = this.root.querySelector<HTMLElement>('#voice-japanese-status');
     if (status) {
-      status.textContent = 'Open JTalk reading + pitch accent · first use downloads ~24MB dictionary';
+      status.textContent = 'Open JTalk reading + pitch accent · kanji / おう / えい · first use ~24MB dictionary';
     }
   }
 
@@ -559,8 +560,8 @@ export class VoiceMode {
     }
 
     const markup = parseVoiceMarkup(text);
-    if (!containsKanji(markup.plainText)) {
-      this.setStatus('KANJI G2P · NO KANJI TO ANALYZE');
+    if (!needsJapanesePronunciationAnalysis(markup.plainText)) {
+      this.setStatus('JAPANESE G2P · NO AMBIGUOUS READING TO ANALYZE');
       return false;
     }
 
@@ -584,20 +585,20 @@ export class VoiceMode {
       detail.textContent = `OPEN JTALK · ${analysis.script.units.length} morae · ${analysis.reading.slice(0, 48)}${analysis.reading.length > 48 ? '…' : ''}`;
       this.setStatus(
         markup.markupUsed
-          ? 'KANJI G2P READY · PITCH ACCENT + LOCAL DELIVERY'
-          : 'KANJI G2P READY · READING + PITCH ACCENT',
+          ? 'JAPANESE G2P READY · PITCH ACCENT + LOCAL DELIVERY'
+          : 'JAPANESE G2P READY · READING + PITCH ACCENT',
       );
       return true;
     } catch (error) {
       console.warn('VOICE LAB Japanese G2P failed.', error);
       this.clearJapaneseAnalysis();
       detail.textContent = 'Open JTalk failed · kana input and SYSTEM TTS remain available';
-      this.setStatus('KANJI G2P UNAVAILABLE');
+      this.setStatus('JAPANESE G2P UNAVAILABLE');
       return false;
     } finally {
       this.japaneseAnalyzing = false;
       button.disabled = false;
-      button.textContent = 'KANJI G2P';
+      button.textContent = 'JAPANESE G2P';
     }
   }
 
@@ -908,11 +909,13 @@ export class VoiceMode {
     }
 
     let resolved = this.resolveLocalScript(text);
-    if (containsKanji(markup.plainText) && !resolved.analyzed) {
-      this.setStatus('KANJI DETECTED · AUTO G2P');
+    if (needsJapanesePronunciationAnalysis(markup.plainText) && !resolved.analyzed) {
+      this.setStatus(containsKanji(markup.plainText)
+        ? 'KANJI DETECTED · AUTO G2P'
+        : 'おう / えい DETECTED · AUTO G2P');
       const analyzed = await this.analyzeJapanese();
       if (!analyzed) {
-        this.setStatus('KANJI G2P FAILED · FALLING BACK TO SYSTEM TTS');
+        this.setStatus('JAPANESE G2P FAILED · FALLING BACK TO SYSTEM TTS');
         this.playSystem(markup);
         return;
       }
@@ -1025,11 +1028,13 @@ export class VoiceMode {
     const text = this.required<HTMLTextAreaElement>('#voice-text').value.trim();
     const markup = parseVoiceMarkup(text);
     let resolved = this.resolveLocalScript(text);
-    if (containsKanji(markup.plainText) && !resolved.analyzed) {
-      this.setStatus('KANJI DETECTED · AUTO G2P FOR WAV');
+    if (needsJapanesePronunciationAnalysis(markup.plainText) && !resolved.analyzed) {
+      this.setStatus(containsKanji(markup.plainText)
+        ? 'KANJI DETECTED · AUTO G2P FOR WAV'
+        : 'おう / えい DETECTED · AUTO G2P FOR WAV');
       const analyzed = await this.analyzeJapanese();
       if (!analyzed) {
-        this.setStatus('WAV EXPORT NEEDS KANJI G2P · USE SYSTEM TTS TO LISTEN');
+        this.setStatus('WAV EXPORT NEEDS JAPANESE G2P · USE SYSTEM TTS TO LISTEN');
         return;
       }
       resolved = this.resolveLocalScript(text);

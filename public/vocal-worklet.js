@@ -289,14 +289,32 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     const nextAvailable = event.formants.some((band) => band && band.nextHz !== null);
     if (!nextAvailable) return 0;
 
+    const consonant = event.phoneme.consonant || 'vowel';
+    let leadBias = 0;
+    let mixBias = 0;
+    if (consonant === 'sh' || consonant === 'ch' || consonant === 'j' || consonant === 'y') {
+      leadBias = 0.055;
+      mixBias = 0.07;
+    } else if (consonant === 'r' || consonant === 'w') {
+      leadBias = 0.035;
+      mixBias = 0.045;
+    } else if (consonant === 's' || consonant === 'ts') {
+      leadBias = -0.025;
+      mixBias = -0.035;
+    }
+
+    const baseLead = event.phoneme.coarticulationLead || 0.2;
     const lead = Math.max(
-      event.phoneme.moraicN ? 0.34 : 0.1,
-      Math.min(0.42, event.phoneme.coarticulationLead || 0.2),
+      event.phoneme.moraicN ? 0.34 : 0.08,
+      Math.min(0.46, baseLead + leadBias),
     );
     const start = noteDuration * (1 - lead);
     const progress = smoothstep((elapsed - start) / Math.max(0.001, noteDuration - start));
     const speechCoarticulation = clamp01(event.style?.speechCoarticulation || 0);
-    const vowelMix = 0.24 + speechCoarticulation * 0.16;
+    const vowelMix = Math.max(
+      0.16,
+      Math.min(0.48, 0.24 + speechCoarticulation * 0.16 + mixBias),
+    );
     return progress * (event.phoneme.moraicN ? 0.58 : vowelMix);
   }
 
@@ -629,6 +647,11 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       + (active.phrase.energyEnd - active.phrase.energyStart) * noteProgress;
     const style = active.style;
     const karaoke = active.karaoke || DEFAULT_KARAOKE;
+    const finalCreak = clamp01(style.speechFinalCreak || 0);
+    const finalBreath = clamp01(style.speechFinalBreath || 0);
+    const finalityProgress = active.phraseEnd
+      ? smootherstep((noteProgress - 0.62) / 0.38)
+      : 0;
     const resonance = active.resonance || DEFAULT_RESONANCE;
 
     if (this.coefficientCountdown <= 0) {
@@ -715,9 +738,11 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     const jitterCents = this.jitterState
       * style.jitterCents
       * (0.18 + instability * 0.82);
+    const finalCreakCents = finalityProgress * finalCreak
+      * (-18 + this.jitterState * 34);
 
     const desiredHz = targetHz
-      * 2 ** ((vibratoCents + driftCents + jitterCents) / 1200);
+      * 2 ** ((vibratoCents + driftCents + jitterCents + finalCreakCents) / 1200);
     const safeDesiredHz = Number.isFinite(desiredHz)
       ? Math.max(20, Math.min(2200, desiredHz))
       : active.targetHz;
@@ -739,7 +764,8 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
         style.glottalOpenQuotient
           - energyAmount * Math.max(0, resonance.energyClosureDepth)
           + releaseProgress * Math.max(0, resonance.releaseOpenBoost)
-          + highPitchAmount * Math.max(0, resonance.highPitchOpenBoost),
+          + highPitchAmount * Math.max(0, resonance.highPitchOpenBoost)
+          - finalityProgress * finalCreak * 0.055,
       ),
     );
     const dynamicSpeedQuotient = Math.max(
@@ -748,7 +774,8 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
         0.84,
         style.glottalSpeedQuotient
           + energyAmount * Math.max(0, resonance.speedEnergyBoost)
-          - releaseProgress * 0.012,
+          - releaseProgress * 0.012
+          - finalityProgress * finalCreak * 0.034,
       ),
     );
 
@@ -856,7 +883,7 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       : 0;
     const releaseBreath = (noise - this.shimmerState)
       * style.breathLevel
-      * 0.55
+      * (0.55 + finalBreath * 2.1)
       * releaseBreathGain;
 
     const amplitudeVibrato = 1
@@ -871,7 +898,8 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     const targetEnvelope = this.envelopeFor(active, frame)
       * Math.max(0.3, Math.min(1, active.velocity))
       * phraseEnergy
-      * Math.max(0.85, Math.min(1.12, karaoke.dynamicGain));
+      * Math.max(0.85, Math.min(1.12, karaoke.dynamicGain))
+      * (1 - finalityProgress * finalCreak * 0.12);
     const envelopeRate = targetEnvelope > this.envelopeState
       ? active.articulate
         ? 0.0055

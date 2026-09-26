@@ -160,6 +160,41 @@ export function speechPitchTransitionScaleFor(
   return 1;
 }
 
+export interface SpeechFinalityProfile {
+  creak: number;
+  breath: number;
+}
+
+export function speechFinalityProfileFor(
+  expression: VoiceExpressionSettings,
+  intonation: VoiceIntonation,
+): SpeechFinalityProfile {
+  if (intonation === 'question') {
+    return { creak: 0.04, breath: 0.05 };
+  }
+
+  const base: SpeechFinalityProfile = { creak: 0.24, breath: 0.08 };
+  const target: SpeechFinalityProfile = expression.preset === 'serious'
+    ? { creak: 0.36, breath: 0.045 }
+    : expression.preset === 'narration'
+      ? { creak: 0.31, breath: 0.07 }
+      : expression.preset === 'calm'
+        ? { creak: 0.18, breath: 0.1 }
+        : expression.preset === 'excited'
+          ? { creak: 0.08, breath: 0.075 }
+          : expression.preset === 'whisper'
+            ? { creak: 0.02, breath: 0.28 }
+            : base;
+
+  if (expression.preset === 'neutral') return base;
+  const amount = clamp(expression.intensity, 0, 1.35);
+  const lerp = (a: number, b: number): number => a + (b - a) * amount;
+  return {
+    creak: clamp(lerp(base.creak, target.creak), 0, 0.5),
+    breath: clamp(lerp(base.breath, target.breath), 0.02, 0.35),
+  };
+}
+
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
 function normalizeProsodyEdits(input: VoiceProsodyInput): VoiceProsodyEdits {
@@ -382,6 +417,7 @@ export class VoiceSynth {
       const unit = timed.unit;
       const expressionControl = voiceExpressionControl(timed.expression);
       const speechSource = speechSourceProfileFor(timed.expression);
+      const finality = speechFinalityProfileFor(timed.expression, settings.intonation);
       const previousUnit = plan.units[index - 1]?.unit;
       const pitchTransitionScale = speechPitchTransitionScaleFor(unit, previousUnit);
       const roundedMidi = Math.round(timed.pitchMidi);
@@ -446,6 +482,8 @@ export class VoiceSynth {
         speechCoarticulation: speechSource.coarticulation,
         speechPulseNoise: speechSource.pulseNoise,
         speechPitchTransitionScale: pitchTransitionScale,
+        speechFinalCreak: unit.phraseEnd ? finality.creak : 0,
+        speechFinalBreath: unit.phraseEnd ? finality.breath : 0,
       };
 
       workletEvent.voiceCharacter = {
