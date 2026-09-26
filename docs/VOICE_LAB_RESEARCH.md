@@ -159,3 +159,100 @@ The editor can insert these tags around the current text selection on touch devi
 For System TTS, the same markup is split into sequential speech segments. Each segment receives its own approximate rate, pitch, and volume derived from the local delivery style. This preserves local style changes without exposing the markup to the OS speech engine.
 
 Manual PITCH / ENERGY / TIMING curves still apply after delivery selection, so a local speaking preset can be fine-tuned mora by mora.
+
+
+## 2026-09 speech-quality research sweep
+
+### 1. Source quality matters: reduce pulse-train buzz
+
+A long-standing source-filter result remains highly relevant to lightweight browser synthesis: a plain impulse/pulse excitation produces an unnaturally strong, uniform harmonic structure. Work using the Liljencrants-Fant (LF) glottal model shows that a more realistic glottal waveform has stronger high-frequency decay and can reduce buzzy synthetic quality while retaining controllable voice quality.
+
+References:
+- Cabral et al., *Towards an improved modeling of the glottal source in statistical parametric speech synthesis*: https://www.isca-archive.org/ssw_2007/cabral07_ssw.html
+- Gobl, *Modelling aspiration noise during phonation using the LF voice source model*: https://www.isca-archive.org/interspeech_2006/gobl06_interspeech.html
+
+VOICE LAB now uses a speech-only LF-inspired source blend inside the AudioWorklet:
+- lower differentiated-flow weight than the singing source
+- one-pole high-frequency tilt on the source excitation
+- phase-synchronous aspiration around the opening part of the glottal cycle
+- expression-dependent source tilt and aspiration
+- singing modes remain on the original source path
+
+This is deliberately an LF-inspired approximation rather than a full parameter-identification implementation, keeping the processor inexpensive enough for mobile AudioWorklet execution.
+
+### 2. Dynamic formants and coarticulation are perceptually important
+
+Natural speech does not consist of isolated steady-state vowels. Adjacent consonants and vowels alter formant trajectories, and dynamic spectral transitions carry useful phonetic information. Japanese vowel-to-vowel studies also show that speakers coordinate articulator movement continuously across consonants, including duration changes around long consonants.
+
+References:
+- Löfqvist, *Vowel-to-vowel coarticulation in Japanese: The effect of consonant duration*: https://pmc.ncbi.nlm.nih.gov/articles/PMC2677363/
+- *Dynamic Spectral Structure Specifies Vowels for Adults and Children*: https://pmc.ncbi.nlm.nih.gov/articles/PMC4315365/
+- *Control of Spoken Vowel Acoustics and the Influence of Phonetic Context in Human Speech Sensorimotor Cortex*: https://pmc.ncbi.nlm.nih.gov/articles/PMC4166154/
+
+VOICE LAB therefore increases speech-only tract-state carryover and next-vowel anticipation while leaving the singing path less coupled. The goal is to remove the perceptual impression of discrete concatenated vowel blocks.
+
+### 3. Japanese timing: mora rhythm is not enough by itself
+
+Recent controllable and Japanese TTS work continues to model duration explicitly. FlexSpeech treats explicit phonetic duration as a key stability mechanism, while GST-BERT-TTS predicts duration alongside F0 and energy for Japanese synthesis.
+
+References:
+- Ma et al., *FlexSpeech: Towards Stable, Controllable and Expressive Text-to-Speech* (2025): https://arxiv.org/abs/2505.05159
+- Ogura et al., *GST-BERT-TTS* (Interspeech 2025): https://www.isca-archive.org/interspeech_2025/ogura25_interspeech.html
+
+For Japanese geminates, published production measurements report short consonant closure around 54–95 ms and long consonant closure around 119–165 ms in the tested material. VOICE LAB now gives sokuon an explicit pre-closure interval plus the consonant's normal closure, producing a substantially clearer short/long consonant contrast than the previous minimal pause model.
+
+### 4. Phrase boundaries need explicit control
+
+A 2025 comparison of open-source TTS systems found that even modern systems can fail to express intended phrase-boundary contrasts reliably from punctuation alone. This supports keeping boundary timing and phrase-final behavior explicit rather than assuming that text punctuation automatically creates the right prosody.
+
+Reference:
+- Shim et al., *Generating Consistent Prosodic Patterns from Open-Source TTS Systems* (Interspeech 2025): https://www.isca-archive.org/interspeech_2025/shim25_interspeech.html
+
+VOICE LAB already models accent-phrase and sentence boundaries independently; future listening review should score boundary placement separately from general naturalness.
+
+### 5. Evaluation should be error-local, not only one MOS score
+
+Speech Synthesis Workshop 2025 work argues that a single decontextualized naturalness score gives little guidance about where synthesis failed. Time-aligned error type/severity annotation is more actionable.
+
+Reference:
+- Pine et al., *Practical & Contextual Speech Synthesis Evaluation* (SSW 2025): https://www.isca-archive.org/ssw_2025/pine25_ssw.html
+
+For VOICE LAB, practical review should separately mark:
+- pronunciation/readings
+- consonant identity
+- vowel quality
+- sokuon / long-vowel timing
+- accent / F0
+- phrase boundaries
+- breath/voicing artifacts
+- buzzy/metallic source quality
+- local-style transition artifacts
+
+### 6. Japanese neural browser TTS is now technically viable, but not the default path yet
+
+Kokoro-82M can run locally in browsers through ONNX/Transformers.js, and Japanese voice packs exist. A browser-focused Japanese project also demonstrates a complete client-side path using Kokoro plus Open JTalk WASM for Japanese G2P.
+
+References:
+- Kokoro Web / browser work: https://github.com/xenova/kokoro-web
+- Japanese browser G2P + Kokoro integration: https://github.com/nerosui/kokoro-js-jp
+- Kokoro Japanese voice catalogue: https://huggingface.co/Poshshajon/Kokoro-82M/blob/main/VOICES.md
+- ONNX Runtime Web browser compatibility: https://onnxruntime.ai/docs/get-started/with-javascript/web.html
+
+The tradeoff is substantial for an iPhone-first app:
+- model download is tens to hundreds of MB depending on quantization
+- Japanese Open JTalk dictionary adds roughly 24 MB compressed and around 100 MB after expansion in-browser
+- current ONNX Runtime Web compatibility documentation does not list Safari/iOS WebGPU as a supported execution path, leaving WASM as the safer baseline
+
+Therefore the current recommendation is:
+1. keep the fast local DSP as the always-available engine
+2. continue improving its source, timing, coarticulation and Japanese front end
+3. later add an explicitly optional HIGH QUALITY NEURAL engine with lazy model download and capability detection, rather than making every iPhone user pay the startup/memory cost
+
+### 7. Japanese text reading is a separate quality problem
+
+Sarashina2.2-TTS (2026) highlights context-dependent kanji polyphony as a major Japanese TTS problem and introduces targeted coverage of all 2,136 Joyo kanji plus a kana-space reading metric.
+
+Reference:
+- Liu et al., *Sarashina2.2-TTS: Tackling Kanji Polyphony in Japanese Speech Generation via Data Scaling and Targeted Data Synthesis* (2026): https://arxiv.org/abs/2606.25369
+
+VOICE LAB's local DSP currently avoids guessing kanji readings. That remains preferable to silently producing a wrong reading. The next front-end quality step should be an optional browser Japanese G2P layer (Open JTalk/WASM or equivalent), with the raw kana mode retained for deterministic manual control.
