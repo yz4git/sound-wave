@@ -5,6 +5,12 @@ import { type VoiceIntonation } from './VoiceScript';
 import { VoiceSynth, type VoiceProsodyEdits, type VoiceSynthSettings } from './VoiceSynth';
 import { parseVoiceMarkup, removeVoiceMarkup, wrapVoiceSelection, type VoiceMarkupScript } from './VoiceMarkup';
 import {
+  analyzeJapaneseText,
+  containsKanji,
+  type JapaneseG2PAnalysis,
+} from './JapaneseG2P';
+import type { VoiceScript } from './VoiceScript';
+import {
   VOICE_EXPRESSION_PRESETS,
   validVoiceExpressionPreset,
   voiceExpressionControl,
@@ -59,6 +65,9 @@ export class VoiceMode {
   private lastDrawIndex: number | null = null;
   private lastDrawValue = 0;
   private systemSpeechGeneration = 0;
+  private japaneseAnalysis: JapaneseG2PAnalysis | null = null;
+  private japaneseAnalysisSource = '';
+  private japaneseAnalyzing = false;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -166,6 +175,10 @@ export class VoiceMode {
             <button type="button" data-voice-engine="local">SOUND WAVE DSP</button>
             <button type="button" data-voice-engine="system">SYSTEM TTS</button>
           </div>
+          <div class="voice-japanese-tools">
+            <button type="button" id="voice-analyze-japanese">KANJI G2P</button>
+            <span id="voice-japanese-status">Open JTalk reading + pitch accent · first use downloads ~24MB dictionary</span>
+          </div>
           <p class="voice-engine-note" id="voice-engine-note"></p>
 
           <div class="voice-prosody-preview">
@@ -241,6 +254,7 @@ export class VoiceMode {
     const text = this.required<HTMLTextAreaElement>('#voice-text');
     text.addEventListener('input', () => {
       this.resetProsodyEdits();
+      this.clearJapaneseAnalysis();
       this.refreshPlan();
     });
 
@@ -298,6 +312,11 @@ export class VoiceMode {
         this.refreshPlan();
       }, { passive: false });
     }
+
+    this.required<HTMLButtonElement>('#voice-analyze-japanese').addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      void this.analyzeJapanese();
+    }, { passive: false });
 
     this.required<HTMLButtonElement>('#voice-reset-prosody').addEventListener('pointerdown', (event) => {
       event.preventDefault();
