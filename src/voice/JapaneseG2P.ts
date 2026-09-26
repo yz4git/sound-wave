@@ -344,6 +344,22 @@ export function containsKanji(text: string): boolean {
   return /\p{Script=Han}/u.test(text);
 }
 
+export function containsAmbiguousJapaneseLongVowel(text: string): boolean {
+  const hira = [...text.normalize('NFKC')].map((char) => {
+    const code = char.charCodeAt(0);
+    return code >= 0x30a1 && code <= 0x30f6
+      ? String.fromCharCode(code - 0x60)
+      : char;
+  }).join('');
+
+  return /(?:[えけげせぜてでねへべぺめれ]|[きしちにひみりぎじびぴ]ぇ)い/u.test(hira)
+    || /(?:[おこごそぞとどのほぼぽもよろ]|[きしちにひみりぎじびぴ]ょ)う/u.test(hira);
+}
+
+export function needsJapanesePronunciationAnalysis(text: string): boolean {
+  return containsKanji(text) || containsAmbiguousJapaneseLongVowel(text);
+}
+
 export function isJapaneseG2PReady(): boolean {
   return initialized;
 }
