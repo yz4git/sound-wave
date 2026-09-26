@@ -74,6 +74,9 @@ for (const persistedVoiceFeature of ['sound-wave-voice-prosody-edits-v1', 'saved
 for (const speechSourceFeature of ['speechSourceMix', 'speechSourceTilt', 'speechCoarticulation', 'speechPulseNoise', 'geminateClosureSeconds']) {
   if (!entryJavaScript.includes(speechSourceFeature)) fail(`production bundle is missing VOICE LAB speech source feature: ${speechSourceFeature}`);
 }
+for (const japaneseTimingFeature of ['japaneseBoundaryPauseSeconds', 'speechPitchTransitionScale', 'targetTotalClosure', 'lexicallyProminent']) {
+  if (!entryJavaScript.includes(japaneseTimingFeature)) fail(`production bundle is missing VOICE LAB Japanese timing feature: ${japaneseTimingFeature}`);
+}
 for (const fullSongFeature of ['FULL SONG', 'songSections', 'PRE-CHORUS', 'INTERLUDE', 'BRIDGE']) {
   if (!entryJavaScript.includes(fullSongFeature)) fail(`production bundle is missing full-song structure: ${fullSongFeature}`);
 }
@@ -111,6 +114,7 @@ const vocalWorklet = readFileSync(join(distDir, 'vocal-worklet.js'), 'utf8');
 for (const workletSpeechFeature of ['speechTiltState', 'speechSourceMix', 'speechSourceTilt', 'speechCoarticulation', 'speechPulseNoise']) {
   if (!vocalWorklet.includes(workletSpeechFeature)) fail(`vocal worklet is missing speech source feature: ${workletSpeechFeature}`);
 }
+if (!vocalWorklet.includes('speechPitchTransitionScale')) fail('vocal worklet is missing Japanese speech pitch transition control');
 try { new Function(vocalWorklet); } catch (error) {
   fail(`dist/vocal-worklet.js has invalid JavaScript syntax: ${error instanceof Error ? error.message : String(error)}`);
 }
