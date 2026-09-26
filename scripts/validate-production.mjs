@@ -65,6 +65,9 @@ for (const localDeliveryFeature of ['SELECT TEXT', 'LOCAL DELIVERY', 'CLEAR TAGS
 for (const japaneseG2PFeature of ['KANJI G2P', 'OPEN JTALK', 'pitchAccent', 'open_jtalk_dic_utf_8-1.11.tar.gz', 'browser/worker.js']) {
   if (!entryJavaScript.includes(japaneseG2PFeature)) fail(`production bundle is missing VOICE LAB Japanese G2P feature: ${japaneseG2PFeature}`);
 }
+for (const longFormVoiceFeature of ['voice-prosody-page-label', 'Previous prosody page', 'Next prosody page', 'VOICE LAB could not resume.']) {
+  if (!entryJavaScript.includes(longFormVoiceFeature)) fail(`production bundle is missing VOICE LAB long-form stability feature: ${longFormVoiceFeature}`);
+}
 for (const speechSourceFeature of ['speechSourceMix', 'speechSourceTilt', 'speechCoarticulation', 'speechPulseNoise', 'geminateClosureSeconds']) {
   if (!entryJavaScript.includes(speechSourceFeature)) fail(`production bundle is missing VOICE LAB speech source feature: ${speechSourceFeature}`);
 }

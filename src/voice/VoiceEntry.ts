@@ -21,8 +21,10 @@ function installVoiceMode(): void {
 
   const mode = new VoiceMode(root);
   const titleButton = document.querySelector<HTMLButtonElement>('[data-app-mode-button="title"]');
+  let resumeVoiceOnVisible = false;
 
   const returnToTitle = (): void => {
+    resumeVoiceOnVisible = false;
     if (mode.isActive) mode.deactivate();
     app.dataset.appMode = 'title';
     start.classList.remove('hidden');
@@ -45,8 +47,34 @@ function installVoiceMode(): void {
     if (mode.isActive) returnToTitle();
   }, { capture: true });
 
+  const restoreVisibleMode = (): void => {
+    if (!resumeVoiceOnVisible || document.hidden) return;
+    resumeVoiceOnVisible = false;
+
+    if (app.dataset.appMode !== 'voice') return;
+    start.classList.add('hidden');
+    start.setAttribute('aria-hidden', 'true');
+    void mode.activate().catch((error: unknown) => {
+      console.warn('VOICE LAB could not resume.', error);
+      returnToTitle();
+    });
+  };
+
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden && mode.isActive) mode.deactivate();
+    if (document.hidden) {
+      if (!mode.isActive) return;
+      resumeVoiceOnVisible = true;
+      mode.deactivate();
+      return;
+    }
+    restoreVisibleMode();
+  });
+
+  window.addEventListener('pageshow', () => {
+    if (app.dataset.appMode === 'voice' && !mode.isActive) {
+      resumeVoiceOnVisible = true;
+      restoreVisibleMode();
+    }
   });
 }
 
