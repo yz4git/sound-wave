@@ -516,6 +516,7 @@ export class VoiceMode {
   private clearJapaneseAnalysis(): void {
     this.japaneseAnalysis = null;
     this.japaneseAnalysisSource = '';
+    this.prosodyLoadedSignature = '';
     const status = this.root.querySelector<HTMLElement>('#voice-japanese-status');
     if (status) {
       status.textContent = 'Open JTalk reading + pitch accent · first use downloads ~24MB dictionary';
@@ -530,12 +531,17 @@ export class VoiceMode {
   } {
     const markup = parseVoiceMarkup(text);
     const analyzed = this.japaneseAnalysis !== null
-      && this.japaneseAnalysisSource === text
-      && !markup.markupUsed;
+      && this.japaneseAnalysisSource === text;
+    const localExpressions = analyzed
+      ? mapLocalExpressionsToRanges(
+          markup.speechSegments,
+          this.japaneseAnalysis!.unitSourceRanges,
+        )
+      : markup.localExpressions;
     return {
       script: analyzed ? this.japaneseAnalysis!.script : markup,
       markup,
-      localExpressions: analyzed ? [] : markup.localExpressions,
+      localExpressions,
       analyzed,
     };
   }
@@ -553,10 +559,6 @@ export class VoiceMode {
     }
 
     const markup = parseVoiceMarkup(text);
-    if (markup.markupUsed) {
-      this.setStatus('KANJI G2P · CLEAR LOCAL DELIVERY TAGS FIRST');
-      return false;
-    }
     if (!containsKanji(markup.plainText)) {
       this.setStatus('KANJI G2P · NO KANJI TO ANALYZE');
       return false;
@@ -577,9 +579,14 @@ export class VoiceMode {
       this.japaneseAnalysis = analysis;
       this.japaneseAnalysisSource = text;
       this.resetProsodyEdits();
+      this.prosodyLoadedSignature = '';
       this.refreshPlan();
       detail.textContent = `OPEN JTALK · ${analysis.script.units.length} morae · ${analysis.reading.slice(0, 48)}${analysis.reading.length > 48 ? '…' : ''}`;
-      this.setStatus('KANJI G2P READY · READING + PITCH ACCENT');
+      this.setStatus(
+        markup.markupUsed
+          ? 'KANJI G2P READY · PITCH ACCENT + LOCAL DELIVERY'
+          : 'KANJI G2P READY · READING + PITCH ACCENT',
+      );
       return true;
     } catch (error) {
       console.warn('VOICE LAB Japanese G2P failed.', error);
@@ -603,6 +610,7 @@ export class VoiceMode {
     unitsEl.replaceChildren();
     contourEl.replaceChildren();
 
+    this.restoreProsodyEdits(text, script.units.length);
     this.ensureProsodyEditLength(script.units.length);
     const plan = this.synth.plan(script, this.settings, this.getProsodyEdits(localExpressions));
     const window = getVoiceProsodyWindow(plan.units.length, this.prosodyPage);
