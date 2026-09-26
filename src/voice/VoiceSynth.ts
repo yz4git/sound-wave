@@ -134,7 +134,7 @@ export function geminatePreclosureSeconds(
   const normalizedRate = clamp(rate, 0.55, 1.8);
   const reference = precedingMoraDuration
     ?? 0.165 / normalizedRate;
-  const targetTotalClosure = clamp(reference * 0.78, 0.095, 0.145);
+  const targetTotalClosure = clamp(reference * 0.82, 0.095, 0.145);
   return clamp(targetTotalClosure - 0.052, 0.043, 0.098);
 }
 
