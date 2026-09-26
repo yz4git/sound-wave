@@ -595,9 +595,13 @@ export class VoiceMode {
     pageLabel.textContent = `${window.page + 1} / ${window.pageCount}`;
     const prevPage = this.required<HTMLButtonElement>('#voice-prosody-prev');
     const nextPage = this.required<HTMLButtonElement>('#voice-prosody-next');
-    prevPage.disabled = window.page <= 0;
-    nextPage.disabled = window.page >= window.pageCount - 1;
+    prevPage.disabled = this.settings.engine !== 'local' || window.page <= 0;
+    nextPage.disabled = this.settings.engine !== 'local' || window.page >= window.pageCount - 1;
     const preview = plan.units.slice(window.start, window.end);
+    const previewDuration = Math.max(
+      0.1,
+      preview.reduce((sum, timed) => sum + timed.duration, 0),
+    );
     preview.forEach((timed) => {
       const index = timed.unit.index;
       const unit = timed.unit;
@@ -635,7 +639,7 @@ export class VoiceMode {
       point.style.setProperty('--voice-energy', String(energyValue));
       point.style.setProperty('--voice-duration', String(durationValue));
       point.style.setProperty('--voice-value', String(laneValue));
-      point.style.width = `${Math.max(1.2, timed.duration / Math.max(0.1, plan.duration) * 100)}%`;
+      point.style.width = `${Math.max(1.2, timed.duration / previewDuration * 100)}%`;
       if (
         (this.prosodyLane === 'pitch' && Math.abs(timed.manualPitchOffset) > 0.001)
         || (this.prosodyLane === 'energy' && Math.abs(timed.manualEnergyScale - 1) > 0.001)
@@ -739,10 +743,25 @@ export class VoiceMode {
     this.prosodyPage = window.page;
     if (window.visibleCount <= 0) return;
 
-    const x = clamp((event.clientX - rect.left) / rect.width, 0, 0.999999);
     const y = clamp((event.clientY - rect.top) / rect.height, 0, 1);
-    const visibleOffset = Math.min(window.visibleCount - 1, Math.floor(x * window.visibleCount));
-    const index = window.start + visibleOffset;
+    const points = [...contour.querySelectorAll<HTMLElement>('[data-voice-index]')];
+    if (points.length === 0) return;
+
+    let targetPoint = points[0]!;
+    let bestDistance = Number.POSITIVE_INFINITY;
+    for (const point of points) {
+      const pointRect = point.getBoundingClientRect();
+      const center = pointRect.left + pointRect.width * 0.5;
+      const distance = Math.abs(event.clientX - center);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        targetPoint = point;
+      }
+    }
+
+    const parsedIndex = Number(targetPoint.dataset.voiceIndex);
+    if (!Number.isInteger(parsedIndex)) return;
+    const index = Math.max(window.start, Math.min(window.end - 1, parsedIndex));
     const value = this.drawValueFromPointer(y);
 
     if (this.lastDrawIndex !== null && this.lastDrawIndex !== index) {
