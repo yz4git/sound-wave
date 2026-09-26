@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   geminatePreclosureSeconds,
+  speechFinalityProfileFor,
   speechSourceProfileFor,
 } from '../src/voice/VoiceSynth';
 
@@ -28,6 +29,18 @@ describe('VOICE LAB speech source', () => {
     const mutedExcited = speechSourceProfileFor({ preset: 'excited', intensity: 0 });
 
     expect(mutedExcited).toEqual(neutral);
+  });
+
+  it('keeps declarative finality subtle and suppresses creak on questions', () => {
+    const neutral = speechFinalityProfileFor({ preset: 'neutral', intensity: 1 }, 'natural');
+    const question = speechFinalityProfileFor({ preset: 'neutral', intensity: 1 }, 'question');
+    const serious = speechFinalityProfileFor({ preset: 'serious', intensity: 1 }, 'natural');
+    const whisper = speechFinalityProfileFor({ preset: 'whisper', intensity: 1 }, 'natural');
+
+    expect(neutral.creak).toBeGreaterThan(0.1);
+    expect(question.creak).toBeLessThan(neutral.creak);
+    expect(serious.creak).toBeGreaterThan(neutral.creak);
+    expect(whisper.breath).toBeGreaterThan(neutral.breath);
   });
 
   it('keeps Japanese sokuon pre-closure in a speech-like range', () => {
