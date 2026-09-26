@@ -275,6 +275,7 @@ export class VoiceMode {
       }
       text.value = cleaned;
       this.resetProsodyEdits();
+      this.clearJapaneseAnalysis();
       this.refreshPlan();
       this.setStatus('LOCAL DELIVERY TAGS CLEARED');
     }, { passive: false });
@@ -465,6 +466,7 @@ export class VoiceMode {
     }
 
     textarea.value = wrapped.text;
+    this.clearJapaneseAnalysis();
     textarea.focus();
     textarea.setSelectionRange(wrapped.selectionStart, wrapped.selectionEnd);
     this.resetProsodyEdits();
@@ -472,16 +474,93 @@ export class VoiceMode {
     this.setStatus(`LOCAL ${preset.toUpperCase()} · ${Math.round(this.settings.expression.intensity * 100)}%`);
   }
 
+  private clearJapaneseAnalysis(): void {
+    this.japaneseAnalysis = null;
+    this.japaneseAnalysisSource = '';
+    const status = this.root.querySelector<HTMLElement>('#voice-japanese-status');
+    if (status) {
+      status.textContent = 'Open JTalk reading + pitch accent · first use downloads ~24MB dictionary';
+    }
+  }
+
+  private resolveLocalScript(text: string): {
+    script: VoiceScript;
+    markup: VoiceMarkupScript;
+    localExpressions: readonly (VoiceExpressionSettings | null)[];
+    analyzed: boolean;
+  } {
+    const markup = parseVoiceMarkup(text);
+    const analyzed = this.japaneseAnalysis !== null
+      && this.japaneseAnalysisSource === text
+      && !markup.markupUsed;
+    return {
+      script: analyzed ? this.japaneseAnalysis!.script : markup,
+      markup,
+      localExpressions: analyzed ? [] : markup.localExpressions,
+      analyzed,
+    };
+  }
+
+  private async analyzeJapanese(): Promise<void> {
+    if (this.japaneseAnalyzing) return;
+    const textarea = this.required<HTMLTextAreaElement>('#voice-text');
+    const text = textarea.value.trim();
+    if (!text) {
+      this.setStatus('ENTER JAPANESE TEXT');
+      return;
+    }
+
+    const markup = parseVoiceMarkup(text);
+    if (markup.markupUsed) {
+      this.setStatus('KANJI G2P · CLEAR LOCAL DELIVERY TAGS FIRST');
+      return;
+    }
+    if (!containsKanji(markup.plainText)) {
+      this.setStatus('KANJI G2P · NO KANJI TO ANALYZE');
+      return;
+    }
+
+    const button = this.required<HTMLButtonElement>('#voice-analyze-japanese');
+    const detail = this.required<HTMLElement>('#voice-japanese-status');
+    this.japaneseAnalyzing = true;
+    button.disabled = true;
+    button.textContent = 'ANALYZING…';
+    this.stop();
+
+    try {
+      const analysis = await analyzeJapaneseText(markup.plainText, (progress) => {
+        detail.textContent = progress.message;
+        this.setStatus(progress.message);
+      });
+      this.japaneseAnalysis = analysis;
+      this.japaneseAnalysisSource = text;
+      this.resetProsodyEdits();
+      this.refreshPlan();
+      detail.textContent = `OPEN JTALK · ${analysis.script.units.length} morae · ${analysis.reading.slice(0, 48)}${analysis.reading.length > 48 ? '…' : ''}`;
+      this.setStatus('KANJI G2P READY · READING + PITCH ACCENT');
+    } catch (error) {
+      console.warn('VOICE LAB Japanese G2P failed.', error);
+      this.clearJapaneseAnalysis();
+      detail.textContent = 'Open JTalk failed · kana input and SYSTEM TTS remain available';
+      this.setStatus('KANJI G2P UNAVAILABLE');
+    } finally {
+      this.japaneseAnalyzing = false;
+      button.disabled = false;
+      button.textContent = 'KANJI G2P';
+    }
+  }
+
   private refreshPlan(): void {
     const text = this.required<HTMLTextAreaElement>('#voice-text').value;
-    const script = parseVoiceMarkup(text);
+    const resolved = this.resolveLocalScript(text);
+    const { script, markup, localExpressions, analyzed } = resolved;
     const unitsEl = this.required<HTMLElement>('#voice-units');
     const contourEl = this.required<HTMLElement>('#voice-contour');
     unitsEl.replaceChildren();
     contourEl.replaceChildren();
 
     this.ensureProsodyEditLength(script.units.length);
-    const plan = this.synth.plan(script, this.settings, this.getProsodyEdits(script.localExpressions));
+    const plan = this.synth.plan(script, this.settings, this.getProsodyEdits(localExpressions));
     const preview = plan.units.slice(0, 72);
     preview.forEach((timed, index) => {
       const unit = timed.unit;
@@ -494,7 +573,7 @@ export class VoiceMode {
       if (unit.devoiced) token.classList.add('devoiced');
       if (unit.longVowel) token.classList.add('long-vowel');
       if (unit.geminateBefore) token.classList.add('geminate');
-      const localExpression = script.localExpressions[index];
+      const localExpression = localExpressions[index];
       if (localExpression) {
         token.classList.add('local-delivery');
         token.dataset.localDelivery = localExpression.preset;
@@ -527,10 +606,20 @@ export class VoiceMode {
 
     const note = this.required<HTMLElement>('#voice-engine-note');
     if (this.settings.engine === 'local') {
-      note.textContent = script.unsupported.length > 0
-        ? `LOCAL DSP · かな/カナ/ROMAJI対応 · 未対応文字: ${script.unsupported.slice(0, 8).join(' ')} · 漢字文はSYSTEM TTSへ`
-        : `LOCAL DSP · ${script.units.length} morae · ${this.settings.expression.preset.toUpperCase()} delivery${script.markupUsed ? ' + local spans' : ''} · draw pitch / energy / timing`;
-      this.setStatus(script.units.length > 0 ? 'READY · LOCAL DSP' : 'ENTER KANA OR ROMAJI');
+      note.textContent = analyzed
+        ? `LOCAL DSP · OPEN JTALK G2P · ${script.units.length} morae · lexical pitch accent + draw controls`
+        : script.unsupported.length > 0
+          ? `LOCAL DSP · KANJI DETECTED · tap KANJI G2P for reading + pitch accent`
+          : `LOCAL DSP · ${script.units.length} morae · ${this.settings.expression.preset.toUpperCase()} delivery${markup.markupUsed ? ' + local spans' : ''} · draw pitch / energy / timing`;
+      this.setStatus(
+        analyzed
+          ? 'READY · LOCAL DSP + OPEN JTALK'
+          : script.unsupported.length > 0
+            ? 'KANJI DETECTED · RUN KANJI G2P'
+            : script.units.length > 0
+              ? 'READY · LOCAL DSP'
+              : 'ENTER KANA OR ROMAJI',
+      );
     } else {
       note.textContent = 'SYSTEM TTS · device/browser voice · kanji and general text supported · availability varies by OS';
       this.setStatus('READY · SYSTEM TTS');
