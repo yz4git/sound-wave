@@ -675,7 +675,7 @@ export class VoiceMode {
     const note = this.required<HTMLElement>('#voice-engine-note');
     if (this.settings.engine === 'local') {
       note.textContent = analyzed
-        ? `LOCAL DSP · OPEN JTALK G2P · ${script.units.length} morae · lexical pitch accent + draw controls`
+        ? `LOCAL DSP · OPEN JTALK G2P · ${script.units.length} morae · lexical pitch accent${markup.markupUsed ? ' + local delivery' : ''} + saved draw controls`
         : script.unsupported.length > 0
           ? `LOCAL DSP · KANJI DETECTED · SPEAK auto-runs reading + pitch accent`
           : `LOCAL DSP · ${script.units.length} morae · ${this.settings.expression.preset.toUpperCase()} delivery${markup.markupUsed ? ' + local spans' : ''} · draw pitch / energy / timing`;
@@ -699,6 +699,56 @@ export class VoiceMode {
     this.energyEdits = [];
     this.durationEdits = [];
     this.lastDrawIndex = null;
+  }
+
+  private restoreProsodyEdits(text: string, unitCount: number): void {
+    const signature = `${voiceProsodyKey(text)}:${unitCount}`;
+    if (this.prosodyLoadedSignature === signature) return;
+    this.prosodyLoadedSignature = signature;
+
+    try {
+      const snapshot = loadVoiceProsodySnapshot(localStorage, text, unitCount);
+      if (!snapshot) {
+        this.resetProsodyEdits();
+        return;
+      }
+      this.pitchEdits = snapshot.pitch;
+      this.energyEdits = snapshot.energy;
+      this.durationEdits = snapshot.duration;
+      this.lastDrawIndex = null;
+    } catch {
+      this.resetProsodyEdits();
+    }
+  }
+
+  private persistProsodyEdits(): void {
+    const text = this.required<HTMLTextAreaElement>('#voice-text').value;
+    const { script } = this.resolveLocalScript(text);
+    if (script.units.length === 0) return;
+    this.ensureProsodyEditLength(script.units.length);
+
+    try {
+      saveVoiceProsodySnapshot(
+        localStorage,
+        text,
+        script.units.length,
+        this.pitchEdits,
+        this.energyEdits,
+        this.durationEdits,
+      );
+      this.prosodyLoadedSignature = `${voiceProsodyKey(text)}:${script.units.length}`;
+    } catch {
+      // Private browsing / restricted storage: keep session edits only.
+    }
+  }
+
+  private clearPersistedProsodyEdits(): void {
+    const text = this.required<HTMLTextAreaElement>('#voice-text').value;
+    try {
+      clearVoiceProsodySnapshot(localStorage, text);
+    } catch {
+      // Ignore restricted storage.
+    }
   }
 
   private ensureProsodyEditLength(count: number): void {
