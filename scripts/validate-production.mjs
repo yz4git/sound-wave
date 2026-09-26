@@ -74,7 +74,7 @@ for (const persistedVoiceFeature of ['sound-wave-voice-prosody-edits-v1', 'saved
 for (const speechSourceFeature of ['speechSourceMix', 'speechSourceTilt', 'speechCoarticulation', 'speechPulseNoise', 'geminateClosureSeconds']) {
   if (!entryJavaScript.includes(speechSourceFeature)) fail(`production bundle is missing VOICE LAB speech source feature: ${speechSourceFeature}`);
 }
-for (const japaneseTimingFeature of ['japaneseBoundaryPauseSeconds', 'speechPitchTransitionScale', 'targetTotalClosure', 'lexicallyProminent']) {
+for (const japaneseTimingFeature of ['speechPitchTransitionScale', 'pitchAccent', 'geminateClosureSeconds']) {
   if (!entryJavaScript.includes(japaneseTimingFeature)) fail(`production bundle is missing VOICE LAB Japanese timing feature: ${japaneseTimingFeature}`);
 }
 for (const fullSongFeature of ['FULL SONG', 'songSections', 'PRE-CHORUS', 'INTERLUDE', 'BRIDGE']) {
