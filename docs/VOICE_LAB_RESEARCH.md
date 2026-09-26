@@ -288,3 +288,11 @@ Why this is preferable to immediately switching to neural TTS:
 - It keeps the existing low-latency AudioWorklet renderer and manual prosody controls.
 - It avoids making every iPhone session download a neural acoustic model.
 - It creates a clean front-end boundary so a future optional neural renderer can reuse the same Japanese analysis and editing UI.
+
+### 9. Kanji-local style alignment and persistent manual prosody
+
+The Japanese front end now retains a source-text range for every analyzed mora. Open JTalk is still run once on the plain Japanese sentence so lexical accent and accent-phrase structure are not broken at style markup boundaries. Local DELIVERY spans are then projected back onto analyzed morae by source-text overlap.
+
+This enables text such as `今日は[whisper]静かに話します[/]` to use Open JTalk reading/pitch accent for the full sentence while applying WHISPER only to the selected source range.
+
+Manual PITCH / ENERGY / TIMING curves are also persisted locally per exact text signature and mora count. Only non-neutral edits are stored, recent entries are bounded, malformed values are clamped on restore, and RESET ALL removes the stored curve for the current text. The text itself is not used as the storage key; a stable local signature plus mora count prevents curves from leaking onto unrelated utterances.
