@@ -6,9 +6,11 @@ on:
     paths:
       - src/voice/**
       - src/compose/VocalWorkletBridge.ts
+      - src/compose/JapanesePhoneme.ts
       - public/vocal-worklet.js
       - tests/voice-speech-source.test.ts
       - tests/voice-synth-plan.test.ts
+      - tests/japanese-phoneme.test.ts
       - scripts/validate-production.mjs
       - docs/VOICE_LAB_RESEARCH.md
       - .github/workflows/voice-speech-source-verify.yml
@@ -28,6 +30,6 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: node --check public/vocal-worklet.js
-      - run: npx vitest run tests/voice-script.test.ts tests/voice-expression.test.ts tests/voice-markup.test.ts tests/voice-synth-plan.test.ts tests/voice-speech-source.test.ts
+      - run: npx vitest run tests/voice-script.test.ts tests/voice-expression.test.ts tests/voice-markup.test.ts tests/voice-synth-plan.test.ts tests/voice-speech-source.test.ts tests/japanese-phoneme.test.ts
       - run: npm run build
       - run: npm run validate:prod
