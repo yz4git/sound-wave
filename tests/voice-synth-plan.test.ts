@@ -206,6 +206,39 @@ describe('Voice Lab synthesis plan', () => {
     expect(localExcited.units[1]!.duration).toBeLessThan(globalCalm.units[1]!.duration);
   });
 
+  it('applies phrase pitch and rate controls beneath mora drawing', () => {
+    const synth = new VoiceSynth();
+    const script = parseVoiceScript('あいう');
+    const base = synth.plan(script, SETTINGS);
+    const edited = synth.plan(script, SETTINGS, {
+      phrasePitchOffsets: [1, 1, 0],
+      phraseRateScales: [1.2, 1.2, 1],
+      pitchOffsets: [0, 0.5, 0],
+    });
+
+    expect(edited.units[0]!.phrasePitchOffset).toBe(1);
+    expect(edited.units[0]!.phraseRateScale).toBe(1.2);
+    expect(edited.units[0]!.pitchMidi - base.units[0]!.pitchMidi).toBeCloseTo(1, 6);
+    expect(edited.units[1]!.pitchMidi - base.units[1]!.pitchMidi).toBeCloseTo(1.5, 6);
+    expect(edited.units[0]!.duration).toBeLessThan(base.units[0]!.duration);
+    expect(edited.units[2]!.duration).toBeCloseTo(base.units[2]!.duration, 6);
+  });
+
+  it('lets a phrase pause override replace automatic boundary timing', () => {
+    const synth = new VoiceSynth();
+    const script = parseVoiceScript('あ、い');
+    const base = synth.plan(script, SETTINGS);
+    const edited = synth.plan(script, SETTINGS, {
+      pauseOverrides: [0.25, null],
+    });
+
+    const baseGap = base.units[1]!.start - (base.units[0]!.start + base.units[0]!.duration);
+    const editedGap = edited.units[1]!.start - (edited.units[0]!.start + edited.units[0]!.duration);
+
+    expect(editedGap).toBeCloseTo(0.25, 6);
+    expect(editedGap).toBeGreaterThan(baseGap);
+  });
+
   it('preserves longer sentence pauses than accent phrase pauses', () => {
     const synth = new VoiceSynth();
     const accentPlan = synth.plan(parseVoiceScript('あさ ひる'), SETTINGS);
