@@ -2,6 +2,9 @@ import { describe, expect, it } from 'vitest';
 import {
   applyPhraseBoundaryOverrides,
   buildPhraseControlArrays,
+  phraseCurveAtProgress,
+  phraseCurvePointFromDrag,
+  phraseEmphasisPreset,
   phrasePitchFromDrag,
   updatePhraseBoundaryOverride,
   updatePhraseShapeOverride,
@@ -45,6 +48,9 @@ describe('VOICE LAB phrase controls', () => {
         rateScale: 1.2,
         energyScale: 1.15,
         emphasis: 0.5,
+        curveStart: -0.5,
+        curvePeak: 1,
+        curveEnd: -0.25,
       }],
       [{
         after: 2,
@@ -53,7 +59,7 @@ describe('VOICE LAB phrase controls', () => {
       }],
     );
 
-    expect(arrays.pitchOffsets.slice(0, 3)).toEqual([1.25, 1.25, 1.25]);
+    expect(arrays.pitchOffsets.slice(0, 3)).toEqual([0.75, 2.25, 1]);
     expect(arrays.pitchOffsets.slice(3)).toEqual([0, 0]);
     expect(arrays.rateScales.slice(0, 3)).toEqual([1.2, 1.2, 1.2]);
     expect(arrays.rateScales.slice(3)).toEqual([1, 1]);
@@ -69,6 +75,22 @@ describe('VOICE LAB phrase controls', () => {
     expect(phrasePitchFromDrag(0.5, 18)).toBe(0);
     expect(phrasePitchFromDrag(2.8, -100)).toBe(3);
     expect(phrasePitchFromDrag(-2.8, 100)).toBe(-3);
+  });
+
+  it('maps three-point phrase curves and drag values deterministically', () => {
+    expect(phraseCurveAtProgress(-1, 1, 0, 0)).toBe(-1);
+    expect(phraseCurveAtProgress(-1, 1, 0, 0.5)).toBe(1);
+    expect(phraseCurveAtProgress(-1, 1, 0, 1)).toBe(0);
+    expect(phraseCurvePointFromDrag(0, -26)).toBe(1);
+    expect(phraseCurvePointFromDrag(2.4, -100)).toBe(2.5);
+  });
+
+  it('provides distinct emphasis presets', () => {
+    expect(phraseEmphasisPreset('weak')).toEqual({ energyScale: 0.88, emphasis: 0 });
+    expect(phraseEmphasisPreset('normal')).toEqual({ energyScale: 1, emphasis: 0 });
+    expect(phraseEmphasisPreset('strong').emphasis).toBeGreaterThan(0);
+    expect(phraseEmphasisPreset('critical').emphasis)
+      .toBeGreaterThan(phraseEmphasisPreset('strong').emphasis);
   });
 
   it('keeps only the latest boundary override for a mora boundary', () => {
@@ -88,6 +110,9 @@ describe('VOICE LAB phrase controls', () => {
       rateScale: 99,
       energyScale: 99,
       emphasis: 99,
+      curveStart: 99,
+      curvePeak: -99,
+      curveEnd: 99,
     });
     expect(clamped).toEqual([{
       start: 1,
@@ -96,6 +121,9 @@ describe('VOICE LAB phrase controls', () => {
       rateScale: 1.35,
       energyScale: 1.45,
       emphasis: 1.5,
+      curveStart: 2.5,
+      curvePeak: -2.5,
+      curveEnd: 2.5,
     }]);
 
     expect(updatePhraseShapeOverride(clamped, {
@@ -105,6 +133,9 @@ describe('VOICE LAB phrase controls', () => {
       rateScale: 1,
       energyScale: 1,
       emphasis: 0,
+      curveStart: 0,
+      curvePeak: 0,
+      curveEnd: 0,
     })).toEqual([]);
   });
 });
