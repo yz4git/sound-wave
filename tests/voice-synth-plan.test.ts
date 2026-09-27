@@ -224,6 +224,20 @@ describe('Voice Lab synthesis plan', () => {
     expect(edited.units[2]!.duration).toBeCloseTo(base.units[2]!.duration, 6);
   });
 
+  it('adds a three-point phrase F0 curve under mora drawing', () => {
+    const synth = new VoiceSynth();
+    const script = parseVoiceScript('あいう');
+    const base = synth.plan(script, SETTINGS);
+    const curved = synth.plan(script, SETTINGS, {
+      phrasePitchOffsets: [-0.5, 1, -0.25],
+      pitchOffsets: [0, 0.25, 0],
+    });
+
+    expect(curved.units[0]!.pitchMidi - base.units[0]!.pitchMidi).toBeCloseTo(-0.5, 6);
+    expect(curved.units[1]!.pitchMidi - base.units[1]!.pitchMidi).toBeCloseTo(1.25, 6);
+    expect(curved.units[2]!.pitchMidi - base.units[2]!.pitchMidi).toBeCloseTo(-0.25, 6);
+  });
+
   it('separates phrase energy from expressive emphasis', () => {
     const synth = new VoiceSynth();
     const script = parseVoiceScript('あいう');
