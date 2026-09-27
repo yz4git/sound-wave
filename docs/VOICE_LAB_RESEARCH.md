@@ -383,3 +383,15 @@ Phrase shaping is now split into separate controls for level and prominence.
 The drag interaction deliberately does not rebuild the accent editor during pointer movement. It updates the in-memory phrase shape and the drag readout only, then persists and rebuilds the synthesis plan on pointer release. This keeps pointer capture stable on iPhone Safari.
 
 Existing phrase edits saved before ENERGY/EMPHASIS were introduced remain compatible: missing energy defaults to 1.0 and missing emphasis defaults to 0.
+
+### 16. Phrase emphasis presets and three-point F0 curves
+
+Phrase editing now has two faster layers above the existing numeric buttons.
+
+- Four emphasis presets are available per phrase: 弱調 / 通常 / 強調 / 最重要.
+- The presets change ENERGY and expressive EMPHASIS together while leaving phrase rate, pause, base pitch and manual mora drawing untouched.
+- Each phrase exposes a three-point F0 curve with START / PEAK / END handles. The curve is added on top of the whole-phrase F0 offset and under the mora-level hand-drawn pitch lane.
+- START→PEAK and PEAK→END are linearly interpolated across the phrase. Curve points are quantized to 0.1 semitone and clamped to ±2.5 semitones.
+- Curve dragging follows the same iPhone-safe rule as whole-phrase F0 dragging: update in-memory/readout during pointer movement, persist and rebuild only on pointer release.
+
+The storage format remains backward compatible. Phrase edits saved before three-point curves were added load with START=PEAK=END=0.0 semitone.
