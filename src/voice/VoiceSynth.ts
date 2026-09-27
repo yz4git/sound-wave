@@ -32,6 +32,9 @@ export interface VoiceProsodyEdits {
   energyScales?: readonly number[];
   durationScales?: readonly number[];
   localExpressions?: readonly (VoiceExpressionSettings | null)[];
+  phrasePitchOffsets?: readonly number[];
+  phraseRateScales?: readonly number[];
+  pauseOverrides?: readonly (number | null)[];
 }
 
 type VoiceProsodyInput = VoiceProsodyEdits | readonly number[];
@@ -45,6 +48,8 @@ export interface VoiceTimedUnit {
   manualPitchOffset: number;
   manualEnergyScale: number;
   manualDurationScale: number;
+  phrasePitchOffset: number;
+  phraseRateScale: number;
   expression: VoiceExpressionSettings;
 }
 
@@ -364,14 +369,19 @@ export class VoiceSynth {
       const manualPitchOffset = clamp(edits.pitchOffsets?.[index] ?? 0, -3.5, 3.5);
       const manualEnergyScale = clamp(edits.energyScales?.[index] ?? 1, 0.45, 1.55);
       const manualDurationScale = clamp(edits.durationScales?.[index] ?? 1, 0.6, 1.65);
+      const phrasePitchOffset = clamp(edits.phrasePitchOffsets?.[index] ?? 0, -3, 3);
+      const phraseRateScale = clamp(edits.phraseRateScales?.[index] ?? 1, 0.72, 1.35);
+      const effectiveRate = settings.rate * phraseRateScale;
 
       const pitchMidi = clamp(
-        settings.pitch + offset + expressionUnit.pitchOffset + manualPitchOffset,
+        settings.pitch + offset + expressionUnit.pitchOffset + phrasePitchOffset + manualPitchOffset,
         40,
         82,
       );
       const duration = clamp(
-        japaneseUnitDurationSeconds(unit, settings.rate) * expressionUnit.durationScale * manualDurationScale,
+        japaneseUnitDurationSeconds(unit, effectiveRate)
+          * expressionUnit.durationScale
+          * manualDurationScale,
         0.05,
         0.58,
       );
@@ -390,10 +400,16 @@ export class VoiceSynth {
         manualPitchOffset,
         manualEnergyScale,
         manualDurationScale,
+        phrasePitchOffset,
+        phraseRateScale,
         expression,
       });
 
-      cursor += duration + japaneseBoundaryPauseSeconds(unit, settings.rate);
+      const pauseOverride = edits.pauseOverrides?.[index];
+      const pause = pauseOverride === null || pauseOverride === undefined
+        ? japaneseBoundaryPauseSeconds(unit, effectiveRate)
+        : clamp(pauseOverride, 0, 0.36);
+      cursor += duration + pause;
     });
 
     return { duration: cursor + 0.08, units };

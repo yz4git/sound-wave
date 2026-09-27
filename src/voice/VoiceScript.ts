@@ -268,7 +268,7 @@ function annotateRuns(
   }
 }
 
-export function finalizeVoiceUnits(units: VoiceUnit[]): void {
+export function refreshVoiceUnitBoundaryMetadata(units: VoiceUnit[]): void {
   if (units.length === 0) return;
   const final = units[units.length - 1]!;
   final.boundaryAfter = 'sentence';
@@ -294,6 +294,11 @@ export function finalizeVoiceUnits(units: VoiceUnit[]): void {
       unit.accentEnd = localIndex === count - 1;
     },
   );
+}
+
+export function finalizeVoiceUnits(units: VoiceUnit[]): void {
+  if (units.length === 0) return;
+  refreshVoiceUnitBoundaryMetadata(units);
 
   let previousDevoiced = false;
   for (let index = 0; index < units.length; index += 1) {

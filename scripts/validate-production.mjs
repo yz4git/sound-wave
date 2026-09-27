@@ -86,6 +86,9 @@ for (const fullContextFeature of ['FULL CONTEXT', 'extractFullContext', 'fullCon
 for (const accentEditorFeature of ['ACCENT PHRASES', 'RESET ACCENT', 'sound-wave-voice-accent-edits-v1', 'ACCENT NUCLEUS']) {
   if (!entryJavaScript.includes(accentEditorFeature)) fail(`production bundle is missing VOICE LAB accent editor feature: ${accentEditorFeature}`);
 }
+for (const phraseControlFeature of ['RESET PHRASE', 'SPLIT ACCENT PHRASE HERE', 'JOIN WITH NEXT ACCENT PHRASE', 'sound-wave-voice-phrase-edits-v1', 'phrasePitchOffsets', 'phraseRateScales', 'pauseOverrides']) {
+  if (!entryJavaScript.includes(phraseControlFeature)) fail(`production bundle is missing VOICE LAB phrase control feature: ${phraseControlFeature}`);
+}
 for (const fullSongFeature of ['FULL SONG', 'songSections', 'PRE-CHORUS', 'INTERLUDE', 'BRIDGE']) {
   if (!entryJavaScript.includes(fullSongFeature)) fail(`production bundle is missing full-song structure: ${fullSongFeature}`);
 }

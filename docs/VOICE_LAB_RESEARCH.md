@@ -354,3 +354,20 @@ VOICE LAB now separates automatic Japanese analysis from user correction. After 
 Overrides are stored per exact plain-text signature and phrase range. They are reapplied after Open JTalk analysis but do not rerun Voice Script finalization, so full-context decisions such as vowel devoicing and sokuon remain intact. RESET ACCENT removes only the manual accent layer and returns all phrases to the original Open JTalk analysis.
 
 This follows the practical direction used by Japanese synthesis editors: automatic morphological/accent analysis provides a strong default, while phrase-level nucleus correction remains directly editable because proper nouns, compounds and intended reading styles can differ from dictionary defaults.
+
+### 14. Phrase structure and phrase-level performance controls
+
+VOICE LAB now treats Open JTalk accent phrases as editable performance units instead of fixed analysis output.
+
+The accent editor adds:
+- SPLIT at any mora boundary inside an accent phrase
+- JOIN at an existing non-sentence accent boundary
+- phrase pitch offset in 0.25-semitone steps
+- phrase rate scaling in 0.05× steps
+- phrase-final pause adjustment in 25 ms steps
+
+Boundary edits only refresh phrase/accent indexing. They do not rerun the built-in devoicing heuristic, so Open JTalk full-context decisions such as uppercase-vowel devoicing and sokuon remain intact.
+
+Phrase pitch/rate controls are passed into the synthesis plan as separate layers beneath the mora-level PITCH / ENERGY / TIMING drawing. This keeps coarse phrase shaping and fine mora correction independent.
+
+Phrase edits are persisted per exact plain-text signature. When a split/join changes a phrase range, overlapping accent-nucleus and phrase-shape overrides are discarded rather than silently reinterpreted on a different range.

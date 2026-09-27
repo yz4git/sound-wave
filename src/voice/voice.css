@@ -367,6 +367,57 @@
   color: #e5c8ff;
 }
 
+.voice-accent-reset-group {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.voice-accent-phrase .voice-phrase-split {
+  min-width: 10px;
+  width: 10px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: rgba(126, 205, 255, .36);
+  font-size: 9px;
+}
+
+.voice-accent-phrase .voice-phrase-split:active {
+  color: #fff;
+}
+
+.voice-phrase-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 3px;
+  padding-left: 4px;
+  border-left: 1px solid rgba(124, 195, 247, .11);
+}
+
+.voice-phrase-controls button {
+  min-width: 24px;
+  padding: 0 4px;
+  font-size: 7px;
+}
+
+.voice-phrase-summary {
+  min-width: 55px;
+  padding: 0 3px;
+  color: rgba(197, 220, 238, .45);
+  font: 750 7px/1 system-ui, sans-serif;
+  white-space: nowrap;
+}
+
+.voice-accent-phrase .voice-phrase-join {
+  min-width: 42px;
+  padding: 0 6px;
+  color: rgba(164, 219, 255, .7);
+  border-color: rgba(119, 196, 248, .22);
+}
+
 .voice-engine-note {
   min-height: 14px;
   margin: -2px 1px 0;
@@ -818,4 +869,15 @@
 @media (max-height: 520px) and (orientation: landscape) {
   .voice-accent-header span { display: none; }
   .voice-accent-phrase button { min-height: 22px; }
+}
+
+@media (max-width: 680px) {
+  .voice-phrase-controls {
+    flex-wrap: wrap;
+    max-width: 96px;
+  }
+  .voice-phrase-summary {
+    flex-basis: 100%;
+    text-align: center;
+  }
 }
