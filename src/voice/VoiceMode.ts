@@ -111,6 +111,15 @@ export class VoiceMode {
   private phraseBoundaries: VoicePhraseBoundaryOverride[] = [];
   private phraseShapes: VoicePhraseShapeOverride[] = [];
   private phraseEditSource = '';
+  private phrasePitchDrag: {
+    pointerId: number;
+    start: number;
+    end: number;
+    startY: number;
+    startPitch: number;
+    currentPitch: number;
+    handle: HTMLElement;
+  } | null = null;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -413,10 +422,14 @@ export class VoiceMode {
         const end = Number(target.dataset.phraseEnd);
         if (!Number.isInteger(start) || !Number.isInteger(end)) return;
 
-        if (phraseAction === 'pitch-down') this.adjustPhraseShape(start, end, -0.25, 0);
-        else if (phraseAction === 'pitch-up') this.adjustPhraseShape(start, end, 0.25, 0);
-        else if (phraseAction === 'rate-down') this.adjustPhraseShape(start, end, 0, -0.05);
-        else if (phraseAction === 'rate-up') this.adjustPhraseShape(start, end, 0, 0.05);
+        if (phraseAction === 'pitch-down') this.adjustPhraseShape(start, end, -0.25, 0, 0, 0);
+        else if (phraseAction === 'pitch-up') this.adjustPhraseShape(start, end, 0.25, 0, 0, 0);
+        else if (phraseAction === 'rate-down') this.adjustPhraseShape(start, end, 0, -0.05, 0, 0);
+        else if (phraseAction === 'rate-up') this.adjustPhraseShape(start, end, 0, 0.05, 0, 0);
+        else if (phraseAction === 'energy-down') this.adjustPhraseShape(start, end, 0, 0, -0.05, 0);
+        else if (phraseAction === 'energy-up') this.adjustPhraseShape(start, end, 0, 0, 0.05, 0);
+        else if (phraseAction === 'emphasis-down') this.adjustPhraseShape(start, end, 0, 0, 0, -0.25);
+        else if (phraseAction === 'emphasis-up') this.adjustPhraseShape(start, end, 0, 0, 0, 0.25);
         else if (phraseAction === 'pause-down') this.adjustPhrasePause(end, -0.025);
         else if (phraseAction === 'pause-up') this.adjustPhrasePause(end, 0.025);
         return;
@@ -883,6 +896,8 @@ export class VoiceMode {
     end: number,
     pitchDelta: number,
     rateDelta: number,
+    energyDelta: number,
+    emphasisDelta: number,
   ): void {
     const text = this.required<HTMLTextAreaElement>('#voice-text').value;
     const plainText = parseVoiceMarkup(text).plainText;
@@ -897,11 +912,34 @@ export class VoiceMode {
         end,
         pitchOffset: (existing?.pitchOffset ?? 0) + pitchDelta,
         rateScale: (existing?.rateScale ?? 1) + rateDelta,
+        energyScale: (existing?.energyScale ?? 1) + energyDelta,
+        emphasis: (existing?.emphasis ?? 0) + emphasisDelta,
       },
     );
     this.savePhraseEdits();
     this.refreshPlan();
-    this.setStatus('PHRASE PITCH / RATE UPDATED');
+    this.setStatus('PHRASE PITCH / RATE / ENERGY / EMPHASIS UPDATED');
+  }
+
+  private setPhrasePitchWithoutRefresh(
+    start: number,
+    end: number,
+    pitchOffset: number,
+  ): void {
+    const existing = this.phraseShapes.find((shape) => (
+      shape.start === start && shape.end === end
+    ));
+    this.phraseShapes = updatePhraseShapeOverride(
+      this.phraseShapes,
+      {
+        start,
+        end,
+        pitchOffset,
+        rateScale: existing?.rateScale ?? 1,
+        energyScale: existing?.energyScale ?? 1,
+        emphasis: existing?.emphasis ?? 0,
+      },
+    );
   }
 
   private adjustPhrasePause(after: number, delta: number): void {
@@ -1215,6 +1253,8 @@ export class VoiceMode {
       localExpressions,
       phrasePitchOffsets: phrase.pitchOffsets,
       phraseRateScales: phrase.rateScales,
+      phraseEnergyScales: phrase.energyScales,
+      phraseEmphasisScales: phrase.emphasisScales,
       pauseOverrides: phrase.pauseOverrides,
     };
   }
