@@ -435,6 +435,78 @@
   border-color: rgba(119, 196, 248, .22);
 }
 
+.voice-phrase-presets {
+  display: flex;
+  gap: 2px;
+  margin-left: 3px;
+  padding-left: 4px;
+  border-left: 1px solid rgba(124, 195, 247, .11);
+}
+
+.voice-phrase-presets button {
+  min-width: 30px;
+  padding: 0 5px;
+  font-size: 7px;
+}
+
+.voice-phrase-presets button.active {
+  color: #fff;
+  border-color: rgba(255, 197, 103, .54);
+  background: rgba(173, 111, 38, .25);
+}
+
+.voice-phrase-curve {
+  display: grid;
+  grid-template-columns: 120px auto;
+  align-items: center;
+  gap: 4px;
+  margin-left: 3px;
+  padding-left: 4px;
+  border-left: 1px solid rgba(124, 195, 247, .11);
+}
+
+.voice-phrase-curve svg {
+  width: 120px;
+  height: 48px;
+  overflow: visible;
+  touch-action: none;
+}
+
+.voice-phrase-curve-baseline {
+  stroke: rgba(164, 211, 244, .12);
+  stroke-width: 1;
+  stroke-dasharray: 3 3;
+}
+
+.voice-phrase-curve-line {
+  fill: none;
+  stroke: rgba(128, 207, 255, .72);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+}
+
+.voice-phrase-curve-handle {
+  fill: rgba(18, 37, 55, .96);
+  stroke: rgba(154, 221, 255, .82);
+  stroke-width: 2;
+  touch-action: none;
+  cursor: ns-resize;
+}
+
+.voice-phrase-curve-handle.dragging {
+  fill: rgba(127, 78, 174, .95);
+  stroke: rgba(232, 205, 255, 1);
+}
+
+.voice-phrase-curve-value {
+  min-width: 116px;
+  color: rgba(199, 222, 239, .48);
+  font: 750 7px/1.25 system-ui, sans-serif;
+  white-space: nowrap;
+}
+
 .voice-engine-note {
   min-height: 14px;
   margin: -2px 1px 0;
@@ -896,5 +968,18 @@
   .voice-phrase-summary {
     flex-basis: 100%;
     text-align: center;
+  }
+}
+
+@media (max-width: 680px) {
+  .voice-phrase-curve {
+    grid-template-columns: 100px auto;
+  }
+  .voice-phrase-curve svg {
+    width: 100px;
+  }
+  .voice-phrase-presets {
+    flex-wrap: wrap;
+    max-width: 70px;
   }
 }
