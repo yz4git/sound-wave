@@ -1,5 +1,4 @@
 import {
-  finalizeVoiceUnits,
   type VoicePitchAccent,
   type VoiceScript,
   type VoiceUnit,
@@ -90,7 +89,6 @@ export function applyAccentNucleus(
     const unit = script.units[safeStart + offset];
     if (unit) unit.pitchAccent = pattern[offset]!;
   }
-  finalizeVoiceUnits(script.units);
 }
 
 export function cloneVoiceScript(script: VoiceScript): VoiceScript {
