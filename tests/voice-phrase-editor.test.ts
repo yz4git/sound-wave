@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyPhraseBoundaryOverrides,
   buildPhraseControlArrays,
+  phrasePitchFromDrag,
   updatePhraseBoundaryOverride,
   updatePhraseShapeOverride,
 } from '../src/voice/VoicePhraseEditor';
@@ -61,6 +62,13 @@ describe('VOICE LAB phrase controls', () => {
     expect(arrays.emphasisScales.slice(0, 3)).toEqual([0.5, 0.5, 0.5]);
     expect(arrays.emphasisScales.slice(3)).toEqual([0, 0]);
     expect(arrays.pauseOverrides[2]).toBe(0.11);
+  });
+
+  it('maps vertical touch drag to clamped phrase pitch', () => {
+    expect(phrasePitchFromDrag(0, -36)).toBe(1);
+    expect(phrasePitchFromDrag(0.5, 18)).toBe(0);
+    expect(phrasePitchFromDrag(2.8, -100)).toBe(3);
+    expect(phrasePitchFromDrag(-2.8, 100)).toBe(-3);
   });
 
   it('keeps only the latest boundary override for a mora boundary', () => {
