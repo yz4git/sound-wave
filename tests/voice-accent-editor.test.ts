@@ -22,6 +22,16 @@ describe('VOICE LAB accent phrase editor', () => {
     expect(accentNucleusForPattern(['auto', 'auto'])).toBeNull();
   });
 
+  it('does not erase full-context phonology when pitch accent is edited', () => {
+    const script = parseVoiceScript('すき');
+    script.units[0]!.devoiced = true;
+
+    applyAccentNucleus(script, 0, 1, 1);
+
+    expect(script.units[0]?.pitchAccent).toBe('high');
+    expect(script.units[0]?.devoiced).toBe(true);
+  });
+
   it('applies a manual nucleus to only one accent phrase', () => {
     const script = parseVoiceScript('あいう、えお');
     const phrases = collectAccentPhrases(script);
