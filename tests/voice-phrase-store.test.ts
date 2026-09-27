@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
+import { voiceProsodyKey } from '../src/voice/VoiceProsodyStore';
 import {
   clearVoicePhraseEdits,
   loadVoicePhraseEdits,
   saveVoicePhraseEdits,
+  VOICE_PHRASE_STORAGE_KEY,
 } from '../src/voice/VoicePhraseStore';
 
 class MemoryStorage implements Storage {
@@ -33,6 +35,33 @@ describe('VOICE LAB phrase edit persistence', () => {
     expect(loadVoicePhraseEdits(storage, '別の文章')).toEqual({
       boundaries: [],
       shapes: [],
+    });
+  });
+
+  it('loads older phrase saves with neutral curve defaults', () => {
+    const storage = new MemoryStorage();
+    const text = '旧保存';
+    storage.setItem(VOICE_PHRASE_STORAGE_KEY, JSON.stringify({
+      version: 1,
+      entries: [{
+        key: voiceProsodyKey(text),
+        boundaries: [],
+        shapes: [{
+          start: 0,
+          end: 2,
+          pitchOffset: 0.5,
+          rateScale: 1,
+          energyScale: 1,
+          emphasis: 0,
+        }],
+        updatedAt: 1,
+      }],
+    }));
+
+    expect(loadVoicePhraseEdits(storage, text).shapes[0]).toMatchObject({
+      curveStart: 0,
+      curvePeak: 0,
+      curveEnd: 0,
     });
   });
 
