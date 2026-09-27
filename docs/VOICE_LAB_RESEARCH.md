@@ -346,3 +346,11 @@ References:
 - openjtalkjs browser API: `extractFullContextAsync`, `runFrontendAsync`, and Web Worker support: https://github.com/keanu-thakalath/openjtalkjs
 - pyopenjtalk full-context examples and API: https://github.com/r9y9/pyopenjtalk
 - Piper/Open JTalk prosody use of A1/A2/A3 and full-context phones: https://ayousanz.hatenadiary.jp/entry/2026/04/04/002217
+
+### 13. Editable accent nuclei on top of Open JTalk
+
+VOICE LAB now separates automatic Japanese analysis from user correction. After Open JTalk analysis, each accent phrase is shown as a compact mobile editor. AUTO preserves the Open JTalk nucleus, ○ selects heiban, and tapping a mora sets the accent nucleus at that position.
+
+Overrides are stored per exact plain-text signature and phrase range. They are reapplied after Open JTalk analysis but do not rerun Voice Script finalization, so full-context decisions such as vowel devoicing and sokuon remain intact. RESET ACCENT removes only the manual accent layer and returns all phrases to the original Open JTalk analysis.
+
+This follows the practical direction used by Japanese synthesis editors: automatic morphological/accent analysis provides a strong default, while phrase-level nucleus correction remains directly editable because proper nouns, compounds and intended reading styles can differ from dictionary defaults.

@@ -36,6 +36,12 @@ export interface JapaneseFullContextMora {
   accentA3: number | null;
 }
 
+export interface JapaneseAccentPhrase {
+  start: number;
+  end: number;
+  nucleus: number;
+}
+
 export interface JapaneseG2PAnalysis {
   script: VoiceScript;
   reading: string;
@@ -43,6 +49,7 @@ export interface JapaneseG2PAnalysis {
   unitSourceRanges: JapaneseUnitSourceRange[];
   labels: string[];
   fullContextMatched: boolean;
+  accentPhrases: JapaneseAccentPhrase[];
   source: 'open-jtalk';
 }
 
@@ -358,10 +365,12 @@ export function buildScriptFromJapaneseFrontend(
   script: VoiceScript;
   reading: string;
   unitSourceRanges: JapaneseUnitSourceRange[];
+  accentPhrases: JapaneseAccentPhrase[];
 } {
   const readingParts: string[] = [];
   const spans: NodeSpan[] = [];
   const unitSourceRanges: JapaneseUnitSourceRange[] = [];
+  const accentPhrases: JapaneseAccentPhrase[] = [];
   let unitCursor = 0;
   let sourceCursor = 0;
 
@@ -414,7 +423,7 @@ export function buildScriptFromJapaneseFrontend(
   const reading = readingParts.join('');
   const script = parseVoiceScript(reading);
   if (script.units.length === 0 || spans.length === 0) {
-    return { script, reading, unitSourceRanges };
+    return { script, reading, unitSourceRanges, accentPhrases };
   }
 
   const phraseGroups: NodeSpan[][] = [];
@@ -434,6 +443,11 @@ export function buildScriptFromJapaneseFrontend(
     const end = group[group.length - 1]!.end;
     const count = Math.max(1, end - start + 1);
     const accentNucleus = Math.max(0, group[0]!.node.acc || 0);
+    accentPhrases.push({
+      start,
+      end,
+      nucleus: Math.min(count, accentNucleus),
+    });
     const pattern = pitchAccentPattern(count, accentNucleus);
 
     for (let offset = 0; offset < count; offset += 1) {
@@ -449,7 +463,7 @@ export function buildScriptFromJapaneseFrontend(
   }
 
   finalizeVoiceUnits(script.units);
-  return { script, reading, unitSourceRanges };
+  return { script, reading, unitSourceRanges, accentPhrases };
 }
 
 export async function analyzeJapaneseText(
@@ -459,7 +473,7 @@ export async function analyzeJapaneseText(
   await initializeJapaneseG2P(onProgress);
   onProgress?.({ stage: 'analyze', progress: 0.96, message: 'ANALYZING READING + PITCH ACCENT' });
   const nodes = await callWorker<JapaneseFrontendNode[]>('runFrontend', [text]);
-  const { script, reading, unitSourceRanges } = buildScriptFromJapaneseFrontend(nodes, text);
+  const { script, reading, unitSourceRanges, accentPhrases } = buildScriptFromJapaneseFrontend(nodes, text);
   const labels = await callWorker<string[]>('extractFullContext', [text, {}]);
   const fullContextMatched = applyOpenJTalkFullContext(script, labels);
   onProgress?.({
@@ -476,6 +490,7 @@ export async function analyzeJapaneseText(
     unitSourceRanges,
     labels,
     fullContextMatched,
+    accentPhrases,
     source: 'open-jtalk',
   };
 }

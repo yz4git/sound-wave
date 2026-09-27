@@ -2,6 +2,16 @@ import type { VocalStyle } from '../compose/VocalGenerator';
 import { downloadBlob } from '../compose/SongExport';
 import { VOICE_CHARACTER_PRESETS, validVoiceCharacterPreset, type VoiceCharacterPreset } from '../compose/VoiceCharacter';
 import { type VoiceIntonation } from './VoiceScript';
+import {
+  applyAccentNucleus,
+  cloneVoiceScript,
+  collectAccentPhrases,
+} from './VoiceAccentEditor';
+import {
+  loadVoiceAccentOverrides,
+  saveVoiceAccentOverrides,
+  type VoiceAccentOverride,
+} from './VoiceAccentStore';
 import { VoiceSynth, type VoiceProsodyEdits, type VoiceSynthSettings } from './VoiceSynth';
 import {
   mapLocalExpressionsToRanges,
@@ -84,6 +94,8 @@ export class VoiceMode {
   private japaneseAnalysisSource = '';
   private japaneseAnalyzing = false;
   private prosodyLoadedSignature = '';
+  private accentOverrides: VoiceAccentOverride[] = [];
+  private accentOverrideSource = '';
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -195,6 +207,7 @@ export class VoiceMode {
             <button type="button" id="voice-analyze-japanese">JAPANESE G2P</button>
             <span id="voice-japanese-status">Open JTalk reading + pitch accent · kanji / おう / えい · first use ~24MB dictionary</span>
           </div>
+          <div id="voice-accent-editor" class="voice-accent-editor" hidden aria-label="Japanese accent phrase editor"></div>
           <p class="voice-engine-note" id="voice-engine-note"></p>
 
           <div class="voice-prosody-preview">
@@ -354,6 +367,34 @@ export class VoiceMode {
     this.required<HTMLButtonElement>('#voice-analyze-japanese').addEventListener('pointerdown', (event) => {
       event.preventDefault();
       void this.analyzeJapanese();
+    }, { passive: false });
+
+    this.required<HTMLElement>('#voice-accent-editor').addEventListener('pointerdown', (event) => {
+      const target = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-accent-action]');
+      if (!target) return;
+      event.preventDefault();
+
+      const action = target.dataset.accentAction;
+      if (action === 'reset-all') {
+        this.accentOverrides = [];
+        this.saveAccentOverrides();
+        this.refreshPlan();
+        this.setStatus('ACCENT EDITS RESET · OPEN JTALK AUTO');
+        return;
+      }
+
+      const start = Number(target.dataset.accentStart);
+      const end = Number(target.dataset.accentEnd);
+      if (!Number.isInteger(start) || !Number.isInteger(end)) return;
+
+      if (action === 'auto') {
+        this.setAccentOverride(start, end, null);
+        return;
+      }
+
+      const nucleus = Number(target.dataset.accentNucleus);
+      if (!Number.isInteger(nucleus)) return;
+      this.setAccentOverride(start, end, nucleus);
     }, { passive: false });
 
     this.required<HTMLButtonElement>('#voice-reset-prosody').addEventListener('pointerdown', (event) => {
@@ -518,6 +559,8 @@ export class VoiceMode {
     this.japaneseAnalysis = null;
     this.japaneseAnalysisSource = '';
     this.prosodyLoadedSignature = '';
+    this.accentOverrides = [];
+    this.accentOverrideSource = '';
     const status = this.root.querySelector<HTMLElement>('#voice-japanese-status');
     if (status) {
       status.textContent = 'Open JTalk reading + pitch accent · kanji / おう / えい · first use ~24MB dictionary';
@@ -539,8 +582,23 @@ export class VoiceMode {
           this.japaneseAnalysis!.unitSourceRanges,
         )
       : markup.localExpressions;
+
+    let script: VoiceScript = markup;
+    if (analyzed) {
+      script = cloneVoiceScript(this.japaneseAnalysis!.script);
+      this.ensureAccentOverrides(markup.plainText);
+      const phrases = collectAccentPhrases(script);
+      for (const override of this.accentOverrides) {
+        const phrase = phrases.find((candidate) => (
+          candidate.start === override.start && candidate.end === override.end
+        ));
+        if (!phrase) continue;
+        applyAccentNucleus(script, override.start, override.end, override.nucleus);
+      }
+    }
+
     return {
-      script: analyzed ? this.japaneseAnalysis!.script : markup,
+      script,
       markup,
       localExpressions,
       analyzed,
@@ -579,6 +637,7 @@ export class VoiceMode {
       });
       this.japaneseAnalysis = analysis;
       this.japaneseAnalysisSource = text;
+      this.accentOverrideSource = '';
       this.resetProsodyEdits();
       this.prosodyLoadedSignature = '';
       this.refreshPlan();
@@ -673,6 +732,8 @@ export class VoiceMode {
       contourEl.append(point);
     });
 
+    this.renderAccentEditor(script, markup.plainText, analyzed);
+
     const note = this.required<HTMLElement>('#voice-engine-note');
     if (this.settings.engine === 'local') {
       note.textContent = analyzed
@@ -693,6 +754,137 @@ export class VoiceMode {
       note.textContent = 'SYSTEM TTS · device/browser voice · kanji and general text supported · availability varies by OS';
       this.setStatus('READY · SYSTEM TTS');
     }
+  }
+
+  private ensureAccentOverrides(plainText: string): void {
+    if (this.accentOverrideSource === plainText) return;
+    this.accentOverrideSource = plainText;
+    try {
+      this.accentOverrides = loadVoiceAccentOverrides(localStorage, plainText);
+    } catch {
+      this.accentOverrides = [];
+    }
+  }
+
+  private saveAccentOverrides(): void {
+    const text = this.required<HTMLTextAreaElement>('#voice-text').value;
+    const plainText = parseVoiceMarkup(text).plainText;
+    try {
+      saveVoiceAccentOverrides(localStorage, plainText, this.accentOverrides);
+      this.accentOverrideSource = plainText;
+    } catch {
+      // Restricted storage: keep the current session edits.
+    }
+  }
+
+  private setAccentOverride(
+    start: number,
+    end: number,
+    nucleus: number | null,
+  ): void {
+    const text = this.required<HTMLTextAreaElement>('#voice-text').value;
+    const plainText = parseVoiceMarkup(text).plainText;
+    this.ensureAccentOverrides(plainText);
+    this.accentOverrides = this.accentOverrides.filter((override) => (
+      override.start !== start || override.end !== end
+    ));
+    if (nucleus !== null) this.accentOverrides.push({ start, end, nucleus });
+    this.saveAccentOverrides();
+    this.refreshPlan();
+    this.setStatus(
+      nucleus === null
+        ? 'ACCENT PHRASE · OPEN JTALK AUTO'
+        : nucleus === 0
+          ? 'ACCENT PHRASE · HEIBAN'
+          : `ACCENT NUCLEUS · MORA ${nucleus}`,
+    );
+  }
+
+  private renderAccentEditor(
+    script: VoiceScript,
+    plainText: string,
+    analyzed: boolean,
+  ): void {
+    const editor = this.required<HTMLElement>('#voice-accent-editor');
+    editor.replaceChildren();
+    editor.hidden = !analyzed || this.settings.engine !== 'local';
+    if (editor.hidden) return;
+
+    this.ensureAccentOverrides(plainText);
+    const currentPhrases = collectAccentPhrases(script);
+    const autoPhrases = this.japaneseAnalysis?.accentPhrases ?? [];
+
+    const header = document.createElement('div');
+    header.className = 'voice-accent-header';
+    const title = document.createElement('span');
+    title.textContent = 'ACCENT PHRASES · tap mora = nucleus';
+    const reset = document.createElement('button');
+    reset.type = 'button';
+    reset.dataset.accentAction = 'reset-all';
+    reset.textContent = 'RESET ACCENT';
+    reset.disabled = this.accentOverrides.length === 0;
+    header.append(title, reset);
+    editor.append(header);
+
+    const scroller = document.createElement('div');
+    scroller.className = 'voice-accent-scroll';
+
+    currentPhrases.forEach((phrase, phraseIndex) => {
+      const autoPhrase = autoPhrases.find((candidate) => (
+        candidate.start === phrase.start && candidate.end === phrase.end
+      ));
+      const override = this.accentOverrides.find((candidate) => (
+        candidate.start === phrase.start && candidate.end === phrase.end
+      ));
+
+      const group = document.createElement('div');
+      group.className = 'voice-accent-phrase';
+      if (override) group.classList.add('edited');
+
+      const label = document.createElement('span');
+      label.className = 'voice-accent-phrase-label';
+      label.textContent = `P${phraseIndex + 1}`;
+
+      const auto = document.createElement('button');
+      auto.type = 'button';
+      auto.dataset.accentAction = 'auto';
+      auto.dataset.accentStart = String(phrase.start);
+      auto.dataset.accentEnd = String(phrase.end);
+      auto.textContent = `AUTO ${autoPhrase?.nucleus ?? '–'}`;
+      auto.classList.toggle('active', !override);
+
+      const heiban = document.createElement('button');
+      heiban.type = 'button';
+      heiban.dataset.accentAction = 'set';
+      heiban.dataset.accentStart = String(phrase.start);
+      heiban.dataset.accentEnd = String(phrase.end);
+      heiban.dataset.accentNucleus = '0';
+      heiban.textContent = '○';
+      heiban.title = 'HEIBAN';
+      heiban.classList.toggle('active', override?.nucleus === 0);
+
+      group.append(label, auto, heiban);
+
+      for (let index = phrase.start; index <= phrase.end; index += 1) {
+        const unit = script.units[index]!;
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.accentAction = 'set';
+        button.dataset.accentStart = String(phrase.start);
+        button.dataset.accentEnd = String(phrase.end);
+        button.dataset.accentNucleus = String(index - phrase.start + 1);
+        button.textContent = unit.display;
+        button.classList.add(unit.pitchAccent === 'high' ? 'high' : 'low');
+        if (override?.nucleus === index - phrase.start + 1) {
+          button.classList.add('active', 'nucleus');
+        }
+        group.append(button);
+      }
+
+      scroller.append(group);
+    });
+
+    editor.append(scroller);
   }
 
   private resetProsodyEdits(): void {
