@@ -15,6 +15,7 @@ import {
 import {
   applyPhraseBoundaryOverrides,
   buildPhraseControlArrays,
+  phrasePitchFromDrag,
   updatePhraseBoundaryOverride,
   updatePhraseShapeOverride,
   type VoicePhraseBoundaryOverride,
@@ -489,11 +490,9 @@ export class VoiceMode {
       if (!drag || drag.pointerId !== event.pointerId) return;
       event.preventDefault();
 
-      const deltaSemitones = (drag.startY - event.clientY) / 36;
-      const nextPitch = clamp(
-        Math.round((drag.startPitch + deltaSemitones) * 10) / 10,
-        -3,
-        3,
+      const nextPitch = phrasePitchFromDrag(
+        drag.startPitch,
+        event.clientY - drag.startY,
       );
       if (Math.abs(nextPitch - drag.currentPitch) < 0.001) return;
 
