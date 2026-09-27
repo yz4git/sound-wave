@@ -12,6 +12,18 @@ import {
   saveVoiceAccentOverrides,
   type VoiceAccentOverride,
 } from './VoiceAccentStore';
+import {
+  applyPhraseBoundaryOverrides,
+  buildPhraseControlArrays,
+  updatePhraseBoundaryOverride,
+  updatePhraseShapeOverride,
+  type VoicePhraseBoundaryOverride,
+  type VoicePhraseShapeOverride,
+} from './VoicePhraseEditor';
+import {
+  loadVoicePhraseEdits,
+  saveVoicePhraseEdits,
+} from './VoicePhraseStore';
 import { VoiceSynth, type VoiceProsodyEdits, type VoiceSynthSettings } from './VoiceSynth';
 import {
   mapLocalExpressionsToRanges,
@@ -96,6 +108,9 @@ export class VoiceMode {
   private prosodyLoadedSignature = '';
   private accentOverrides: VoiceAccentOverride[] = [];
   private accentOverrideSource = '';
+  private phraseBoundaries: VoicePhraseBoundaryOverride[] = [];
+  private phraseShapes: VoicePhraseShapeOverride[] = [];
+  private phraseEditSource = '';
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -561,6 +576,9 @@ export class VoiceMode {
     this.prosodyLoadedSignature = '';
     this.accentOverrides = [];
     this.accentOverrideSource = '';
+    this.phraseBoundaries = [];
+    this.phraseShapes = [];
+    this.phraseEditSource = '';
     const status = this.root.querySelector<HTMLElement>('#voice-japanese-status');
     if (status) {
       status.textContent = 'Open JTalk reading + pitch accent · kanji / おう / えい · first use ~24MB dictionary';
@@ -586,6 +604,9 @@ export class VoiceMode {
     let script: VoiceScript = markup;
     if (analyzed) {
       script = cloneVoiceScript(this.japaneseAnalysis!.script);
+      this.ensurePhraseEdits(markup.plainText);
+      applyPhraseBoundaryOverrides(script, this.phraseBoundaries);
+
       this.ensureAccentOverrides(markup.plainText);
       const phrases = collectAccentPhrases(script);
       for (const override of this.accentOverrides) {
@@ -638,6 +659,7 @@ export class VoiceMode {
       this.japaneseAnalysis = analysis;
       this.japaneseAnalysisSource = text;
       this.accentOverrideSource = '';
+      this.phraseEditSource = '';
       this.resetProsodyEdits();
       this.prosodyLoadedSignature = '';
       this.refreshPlan();
@@ -672,7 +694,7 @@ export class VoiceMode {
 
     this.restoreProsodyEdits(text, script.units.length);
     this.ensureProsodyEditLength(script.units.length);
-    const plan = this.synth.plan(script, this.settings, this.getProsodyEdits(localExpressions));
+    const plan = this.synth.plan(script, this.settings, this.getProsodyEdits(script, localExpressions));
     const window = getVoiceProsodyWindow(plan.units.length, this.prosodyPage);
     this.prosodyPage = window.page;
     const pageLabel = this.required<HTMLElement>('#voice-prosody-page-label');
@@ -959,13 +981,22 @@ export class VoiceMode {
   }
 
   private getProsodyEdits(
+    script: VoiceScript,
     localExpressions: readonly (VoiceExpressionSettings | null)[] = [],
   ): VoiceProsodyEdits {
+    const phrase = buildPhraseControlArrays(
+      script,
+      this.phraseShapes,
+      this.phraseBoundaries,
+    );
     return {
       pitchOffsets: this.pitchEdits,
       energyScales: this.energyEdits,
       durationScales: this.durationEdits,
       localExpressions,
+      phrasePitchOffsets: phrase.pitchOffsets,
+      phraseRateScales: phrase.rateScales,
+      pauseOverrides: phrase.pauseOverrides,
     };
   }
 
@@ -1048,7 +1079,7 @@ export class VoiceMode {
     this.lastDrawIndex = index;
     this.lastDrawValue = value;
 
-    const plan = this.synth.plan(script, this.settings, this.getProsodyEdits(localExpressions));
+    const plan = this.synth.plan(script, this.settings, this.getProsodyEdits(script, localExpressions));
     const timed = plan.units[index];
     if (timed) {
       const point = contour.querySelector<HTMLElement>(`[data-voice-index="${index}"]`) ?? undefined;
@@ -1122,7 +1153,7 @@ export class VoiceMode {
 
     try {
       this.setStatus('SCHEDULING · LOW-LATENCY STREAM');
-      const plan = await this.synth.play(script, this.settings, this.getProsodyEdits(localExpressions));
+      const plan = await this.synth.play(script, this.settings, this.getProsodyEdits(script, localExpressions));
       this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
       this.setStatus(`SPEAKING · ${script.units.length} UNITS · ${plan.duration.toFixed(1)}s`);
       for (const timed of plan.units.slice(0, 72)) {
@@ -1244,7 +1275,7 @@ export class VoiceMode {
     button.textContent = 'RENDERING…';
     this.setStatus('RENDERING WAV · REAL-TIME LOCAL CAPTURE');
     try {
-      const blob = await this.synth.renderWav(script, this.settings, this.getProsodyEdits(localExpressions));
+      const blob = await this.synth.renderWav(script, this.settings, this.getProsodyEdits(script, localExpressions));
       downloadBlob(blob, `${safeFilename(markup.plainText)}.wav`);
       this.setStatus(`WAV EXPORTED · ${Math.round(blob.size / 1024)} KB`);
     } catch (error) {
