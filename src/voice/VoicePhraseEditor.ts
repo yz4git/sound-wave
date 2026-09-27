@@ -17,6 +17,9 @@ export interface VoicePhraseShapeOverride {
   rateScale: number;
   energyScale: number;
   emphasis: number;
+  curveStart: number;
+  curvePeak: number;
+  curveEnd: number;
 }
 
 export interface VoicePhraseControlArrays {
@@ -29,6 +32,17 @@ export interface VoicePhraseControlArrays {
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
+export type VoiceEmphasisPreset = 'weak' | 'normal' | 'strong' | 'critical';
+
+export function phraseEmphasisPreset(
+  preset: VoiceEmphasisPreset,
+): { energyScale: number; emphasis: number } {
+  if (preset === 'weak') return { energyScale: 0.88, emphasis: 0 };
+  if (preset === 'strong') return { energyScale: 1.08, emphasis: 0.7 };
+  if (preset === 'critical') return { energyScale: 1.18, emphasis: 1.3 };
+  return { energyScale: 1, emphasis: 0 };
+}
+
 export function phrasePitchFromDrag(
   startPitch: number,
   deltaY: number,
@@ -37,6 +51,31 @@ export function phrasePitchFromDrag(
   const safePixels = Math.max(12, Math.abs(pixelsPerSemitone));
   const raw = startPitch - deltaY / safePixels;
   return clamp(Math.round(raw * 10) / 10, -3, 3);
+}
+
+export function phraseCurvePointFromDrag(
+  startValue: number,
+  deltaY: number,
+  pixelsPerSemitone = 26,
+): number {
+  const safePixels = Math.max(12, Math.abs(pixelsPerSemitone));
+  const raw = startValue - deltaY / safePixels;
+  return clamp(Math.round(raw * 10) / 10, -2.5, 2.5);
+}
+
+export function phraseCurveAtProgress(
+  curveStart: number,
+  curvePeak: number,
+  curveEnd: number,
+  progress: number,
+): number {
+  const t = clamp(progress, 0, 1);
+  if (t <= 0.5) {
+    const local = t * 2;
+    return curveStart + (curvePeak - curveStart) * local;
+  }
+  const local = (t - 0.5) * 2;
+  return curvePeak + (curveEnd - curvePeak) * local;
 }
 
 export function applyPhraseBoundaryOverrides(
@@ -83,8 +122,18 @@ export function buildPhraseControlArrays(
     const rate = clamp(shape.rateScale, 0.72, 1.35);
     const energy = clamp(shape.energyScale, 0.65, 1.45);
     const emphasis = clamp(shape.emphasis, 0, 1.5);
+    const curveStart = clamp(shape.curveStart, -2.5, 2.5);
+    const curvePeak = clamp(shape.curvePeak, -2.5, 2.5);
+    const curveEnd = clamp(shape.curveEnd, -2.5, 2.5);
+    const span = Math.max(1, phrase.end - phrase.start);
     for (let index = phrase.start; index <= phrase.end; index += 1) {
-      pitchOffsets[index] = pitch;
+      const progress = (index - phrase.start) / span;
+      pitchOffsets[index] = pitch + phraseCurveAtProgress(
+        curveStart,
+        curvePeak,
+        curveEnd,
+        progress,
+      );
       rateScales[index] = rate;
       energyScales[index] = energy;
       emphasisScales[index] = emphasis;
@@ -117,11 +166,17 @@ export function updatePhraseShapeOverride(
   const rateScale = clamp(next.rateScale, 0.72, 1.35);
   const energyScale = clamp(next.energyScale, 0.65, 1.45);
   const emphasis = clamp(next.emphasis, 0, 1.5);
+  const curveStart = clamp(next.curveStart, -2.5, 2.5);
+  const curvePeak = clamp(next.curvePeak, -2.5, 2.5);
+  const curveEnd = clamp(next.curveEnd, -2.5, 2.5);
   if (
     Math.abs(pitchOffset) < 0.001
     && Math.abs(rateScale - 1) < 0.001
     && Math.abs(energyScale - 1) < 0.001
     && emphasis < 0.001
+    && Math.abs(curveStart) < 0.001
+    && Math.abs(curvePeak) < 0.001
+    && Math.abs(curveEnd) < 0.001
   ) {
     return filtered;
   }
@@ -131,5 +186,8 @@ export function updatePhraseShapeOverride(
     rateScale,
     energyScale,
     emphasis,
+    curveStart,
+    curvePeak,
+    curveEnd,
   }];
 }
