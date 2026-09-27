@@ -1196,16 +1196,31 @@ export class VoiceMode {
         controls.append(control);
       };
 
+      const drag = document.createElement('button');
+      drag.type = 'button';
+      drag.className = 'voice-phrase-f0-drag';
+      drag.dataset.phraseDrag = 'pitch';
+      drag.dataset.phraseStart = String(phrase.start);
+      drag.dataset.phraseEnd = String(phrase.end);
+      const pitchValue = shape?.pitchOffset ?? 0;
+      drag.textContent = `↕ F0 ${pitchValue >= 0 ? '+' : ''}${pitchValue.toFixed(1)}st`;
+      drag.title = 'DRAG UP / DOWN TO MOVE PHRASE F0';
+      controls.append(drag);
+
       addControl('P−', 'pitch-down', 'PHRASE PITCH -0.25 ST');
       addControl('P+', 'pitch-up', 'PHRASE PITCH +0.25 ST');
       addControl('R−', 'rate-down', 'PHRASE RATE SLOWER');
       addControl('R+', 'rate-up', 'PHRASE RATE FASTER');
+      addControl('E−', 'energy-down', 'PHRASE ENERGY -5%');
+      addControl('E+', 'energy-up', 'PHRASE ENERGY +5%');
+      addControl('EM−', 'emphasis-down', 'LESS PHRASE EMPHASIS');
+      addControl('EM+', 'emphasis-up', 'MORE PHRASE EMPHASIS');
       addControl('PA−', 'pause-down', 'SHORTER PAUSE AFTER PHRASE');
       addControl('PA+', 'pause-up', 'LONGER PAUSE AFTER PHRASE');
 
       const summary = document.createElement('span');
       summary.className = 'voice-phrase-summary';
-      summary.textContent = `${shape?.pitchOffset ? `${shape.pitchOffset > 0 ? '+' : ''}${shape.pitchOffset.toFixed(2)}st` : '0st'} · ${(shape?.rateScale ?? 1).toFixed(2)}×`;
+      summary.textContent = `${(shape?.rateScale ?? 1).toFixed(2)}× · E${(shape?.energyScale ?? 1).toFixed(2)} · M${(shape?.emphasis ?? 0).toFixed(2)}`;
       controls.append(summary);
       group.append(controls);
 
