@@ -403,8 +403,25 @@
   font-size: 7px;
 }
 
+.voice-phrase-controls .voice-phrase-f0-drag {
+  min-width: 66px;
+  padding: 0 7px;
+  border-color: rgba(129, 204, 255, .28);
+  background: rgba(72, 147, 197, .12);
+  color: rgba(218, 240, 255, .84);
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.voice-phrase-controls .voice-phrase-f0-drag.dragging {
+  border-color: rgba(191, 149, 255, .72);
+  background: rgba(119, 74, 169, .34);
+  color: #fff;
+}
+
 .voice-phrase-summary {
-  min-width: 55px;
+  min-width: 82px;
   padding: 0 3px;
   color: rgba(197, 220, 238, .45);
   font: 750 7px/1 system-ui, sans-serif;
