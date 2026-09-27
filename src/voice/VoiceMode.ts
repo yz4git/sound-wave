@@ -1337,6 +1337,81 @@ export class VoiceMode {
       const shape = this.phraseShapes.find((candidate) => (
         candidate.start === phrase.start && candidate.end === phrase.end
       ));
+      const presetRow = document.createElement('div');
+      presetRow.className = 'voice-phrase-presets';
+      const presetSpecs: readonly [VoiceEmphasisPreset, string][] = [
+        ['weak', '弱調'],
+        ['normal', '通常'],
+        ['strong', '強調'],
+        ['critical', '最重要'],
+      ];
+      for (const [preset, labelText] of presetSpecs) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.phraseAction = `emphasis-${preset}`;
+        button.dataset.phraseStart = String(phrase.start);
+        button.dataset.phraseEnd = String(phrase.end);
+        button.textContent = labelText;
+        const expected = phraseEmphasisPreset(preset);
+        const currentEnergy = shape?.energyScale ?? 1;
+        const currentEmphasis = shape?.emphasis ?? 0;
+        button.classList.toggle(
+          'active',
+          Math.abs(currentEnergy - expected.energyScale) < 0.011
+            && Math.abs(currentEmphasis - expected.emphasis) < 0.011,
+        );
+        presetRow.append(button);
+      }
+      group.append(presetRow);
+
+      const curve = document.createElement('div');
+      curve.className = 'voice-phrase-curve';
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', '0 0 120 48');
+      svg.setAttribute('aria-label', 'Phrase F0 curve');
+      const baseline = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      baseline.setAttribute('x1', '8');
+      baseline.setAttribute('x2', '112');
+      baseline.setAttribute('y1', '24');
+      baseline.setAttribute('y2', '24');
+      baseline.setAttribute('class', 'voice-phrase-curve-baseline');
+      svg.append(baseline);
+
+      const curveStart = shape?.curveStart ?? 0;
+      const curvePeak = shape?.curvePeak ?? 0;
+      const curveEnd = shape?.curveEnd ?? 0;
+      const points: readonly [string, number, number][] = [
+        ['start', 10, curveStart],
+        ['peak', 60, curvePeak],
+        ['end', 110, curveEnd],
+      ];
+      const polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+      polyline.setAttribute(
+        'points',
+        points.map(([, x, value]) => `${x},${24 - value * 6.4}`).join(' '),
+      );
+      polyline.setAttribute('class', 'voice-phrase-curve-line');
+      svg.append(polyline);
+
+      for (const [point, x, value] of points) {
+        const handle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        handle.setAttribute('cx', String(x));
+        handle.setAttribute('cy', String(24 - value * 6.4));
+        handle.setAttribute('r', '5.5');
+        handle.setAttribute('class', 'voice-phrase-curve-handle');
+        handle.dataset.phraseCurve = point;
+        handle.dataset.phraseStart = String(phrase.start);
+        handle.dataset.phraseEnd = String(phrase.end);
+        svg.append(handle);
+      }
+
+      const curveValue = document.createElement('span');
+      curveValue.className = 'voice-phrase-curve-value';
+      curveValue.textContent =
+        `CURVE S${curveStart >= 0 ? '+' : ''}${curveStart.toFixed(1)} · P${curvePeak >= 0 ? '+' : ''}${curvePeak.toFixed(1)} · E${curveEnd >= 0 ? '+' : ''}${curveEnd.toFixed(1)}`;
+      curve.append(svg, curveValue);
+      group.append(curve);
+
       const controls = document.createElement('div');
       controls.className = 'voice-phrase-controls';
 
