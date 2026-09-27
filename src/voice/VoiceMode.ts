@@ -983,6 +983,7 @@ export class VoiceMode {
     if (editor.hidden) return;
 
     this.ensureAccentOverrides(plainText);
+    this.ensurePhraseEdits(plainText);
     const currentPhrases = collectAccentPhrases(script);
     const autoPhrases = this.japaneseAnalysis?.accentPhrases ?? [];
 
@@ -990,12 +991,23 @@ export class VoiceMode {
     header.className = 'voice-accent-header';
     const title = document.createElement('span');
     title.textContent = 'ACCENT PHRASES · tap mora = nucleus';
+    const resetGroup = document.createElement('div');
+    resetGroup.className = 'voice-accent-reset-group';
+
     const reset = document.createElement('button');
     reset.type = 'button';
     reset.dataset.accentAction = 'reset-all';
     reset.textContent = 'RESET ACCENT';
     reset.disabled = this.accentOverrides.length === 0;
-    header.append(title, reset);
+
+    const resetPhrase = document.createElement('button');
+    resetPhrase.type = 'button';
+    resetPhrase.dataset.phraseAction = 'reset-all';
+    resetPhrase.textContent = 'RESET PHRASE';
+    resetPhrase.disabled = this.phraseBoundaries.length === 0 && this.phraseShapes.length === 0;
+
+    resetGroup.append(reset, resetPhrase);
+    header.append(title, resetGroup);
     editor.append(header);
 
     const scroller = document.createElement('div');
@@ -1051,6 +1063,63 @@ export class VoiceMode {
           button.classList.add('active', 'nucleus');
         }
         group.append(button);
+
+        if (index < phrase.end) {
+          const split = document.createElement('button');
+          split.type = 'button';
+          split.className = 'voice-phrase-split';
+          split.dataset.phraseAction = 'split';
+          split.dataset.phraseAfter = String(index);
+          split.textContent = '│';
+          split.title = 'SPLIT ACCENT PHRASE HERE';
+          group.append(split);
+        }
+      }
+
+      const shape = this.phraseShapes.find((candidate) => (
+        candidate.start === phrase.start && candidate.end === phrase.end
+      ));
+      const controls = document.createElement('div');
+      controls.className = 'voice-phrase-controls';
+
+      const addControl = (
+        labelText: string,
+        action: string,
+        titleText: string,
+      ): void => {
+        const control = document.createElement('button');
+        control.type = 'button';
+        control.dataset.phraseAction = action;
+        control.dataset.phraseStart = String(phrase.start);
+        control.dataset.phraseEnd = String(phrase.end);
+        control.textContent = labelText;
+        control.title = titleText;
+        controls.append(control);
+      };
+
+      addControl('P−', 'pitch-down', 'PHRASE PITCH -0.25 ST');
+      addControl('P+', 'pitch-up', 'PHRASE PITCH +0.25 ST');
+      addControl('R−', 'rate-down', 'PHRASE RATE SLOWER');
+      addControl('R+', 'rate-up', 'PHRASE RATE FASTER');
+      addControl('PA−', 'pause-down', 'SHORTER PAUSE AFTER PHRASE');
+      addControl('PA+', 'pause-up', 'LONGER PAUSE AFTER PHRASE');
+
+      const summary = document.createElement('span');
+      summary.className = 'voice-phrase-summary';
+      summary.textContent = `${shape?.pitchOffset ? `${shape.pitchOffset > 0 ? '+' : ''}${shape.pitchOffset.toFixed(2)}st` : '0st'} · ${(shape?.rateScale ?? 1).toFixed(2)}×`;
+      controls.append(summary);
+      group.append(controls);
+
+      const endUnit = script.units[phrase.end]!;
+      if (phrase.end < script.units.length - 1 && endUnit.boundaryAfter !== 'sentence') {
+        const join = document.createElement('button');
+        join.type = 'button';
+        join.className = 'voice-phrase-join';
+        join.dataset.phraseAction = 'join';
+        join.dataset.phraseAfter = String(phrase.end);
+        join.textContent = 'JOIN →';
+        join.title = 'JOIN WITH NEXT ACCENT PHRASE';
+        group.append(join);
       }
 
       scroller.append(group);
