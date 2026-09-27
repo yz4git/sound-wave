@@ -812,9 +812,7 @@ export class VoiceMode {
 
     this.ensureAccentOverrides(plainText);
     const currentPhrases = collectAccentPhrases(script);
-    const autoPhrases = this.japaneseAnalysis
-      ? collectAccentPhrases(this.japaneseAnalysis.script)
-      : [];
+    const autoPhrases = this.japaneseAnalysis?.accentPhrases ?? [];
 
     const header = document.createElement('div');
     header.className = 'voice-accent-header';
@@ -863,7 +861,7 @@ export class VoiceMode {
       heiban.dataset.accentNucleus = '0';
       heiban.textContent = '○';
       heiban.title = 'HEIBAN';
-      heiban.classList.toggle('active', Boolean(override) && phrase.nucleus === 0);
+      heiban.classList.toggle('active', override?.nucleus === 0);
 
       group.append(label, auto, heiban);
 
@@ -877,7 +875,7 @@ export class VoiceMode {
         button.dataset.accentNucleus = String(index - phrase.start + 1);
         button.textContent = unit.display;
         button.classList.add(unit.pitchAccent === 'high' ? 'high' : 'low');
-        if (override && phrase.nucleus === index - phrase.start + 1) {
+        if (override?.nucleus === index - phrase.start + 1) {
           button.classList.add('active', 'nucleus');
         }
         group.append(button);
