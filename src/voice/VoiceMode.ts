@@ -15,9 +15,12 @@ import {
 import {
   applyPhraseBoundaryOverrides,
   buildPhraseControlArrays,
+  phraseCurvePointFromDrag,
+  phraseEmphasisPreset,
   phrasePitchFromDrag,
   updatePhraseBoundaryOverride,
   updatePhraseShapeOverride,
+  type VoiceEmphasisPreset,
   type VoicePhraseBoundaryOverride,
   type VoicePhraseShapeOverride,
 } from './VoicePhraseEditor';
@@ -120,6 +123,17 @@ export class VoiceMode {
     startPitch: number;
     currentPitch: number;
     handle: HTMLElement;
+  } | null = null;
+  private phraseCurveDrag: {
+    pointerId: number;
+    start: number;
+    end: number;
+    point: 'start' | 'peak' | 'end';
+    startY: number;
+    startValue: number;
+    currentValue: number;
+    handle: SVGCircleElement;
+    valueLabel: HTMLElement;
   } | null = null;
 
   constructor(root: HTMLElement) {
@@ -974,6 +988,9 @@ export class VoiceMode {
         rateScale: (existing?.rateScale ?? 1) + rateDelta,
         energyScale: (existing?.energyScale ?? 1) + energyDelta,
         emphasis: (existing?.emphasis ?? 0) + emphasisDelta,
+        curveStart: existing?.curveStart ?? 0,
+        curvePeak: existing?.curvePeak ?? 0,
+        curveEnd: existing?.curveEnd ?? 0,
       },
     );
     this.savePhraseEdits();
@@ -998,8 +1015,68 @@ export class VoiceMode {
         rateScale: existing?.rateScale ?? 1,
         energyScale: existing?.energyScale ?? 1,
         emphasis: existing?.emphasis ?? 0,
+        curveStart: existing?.curveStart ?? 0,
+        curvePeak: existing?.curvePeak ?? 0,
+        curveEnd: existing?.curveEnd ?? 0,
       },
     );
+  }
+
+  private applyPhraseEmphasisPreset(
+    start: number,
+    end: number,
+    preset: VoiceEmphasisPreset,
+  ): void {
+    const text = this.required<HTMLTextAreaElement>('#voice-text').value;
+    const plainText = parseVoiceMarkup(text).plainText;
+    this.ensurePhraseEdits(plainText);
+    const existing = this.phraseShapes.find((shape) => (
+      shape.start === start && shape.end === end
+    ));
+    const values = phraseEmphasisPreset(preset);
+    this.phraseShapes = updatePhraseShapeOverride(
+      this.phraseShapes,
+      {
+        start,
+        end,
+        pitchOffset: existing?.pitchOffset ?? 0,
+        rateScale: existing?.rateScale ?? 1,
+        energyScale: values.energyScale,
+        emphasis: values.emphasis,
+        curveStart: existing?.curveStart ?? 0,
+        curvePeak: existing?.curvePeak ?? 0,
+        curveEnd: existing?.curveEnd ?? 0,
+      },
+    );
+    this.savePhraseEdits();
+    this.refreshPlan();
+    this.setStatus(`PHRASE EMPHASIS · ${preset.toUpperCase()}`);
+  }
+
+  private setPhraseCurvePointWithoutRefresh(
+    start: number,
+    end: number,
+    point: 'start' | 'peak' | 'end',
+    value: number,
+  ): void {
+    const existing = this.phraseShapes.find((shape) => (
+      shape.start === start && shape.end === end
+    ));
+    const next: VoicePhraseShapeOverride = {
+      start,
+      end,
+      pitchOffset: existing?.pitchOffset ?? 0,
+      rateScale: existing?.rateScale ?? 1,
+      energyScale: existing?.energyScale ?? 1,
+      emphasis: existing?.emphasis ?? 0,
+      curveStart: existing?.curveStart ?? 0,
+      curvePeak: existing?.curvePeak ?? 0,
+      curveEnd: existing?.curveEnd ?? 0,
+    };
+    if (point === 'start') next.curveStart = value;
+    else if (point === 'peak') next.curvePeak = value;
+    else next.curveEnd = value;
+    this.phraseShapes = updatePhraseShapeOverride(this.phraseShapes, next);
   }
 
   private adjustPhrasePause(after: number, delta: number): void {
