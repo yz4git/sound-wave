@@ -64,15 +64,32 @@ function sanitizeShape(
   const rateScale = Math.max(0.72, Math.min(1.35, Number(value.rateScale)));
   const rawEnergy = Number(value.energyScale ?? 1);
   const rawEmphasis = Number(value.emphasis ?? 0);
+  const rawCurveStart = Number(value.curveStart ?? 0);
+  const rawCurvePeak = Number(value.curvePeak ?? 0);
+  const rawCurveEnd = Number(value.curveEnd ?? 0);
   const energyScale = Math.max(0.65, Math.min(1.45, rawEnergy));
   const emphasis = Math.max(0, Math.min(1.5, rawEmphasis));
+  const curveStart = Math.max(-2.5, Math.min(2.5, rawCurveStart));
+  const curvePeak = Math.max(-2.5, Math.min(2.5, rawCurvePeak));
+  const curveEnd = Math.max(-2.5, Math.min(2.5, rawCurveEnd));
   if (
     !Number.isFinite(start) || !Number.isFinite(end)
     || !Number.isFinite(pitchOffset) || !Number.isFinite(rateScale)
     || !Number.isFinite(energyScale) || !Number.isFinite(emphasis)
+    || !Number.isFinite(curveStart) || !Number.isFinite(curvePeak) || !Number.isFinite(curveEnd)
     || start < 0 || end < start
   ) return null;
-  return { start, end, pitchOffset, rateScale, energyScale, emphasis };
+  return {
+    start,
+    end,
+    pitchOffset,
+    rateScale,
+    energyScale,
+    emphasis,
+    curveStart,
+    curvePeak,
+    curveEnd,
+  };
 }
 
 export function loadVoicePhraseEdits(
