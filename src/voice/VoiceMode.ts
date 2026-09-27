@@ -385,9 +385,42 @@ export class VoiceMode {
     }, { passive: false });
 
     this.required<HTMLElement>('#voice-accent-editor').addEventListener('pointerdown', (event) => {
-      const target = (event.target as HTMLElement).closest<HTMLButtonElement>('button[data-accent-action]');
+      const target = (event.target as HTMLElement).closest<HTMLButtonElement>(
+        'button[data-accent-action],button[data-phrase-action]',
+      );
       if (!target) return;
       event.preventDefault();
+
+      const phraseAction = target.dataset.phraseAction;
+      if (phraseAction) {
+        if (phraseAction === 'reset-all') {
+          this.phraseBoundaries = [];
+          this.phraseShapes = [];
+          this.savePhraseEdits();
+          this.refreshPlan();
+          this.setStatus('PHRASE EDITS RESET · OPEN JTALK BOUNDARIES');
+          return;
+        }
+
+        const after = Number(target.dataset.phraseAfter);
+        if (phraseAction === 'split' || phraseAction === 'join') {
+          if (!Number.isInteger(after)) return;
+          this.setPhraseBoundary(after, phraseAction === 'split' ? 'accent' : 'none');
+          return;
+        }
+
+        const start = Number(target.dataset.phraseStart);
+        const end = Number(target.dataset.phraseEnd);
+        if (!Number.isInteger(start) || !Number.isInteger(end)) return;
+
+        if (phraseAction === 'pitch-down') this.adjustPhraseShape(start, end, -0.25, 0);
+        else if (phraseAction === 'pitch-up') this.adjustPhraseShape(start, end, 0.25, 0);
+        else if (phraseAction === 'rate-down') this.adjustPhraseShape(start, end, 0, -0.05);
+        else if (phraseAction === 'rate-up') this.adjustPhraseShape(start, end, 0, 0.05);
+        else if (phraseAction === 'pause-down') this.adjustPhrasePause(end, -0.025);
+        else if (phraseAction === 'pause-up') this.adjustPhrasePause(end, 0.025);
+        return;
+      }
 
       const action = target.dataset.accentAction;
       if (action === 'reset-all') {
@@ -776,6 +809,123 @@ export class VoiceMode {
       note.textContent = 'SYSTEM TTS · device/browser voice · kanji and general text supported · availability varies by OS';
       this.setStatus('READY · SYSTEM TTS');
     }
+  }
+
+  private ensurePhraseEdits(plainText: string): void {
+    if (this.phraseEditSource === plainText) return;
+    this.phraseEditSource = plainText;
+    try {
+      const saved = loadVoicePhraseEdits(localStorage, plainText);
+      this.phraseBoundaries = saved.boundaries;
+      this.phraseShapes = saved.shapes;
+    } catch {
+      this.phraseBoundaries = [];
+      this.phraseShapes = [];
+    }
+  }
+
+  private savePhraseEdits(): void {
+    const text = this.required<HTMLTextAreaElement>('#voice-text').value;
+    const plainText = parseVoiceMarkup(text).plainText;
+    try {
+      saveVoicePhraseEdits(
+        localStorage,
+        plainText,
+        this.phraseBoundaries,
+        this.phraseShapes,
+      );
+      this.phraseEditSource = plainText;
+    } catch {
+      // Restricted storage: keep the current-session phrase edits.
+    }
+  }
+
+  private clearRangeEditsAtBoundary(after: number): void {
+    const touchesBoundary = (start: number, end: number): boolean => (
+      (start <= after && end >= after + 1)
+      || end === after
+      || start === after + 1
+    );
+    this.accentOverrides = this.accentOverrides.filter((override) => (
+      !touchesBoundary(override.start, override.end)
+    ));
+    this.phraseShapes = this.phraseShapes.filter((shape) => (
+      !touchesBoundary(shape.start, shape.end)
+    ));
+    this.saveAccentOverrides();
+  }
+
+  private setPhraseBoundary(after: number, boundary: 'none' | 'accent'): void {
+    const text = this.required<HTMLTextAreaElement>('#voice-text').value;
+    const plainText = parseVoiceMarkup(text).plainText;
+    this.ensurePhraseEdits(plainText);
+    this.clearRangeEditsAtBoundary(after);
+
+    this.phraseBoundaries = updatePhraseBoundaryOverride(
+      this.phraseBoundaries,
+      {
+        after,
+        boundary,
+        pauseSeconds: boundary === 'accent' ? 0.045 : 0,
+      },
+    );
+    this.savePhraseEdits();
+    this.refreshPlan();
+    this.setStatus(
+      boundary === 'accent'
+        ? 'ACCENT PHRASE SPLIT'
+        : 'ACCENT PHRASES JOINED',
+    );
+  }
+
+  private adjustPhraseShape(
+    start: number,
+    end: number,
+    pitchDelta: number,
+    rateDelta: number,
+  ): void {
+    const text = this.required<HTMLTextAreaElement>('#voice-text').value;
+    const plainText = parseVoiceMarkup(text).plainText;
+    this.ensurePhraseEdits(plainText);
+    const existing = this.phraseShapes.find((shape) => (
+      shape.start === start && shape.end === end
+    ));
+    this.phraseShapes = updatePhraseShapeOverride(
+      this.phraseShapes,
+      {
+        start,
+        end,
+        pitchOffset: (existing?.pitchOffset ?? 0) + pitchDelta,
+        rateScale: (existing?.rateScale ?? 1) + rateDelta,
+      },
+    );
+    this.savePhraseEdits();
+    this.refreshPlan();
+    this.setStatus('PHRASE PITCH / RATE UPDATED');
+  }
+
+  private adjustPhrasePause(after: number, delta: number): void {
+    const text = this.required<HTMLTextAreaElement>('#voice-text').value;
+    const plainText = parseVoiceMarkup(text).plainText;
+    this.ensurePhraseEdits(plainText);
+
+    const resolved = this.resolveLocalScript(text);
+    const unit = resolved.script.units[after];
+    if (!unit) return;
+    const existing = this.phraseBoundaries.find((item) => item.after === after);
+    const current = existing?.pauseSeconds ?? unit.pauseAfter;
+    const pauseSeconds = clamp(current + delta, 0, 0.36);
+    this.phraseBoundaries = updatePhraseBoundaryOverride(
+      this.phraseBoundaries,
+      {
+        after,
+        boundary: unit.boundaryAfter === 'sentence' ? 'accent' : unit.boundaryAfter === 'none' ? 'accent' : 'accent',
+        pauseSeconds,
+      },
+    );
+    this.savePhraseEdits();
+    this.refreshPlan();
+    this.setStatus(`PHRASE PAUSE · ${Math.round(pauseSeconds * 1000)} ms`);
   }
 
   private ensureAccentOverrides(plainText: string): void {
