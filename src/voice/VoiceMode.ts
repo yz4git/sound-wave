@@ -410,7 +410,48 @@ export class VoiceMode {
 
     const accentEditor = this.required<HTMLElement>('#voice-accent-editor');
     accentEditor.addEventListener('pointerdown', (event) => {
-      const dragHandle = (event.target as HTMLElement).closest<HTMLElement>('[data-phrase-drag]');
+      const curveHandle = (event.target as Element).closest<SVGCircleElement>('[data-phrase-curve]');
+      if (curveHandle) {
+        const start = Number(curveHandle.dataset.phraseStart);
+        const end = Number(curveHandle.dataset.phraseEnd);
+        const point = curveHandle.dataset.phraseCurve;
+        if (
+          !Number.isInteger(start)
+          || !Number.isInteger(end)
+          || (point !== 'start' && point !== 'peak' && point !== 'end')
+        ) return;
+        event.preventDefault();
+
+        const existing = this.phraseShapes.find((shape) => (
+          shape.start === start && shape.end === end
+        ));
+        const startValue = point === 'start'
+          ? existing?.curveStart ?? 0
+          : point === 'peak'
+            ? existing?.curvePeak ?? 0
+            : existing?.curveEnd ?? 0;
+        const valueLabel = curveHandle
+          .closest<HTMLElement>('.voice-phrase-curve')
+          ?.querySelector<HTMLElement>('.voice-phrase-curve-value');
+        if (!valueLabel) return;
+
+        this.phraseCurveDrag = {
+          pointerId: event.pointerId,
+          start,
+          end,
+          point,
+          startY: event.clientY,
+          startValue,
+          currentValue: startValue,
+          handle: curveHandle,
+          valueLabel,
+        };
+        accentEditor.setPointerCapture(event.pointerId);
+        curveHandle.classList.add('dragging');
+        return;
+      }
+
+      const dragHandle = (event.target as Element).closest<HTMLElement>('[data-phrase-drag]');
       if (dragHandle) {
         const start = Number(dragHandle.dataset.phraseStart);
         const end = Number(dragHandle.dataset.phraseEnd);
@@ -471,6 +512,10 @@ export class VoiceMode {
         else if (phraseAction === 'energy-up') this.adjustPhraseShape(start, end, 0, 0, 0.05, 0);
         else if (phraseAction === 'emphasis-down') this.adjustPhraseShape(start, end, 0, 0, 0, -0.25);
         else if (phraseAction === 'emphasis-up') this.adjustPhraseShape(start, end, 0, 0, 0, 0.25);
+        else if (phraseAction === 'emphasis-weak') this.applyPhraseEmphasisPreset(start, end, 'weak');
+        else if (phraseAction === 'emphasis-normal') this.applyPhraseEmphasisPreset(start, end, 'normal');
+        else if (phraseAction === 'emphasis-strong') this.applyPhraseEmphasisPreset(start, end, 'strong');
+        else if (phraseAction === 'emphasis-critical') this.applyPhraseEmphasisPreset(start, end, 'critical');
         else if (phraseAction === 'pause-down') this.adjustPhrasePause(end, -0.025);
         else if (phraseAction === 'pause-up') this.adjustPhrasePause(end, 0.025);
         return;
@@ -500,6 +545,28 @@ export class VoiceMode {
     }, { passive: false });
 
     accentEditor.addEventListener('pointermove', (event) => {
+      const curveDrag = this.phraseCurveDrag;
+      if (curveDrag && curveDrag.pointerId === event.pointerId) {
+        event.preventDefault();
+        const nextValue = phraseCurvePointFromDrag(
+          curveDrag.startValue,
+          event.clientY - curveDrag.startY,
+        );
+        if (Math.abs(nextValue - curveDrag.currentValue) < 0.001) return;
+
+        curveDrag.currentValue = nextValue;
+        this.setPhraseCurvePointWithoutRefresh(
+          curveDrag.start,
+          curveDrag.end,
+          curveDrag.point,
+          nextValue,
+        );
+        curveDrag.handle.setAttribute('cy', String(24 - nextValue * 6.4));
+        curveDrag.valueLabel.textContent =
+          `${curveDrag.point.toUpperCase()} ${nextValue >= 0 ? '+' : ''}${nextValue.toFixed(1)}st`;
+        return;
+      }
+
       const drag = this.phrasePitchDrag;
       if (!drag || drag.pointerId !== event.pointerId) return;
       event.preventDefault();
@@ -515,7 +582,23 @@ export class VoiceMode {
       drag.handle.textContent = `↕ F0 ${nextPitch >= 0 ? '+' : ''}${nextPitch.toFixed(1)}st`;
     }, { passive: false });
 
-    const finishPhrasePitchDrag = (event: PointerEvent): void => {
+    const finishPhraseDrag = (event: PointerEvent): void => {
+      const curveDrag = this.phraseCurveDrag;
+      if (curveDrag && curveDrag.pointerId === event.pointerId) {
+        event.preventDefault();
+        curveDrag.handle.classList.remove('dragging');
+        this.phraseCurveDrag = null;
+        if (accentEditor.hasPointerCapture(event.pointerId)) {
+          accentEditor.releasePointerCapture(event.pointerId);
+        }
+        this.savePhraseEdits();
+        this.refreshPlan();
+        this.setStatus(
+          `PHRASE CURVE ${curveDrag.point.toUpperCase()} · ${curveDrag.currentValue >= 0 ? '+' : ''}${curveDrag.currentValue.toFixed(1)} ST`,
+        );
+        return;
+      }
+
       const drag = this.phrasePitchDrag;
       if (!drag || drag.pointerId !== event.pointerId) return;
       event.preventDefault();
@@ -529,8 +612,8 @@ export class VoiceMode {
       this.refreshPlan();
       this.setStatus(`PHRASE F0 · ${drag.currentPitch >= 0 ? '+' : ''}${drag.currentPitch.toFixed(1)} ST`);
     };
-    accentEditor.addEventListener('pointerup', finishPhrasePitchDrag, { passive: false });
-    accentEditor.addEventListener('pointercancel', finishPhrasePitchDrag, { passive: false });
+    accentEditor.addEventListener('pointerup', finishPhraseDrag, { passive: false });
+    accentEditor.addEventListener('pointercancel', finishPhraseDrag, { passive: false });
 
     this.required<HTMLButtonElement>('#voice-reset-prosody').addEventListener('pointerdown', (event) => {
       event.preventDefault();
