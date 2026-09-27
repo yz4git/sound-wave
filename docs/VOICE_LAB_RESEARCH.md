@@ -371,3 +371,15 @@ Boundary edits only refresh phrase/accent indexing. They do not rerun the built-
 Phrase pitch/rate controls are passed into the synthesis plan as separate layers beneath the mora-level PITCH / ENERGY / TIMING drawing. This keeps coarse phrase shaping and fine mora correction independent.
 
 Phrase edits are persisted per exact plain-text signature. When a split/join changes a phrase range, overlapping accent-nucleus and phrase-shape overrides are discarded rather than silently reinterpreted on a different range.
+
+### 15. Phrase energy, emphasis and direct F0 dragging
+
+Phrase shaping is now split into separate controls for level and prominence.
+
+- ENERGY scales phrase loudness without changing F0 or duration.
+- EMPHASIS is a prominence macro: it raises phrase-onset/lexical-high F0 slightly, strengthens energy, shortens the glottal attack, increases articulation, and adds a very small duration expansion. This avoids treating emphasis as volume alone.
+- The phrase F0 control can be dragged vertically on touch screens. Dragging uses a deterministic 36 px per semitone mapping, quantized to 0.1 semitone and clamped to ±3 semitones.
+
+The drag interaction deliberately does not rebuild the accent editor during pointer movement. It updates the in-memory phrase shape and the drag readout only, then persists and rebuilds the synthesis plan on pointer release. This keeps pointer capture stable on iPhone Safari.
+
+Existing phrase edits saved before ENERGY/EMPHASIS were introduced remain compatible: missing energy defaults to 1.0 and missing emphasis defaults to 0.

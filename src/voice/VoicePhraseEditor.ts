@@ -15,15 +15,29 @@ export interface VoicePhraseShapeOverride {
   end: number;
   pitchOffset: number;
   rateScale: number;
+  energyScale: number;
+  emphasis: number;
 }
 
 export interface VoicePhraseControlArrays {
   pitchOffsets: number[];
   rateScales: number[];
+  energyScales: number[];
+  emphasisScales: number[];
   pauseOverrides: (number | null)[];
 }
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
+
+export function phrasePitchFromDrag(
+  startPitch: number,
+  deltaY: number,
+  pixelsPerSemitone = 36,
+): number {
+  const safePixels = Math.max(12, Math.abs(pixelsPerSemitone));
+  const raw = startPitch - deltaY / safePixels;
+  return clamp(Math.round(raw * 10) / 10, -3, 3);
+}
 
 export function applyPhraseBoundaryOverrides(
   script: VoiceScript,
@@ -54,6 +68,8 @@ export function buildPhraseControlArrays(
   const count = script.units.length;
   const pitchOffsets = new Array<number>(count).fill(0);
   const rateScales = new Array<number>(count).fill(1);
+  const energyScales = new Array<number>(count).fill(1);
+  const emphasisScales = new Array<number>(count).fill(0);
   const pauseOverrides = new Array<number | null>(count).fill(null);
   const phrases = collectAccentPhrases(script);
 
@@ -65,9 +81,13 @@ export function buildPhraseControlArrays(
 
     const pitch = clamp(shape.pitchOffset, -3, 3);
     const rate = clamp(shape.rateScale, 0.72, 1.35);
+    const energy = clamp(shape.energyScale, 0.65, 1.45);
+    const emphasis = clamp(shape.emphasis, 0, 1.5);
     for (let index = phrase.start; index <= phrase.end; index += 1) {
       pitchOffsets[index] = pitch;
       rateScales[index] = rate;
+      energyScales[index] = energy;
+      emphasisScales[index] = emphasis;
     }
   }
 
@@ -77,7 +97,7 @@ export function buildPhraseControlArrays(
     pauseOverrides[boundary.after] = clamp(boundary.pauseSeconds, 0, 0.36);
   }
 
-  return { pitchOffsets, rateScales, pauseOverrides };
+  return { pitchOffsets, rateScales, energyScales, emphasisScales, pauseOverrides };
 }
 
 export function updatePhraseBoundaryOverride(
@@ -95,8 +115,21 @@ export function updatePhraseShapeOverride(
   const filtered = overrides.filter((item) => item.start !== next.start || item.end !== next.end);
   const pitchOffset = clamp(next.pitchOffset, -3, 3);
   const rateScale = clamp(next.rateScale, 0.72, 1.35);
-  if (Math.abs(pitchOffset) < 0.001 && Math.abs(rateScale - 1) < 0.001) {
+  const energyScale = clamp(next.energyScale, 0.65, 1.45);
+  const emphasis = clamp(next.emphasis, 0, 1.5);
+  if (
+    Math.abs(pitchOffset) < 0.001
+    && Math.abs(rateScale - 1) < 0.001
+    && Math.abs(energyScale - 1) < 0.001
+    && emphasis < 0.001
+  ) {
     return filtered;
   }
-  return [...filtered, { ...next, pitchOffset, rateScale }];
+  return [...filtered, {
+    ...next,
+    pitchOffset,
+    rateScale,
+    energyScale,
+    emphasis,
+  }];
 }

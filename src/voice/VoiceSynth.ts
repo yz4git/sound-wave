@@ -34,6 +34,8 @@ export interface VoiceProsodyEdits {
   localExpressions?: readonly (VoiceExpressionSettings | null)[];
   phrasePitchOffsets?: readonly number[];
   phraseRateScales?: readonly number[];
+  phraseEnergyScales?: readonly number[];
+  phraseEmphasisScales?: readonly number[];
   pauseOverrides?: readonly (number | null)[];
 }
 
@@ -50,6 +52,8 @@ export interface VoiceTimedUnit {
   manualDurationScale: number;
   phrasePitchOffset: number;
   phraseRateScale: number;
+  phraseEnergyScale: number;
+  phraseEmphasis: number;
   expression: VoiceExpressionSettings;
 }
 
@@ -371,24 +375,46 @@ export class VoiceSynth {
       const manualDurationScale = clamp(edits.durationScales?.[index] ?? 1, 0.6, 1.65);
       const phrasePitchOffset = clamp(edits.phrasePitchOffsets?.[index] ?? 0, -3, 3);
       const phraseRateScale = clamp(edits.phraseRateScales?.[index] ?? 1, 0.72, 1.35);
+      const phraseEnergyScale = clamp(edits.phraseEnergyScales?.[index] ?? 1, 0.65, 1.45);
+      const phraseEmphasis = clamp(edits.phraseEmphasisScales?.[index] ?? 0, 0, 1.5);
       const effectiveRate = settings.rate * phraseRateScale;
 
+      const emphasisPitch = phraseEmphasis * (
+        unit.accentStart
+          ? 0.28
+          : unit.pitchAccent === 'high'
+            ? 0.16
+            : 0.08
+      );
+      const emphasisDurationScale = 1 + phraseEmphasis * (unit.accentStart ? 0.045 : 0.018);
+      const emphasisEnergyScale = 1 + phraseEmphasis * (unit.accentStart ? 0.18 : 0.1);
+
       const pitchMidi = clamp(
-        settings.pitch + offset + expressionUnit.pitchOffset + phrasePitchOffset + manualPitchOffset,
+        settings.pitch
+          + offset
+          + expressionUnit.pitchOffset
+          + phrasePitchOffset
+          + emphasisPitch
+          + manualPitchOffset,
         40,
         82,
       );
       const duration = clamp(
         japaneseUnitDurationSeconds(unit, effectiveRate)
           * expressionUnit.durationScale
+          * emphasisDurationScale
           * manualDurationScale,
         0.05,
         0.58,
       );
       const energyScale = clamp(
-        unitEnergyScale(unit) * expressionUnit.energyScale * manualEnergyScale,
+        unitEnergyScale(unit)
+          * expressionUnit.energyScale
+          * phraseEnergyScale
+          * emphasisEnergyScale
+          * manualEnergyScale,
         0.22,
-        1.65,
+        1.8,
       );
 
       units.push({
@@ -402,6 +428,8 @@ export class VoiceSynth {
         manualDurationScale,
         phrasePitchOffset,
         phraseRateScale,
+        phraseEnergyScale,
+        phraseEmphasis,
         expression,
       });
 
@@ -433,6 +461,7 @@ export class VoiceSynth {
       const unit = timed.unit;
       const expressionControl = voiceExpressionControl(timed.expression);
       const speechSource = speechSourceProfileFor(timed.expression);
+      const emphasis = timed.phraseEmphasis;
       const finality = speechFinalityProfileFor(timed.expression, settings.intonation);
       const previousUnit = plan.units[index - 1]?.unit;
       const pitchTransitionScale = speechPitchTransitionScaleFor(unit, previousUnit);
@@ -475,7 +504,7 @@ export class VoiceSynth {
 
       workletEvent.karaoke = {
         ...workletEvent.karaoke,
-        scoopCents: unit.phraseStart ? 1.5 : 0,
+        scoopCents: unit.phraseStart ? 1.5 + emphasis * 1.6 : 0,
         fallCents: unit.phraseEnd ? 2.5 : unit.accentEnd ? 1 : 0,
         vibratoGain: 0,
       };
@@ -483,18 +512,19 @@ export class VoiceSynth {
       workletEvent.style = {
         ...workletEvent.style,
         vibratoDepthCents: 0,
-        intensityModDepth: Math.min(workletEvent.style.intensityModDepth, 0.006),
-        jitterCents: Math.min(workletEvent.style.jitterCents, 0.34),
+        intensityModDepth: Math.min(workletEvent.style.intensityModDepth, 0.006 + emphasis * 0.002),
+        jitterCents: Math.min(workletEvent.style.jitterCents, 0.34 + emphasis * 0.06),
         shimmerDepth: Math.min(workletEvent.style.shimmerDepth, 0.004),
         doubleLevel: 0,
         onsetPitchCents: unit.phraseStart ? 1.8 : 0,
         breathLevel: clamp(workletEvent.style.breathLevel * expressionControl.breathScale, 0, 1.2),
         attackSeconds: workletEvent.style.attackSeconds
           * expressionControl.attackScale
+          * (1 - Math.min(0.18, emphasis * 0.11))
           * (unit.geminateBefore ? 0.78 : 1),
         releaseSeconds: workletEvent.style.releaseSeconds * (unit.phraseEnd ? 1.08 : 0.88),
         speechSourceMix: speechSource.sourceMix,
-        speechSourceTilt: speechSource.sourceTilt,
+        speechSourceTilt: clamp(speechSource.sourceTilt * (1 - emphasis * 0.07), 0.32, 0.9),
         speechCoarticulation: speechSource.coarticulation,
         speechPulseNoise: speechSource.pulseNoise,
         speechPitchTransitionScale: pitchTransitionScale,
@@ -507,9 +537,11 @@ export class VoiceSynth {
         breathScale: clamp(workletEvent.voiceCharacter.breathScale * expressionControl.breathScale, 0.55, 2),
         attackScale: clamp(workletEvent.voiceCharacter.attackScale * expressionControl.attackScale, 0.55, 1.6),
         articulationScale: clamp(
-          workletEvent.voiceCharacter.articulationScale * expressionControl.articulationScale,
+          workletEvent.voiceCharacter.articulationScale
+            * expressionControl.articulationScale
+            * (1 + emphasis * 0.08),
           0.62,
-          1.42,
+          1.5,
         ),
         sourceTiltScale: clamp(
           workletEvent.voiceCharacter.sourceTiltScale * expressionControl.sourceTiltScale,

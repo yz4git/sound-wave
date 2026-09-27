@@ -224,6 +224,28 @@ describe('Voice Lab synthesis plan', () => {
     expect(edited.units[2]!.duration).toBeCloseTo(base.units[2]!.duration, 6);
   });
 
+  it('separates phrase energy from expressive emphasis', () => {
+    const synth = new VoiceSynth();
+    const script = parseVoiceScript('あいう');
+    const base = synth.plan(script, SETTINGS);
+    const louder = synth.plan(script, SETTINGS, {
+      phraseEnergyScales: [1.25, 1.25, 1.25],
+    });
+    const emphasized = synth.plan(script, SETTINGS, {
+      phraseEmphasisScales: [1, 1, 1],
+    });
+
+    expect(louder.units[0]!.phraseEnergyScale).toBeCloseTo(1.25, 8);
+    expect(louder.units[0]!.energyScale).toBeGreaterThan(base.units[0]!.energyScale);
+    expect(louder.units[0]!.pitchMidi).toBeCloseTo(base.units[0]!.pitchMidi, 8);
+    expect(louder.units[0]!.duration).toBeCloseTo(base.units[0]!.duration, 8);
+
+    expect(emphasized.units[0]!.phraseEmphasis).toBe(1);
+    expect(emphasized.units[0]!.energyScale).toBeGreaterThan(base.units[0]!.energyScale);
+    expect(emphasized.units[0]!.pitchMidi).toBeGreaterThan(base.units[0]!.pitchMidi);
+    expect(emphasized.units[0]!.duration).toBeGreaterThan(base.units[0]!.duration);
+  });
+
   it('lets a phrase pause override replace automatic boundary timing', () => {
     const synth = new VoiceSynth();
     const script = parseVoiceScript('あ、い');

@@ -22,13 +22,13 @@ describe('VOICE LAB phrase edit persistence', () => {
       storage,
       '今日は静かです',
       [{ after: 2, boundary: 'accent', pauseSeconds: 0.09 }],
-      [{ start: 0, end: 2, pitchOffset: 0.5, rateScale: 0.9 }],
+      [{ start: 0, end: 2, pitchOffset: 0.5, rateScale: 0.9, energyScale: 1.1, emphasis: 0.5 }],
       100,
     );
 
     expect(loadVoicePhraseEdits(storage, '今日は静かです')).toEqual({
       boundaries: [{ after: 2, boundary: 'accent', pauseSeconds: 0.09 }],
-      shapes: [{ start: 0, end: 2, pitchOffset: 0.5, rateScale: 0.9 }],
+      shapes: [{ start: 0, end: 2, pitchOffset: 0.5, rateScale: 0.9, energyScale: 1.1, emphasis: 0.5 }],
     });
     expect(loadVoicePhraseEdits(storage, '別の文章')).toEqual({
       boundaries: [],
@@ -42,12 +42,12 @@ describe('VOICE LAB phrase edit persistence', () => {
       storage,
       'テスト',
       [{ after: 1, boundary: 'accent', pauseSeconds: 99 }],
-      [{ start: 0, end: 1, pitchOffset: 99, rateScale: 99 }],
+      [{ start: 0, end: 1, pitchOffset: 99, rateScale: 99, energyScale: 99, emphasis: 99 }],
     );
 
     expect(loadVoicePhraseEdits(storage, 'テスト')).toEqual({
       boundaries: [{ after: 1, boundary: 'accent', pauseSeconds: 0.36 }],
-      shapes: [{ start: 0, end: 1, pitchOffset: 3, rateScale: 1.35 }],
+      shapes: [{ start: 0, end: 1, pitchOffset: 3, rateScale: 1.35, energyScale: 1.45, emphasis: 1.5 }],
     });
   });
 

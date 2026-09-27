@@ -15,6 +15,7 @@ import {
 import {
   applyPhraseBoundaryOverrides,
   buildPhraseControlArrays,
+  phrasePitchFromDrag,
   updatePhraseBoundaryOverride,
   updatePhraseShapeOverride,
   type VoicePhraseBoundaryOverride,
@@ -111,6 +112,15 @@ export class VoiceMode {
   private phraseBoundaries: VoicePhraseBoundaryOverride[] = [];
   private phraseShapes: VoicePhraseShapeOverride[] = [];
   private phraseEditSource = '';
+  private phrasePitchDrag: {
+    pointerId: number;
+    start: number;
+    end: number;
+    startY: number;
+    startPitch: number;
+    currentPitch: number;
+    handle: HTMLElement;
+  } | null = null;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -384,7 +394,33 @@ export class VoiceMode {
       void this.analyzeJapanese();
     }, { passive: false });
 
-    this.required<HTMLElement>('#voice-accent-editor').addEventListener('pointerdown', (event) => {
+    const accentEditor = this.required<HTMLElement>('#voice-accent-editor');
+    accentEditor.addEventListener('pointerdown', (event) => {
+      const dragHandle = (event.target as HTMLElement).closest<HTMLElement>('[data-phrase-drag]');
+      if (dragHandle) {
+        const start = Number(dragHandle.dataset.phraseStart);
+        const end = Number(dragHandle.dataset.phraseEnd);
+        if (!Number.isInteger(start) || !Number.isInteger(end)) return;
+        event.preventDefault();
+
+        const existing = this.phraseShapes.find((shape) => (
+          shape.start === start && shape.end === end
+        ));
+        const startPitch = existing?.pitchOffset ?? 0;
+        this.phrasePitchDrag = {
+          pointerId: event.pointerId,
+          start,
+          end,
+          startY: event.clientY,
+          startPitch,
+          currentPitch: startPitch,
+          handle: dragHandle,
+        };
+        accentEditor.setPointerCapture(event.pointerId);
+        dragHandle.classList.add('dragging');
+        return;
+      }
+
       const target = (event.target as HTMLElement).closest<HTMLButtonElement>(
         'button[data-accent-action],button[data-phrase-action]',
       );
@@ -413,10 +449,14 @@ export class VoiceMode {
         const end = Number(target.dataset.phraseEnd);
         if (!Number.isInteger(start) || !Number.isInteger(end)) return;
 
-        if (phraseAction === 'pitch-down') this.adjustPhraseShape(start, end, -0.25, 0);
-        else if (phraseAction === 'pitch-up') this.adjustPhraseShape(start, end, 0.25, 0);
-        else if (phraseAction === 'rate-down') this.adjustPhraseShape(start, end, 0, -0.05);
-        else if (phraseAction === 'rate-up') this.adjustPhraseShape(start, end, 0, 0.05);
+        if (phraseAction === 'pitch-down') this.adjustPhraseShape(start, end, -0.25, 0, 0, 0);
+        else if (phraseAction === 'pitch-up') this.adjustPhraseShape(start, end, 0.25, 0, 0, 0);
+        else if (phraseAction === 'rate-down') this.adjustPhraseShape(start, end, 0, -0.05, 0, 0);
+        else if (phraseAction === 'rate-up') this.adjustPhraseShape(start, end, 0, 0.05, 0, 0);
+        else if (phraseAction === 'energy-down') this.adjustPhraseShape(start, end, 0, 0, -0.05, 0);
+        else if (phraseAction === 'energy-up') this.adjustPhraseShape(start, end, 0, 0, 0.05, 0);
+        else if (phraseAction === 'emphasis-down') this.adjustPhraseShape(start, end, 0, 0, 0, -0.25);
+        else if (phraseAction === 'emphasis-up') this.adjustPhraseShape(start, end, 0, 0, 0, 0.25);
         else if (phraseAction === 'pause-down') this.adjustPhrasePause(end, -0.025);
         else if (phraseAction === 'pause-up') this.adjustPhrasePause(end, 0.025);
         return;
@@ -444,6 +484,39 @@ export class VoiceMode {
       if (!Number.isInteger(nucleus)) return;
       this.setAccentOverride(start, end, nucleus);
     }, { passive: false });
+
+    accentEditor.addEventListener('pointermove', (event) => {
+      const drag = this.phrasePitchDrag;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      event.preventDefault();
+
+      const nextPitch = phrasePitchFromDrag(
+        drag.startPitch,
+        event.clientY - drag.startY,
+      );
+      if (Math.abs(nextPitch - drag.currentPitch) < 0.001) return;
+
+      drag.currentPitch = nextPitch;
+      this.setPhrasePitchWithoutRefresh(drag.start, drag.end, nextPitch);
+      drag.handle.textContent = `↕ F0 ${nextPitch >= 0 ? '+' : ''}${nextPitch.toFixed(1)}st`;
+    }, { passive: false });
+
+    const finishPhrasePitchDrag = (event: PointerEvent): void => {
+      const drag = this.phrasePitchDrag;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      event.preventDefault();
+
+      drag.handle.classList.remove('dragging');
+      if (accentEditor.hasPointerCapture(event.pointerId)) {
+        accentEditor.releasePointerCapture(event.pointerId);
+      }
+      this.phrasePitchDrag = null;
+      this.savePhraseEdits();
+      this.refreshPlan();
+      this.setStatus(`PHRASE F0 · ${drag.currentPitch >= 0 ? '+' : ''}${drag.currentPitch.toFixed(1)} ST`);
+    };
+    accentEditor.addEventListener('pointerup', finishPhrasePitchDrag, { passive: false });
+    accentEditor.addEventListener('pointercancel', finishPhrasePitchDrag, { passive: false });
 
     this.required<HTMLButtonElement>('#voice-reset-prosody').addEventListener('pointerdown', (event) => {
       event.preventDefault();
@@ -883,6 +956,8 @@ export class VoiceMode {
     end: number,
     pitchDelta: number,
     rateDelta: number,
+    energyDelta: number,
+    emphasisDelta: number,
   ): void {
     const text = this.required<HTMLTextAreaElement>('#voice-text').value;
     const plainText = parseVoiceMarkup(text).plainText;
@@ -897,11 +972,34 @@ export class VoiceMode {
         end,
         pitchOffset: (existing?.pitchOffset ?? 0) + pitchDelta,
         rateScale: (existing?.rateScale ?? 1) + rateDelta,
+        energyScale: (existing?.energyScale ?? 1) + energyDelta,
+        emphasis: (existing?.emphasis ?? 0) + emphasisDelta,
       },
     );
     this.savePhraseEdits();
     this.refreshPlan();
-    this.setStatus('PHRASE PITCH / RATE UPDATED');
+    this.setStatus('PHRASE PITCH / RATE / ENERGY / EMPHASIS UPDATED');
+  }
+
+  private setPhrasePitchWithoutRefresh(
+    start: number,
+    end: number,
+    pitchOffset: number,
+  ): void {
+    const existing = this.phraseShapes.find((shape) => (
+      shape.start === start && shape.end === end
+    ));
+    this.phraseShapes = updatePhraseShapeOverride(
+      this.phraseShapes,
+      {
+        start,
+        end,
+        pitchOffset,
+        rateScale: existing?.rateScale ?? 1,
+        energyScale: existing?.energyScale ?? 1,
+        emphasis: existing?.emphasis ?? 0,
+      },
+    );
   }
 
   private adjustPhrasePause(after: number, delta: number): void {
@@ -1097,16 +1195,31 @@ export class VoiceMode {
         controls.append(control);
       };
 
+      const drag = document.createElement('button');
+      drag.type = 'button';
+      drag.className = 'voice-phrase-f0-drag';
+      drag.dataset.phraseDrag = 'pitch';
+      drag.dataset.phraseStart = String(phrase.start);
+      drag.dataset.phraseEnd = String(phrase.end);
+      const pitchValue = shape?.pitchOffset ?? 0;
+      drag.textContent = `↕ F0 ${pitchValue >= 0 ? '+' : ''}${pitchValue.toFixed(1)}st`;
+      drag.title = 'DRAG UP / DOWN TO MOVE PHRASE F0';
+      controls.append(drag);
+
       addControl('P−', 'pitch-down', 'PHRASE PITCH -0.25 ST');
       addControl('P+', 'pitch-up', 'PHRASE PITCH +0.25 ST');
       addControl('R−', 'rate-down', 'PHRASE RATE SLOWER');
       addControl('R+', 'rate-up', 'PHRASE RATE FASTER');
+      addControl('E−', 'energy-down', 'PHRASE ENERGY -5%');
+      addControl('E+', 'energy-up', 'PHRASE ENERGY +5%');
+      addControl('EM−', 'emphasis-down', 'LESS PHRASE EMPHASIS');
+      addControl('EM+', 'emphasis-up', 'MORE PHRASE EMPHASIS');
       addControl('PA−', 'pause-down', 'SHORTER PAUSE AFTER PHRASE');
       addControl('PA+', 'pause-up', 'LONGER PAUSE AFTER PHRASE');
 
       const summary = document.createElement('span');
       summary.className = 'voice-phrase-summary';
-      summary.textContent = `${shape?.pitchOffset ? `${shape.pitchOffset > 0 ? '+' : ''}${shape.pitchOffset.toFixed(2)}st` : '0st'} · ${(shape?.rateScale ?? 1).toFixed(2)}×`;
+      summary.textContent = `${(shape?.rateScale ?? 1).toFixed(2)}× · E${(shape?.energyScale ?? 1).toFixed(2)} · M${(shape?.emphasis ?? 0).toFixed(2)}`;
       controls.append(summary);
       group.append(controls);
 
@@ -1215,6 +1328,8 @@ export class VoiceMode {
       localExpressions,
       phrasePitchOffsets: phrase.pitchOffsets,
       phraseRateScales: phrase.rateScales,
+      phraseEnergyScales: phrase.energyScales,
+      phraseEmphasisScales: phrase.emphasisScales,
       pauseOverrides: phrase.pauseOverrides,
     };
   }

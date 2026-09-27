@@ -62,12 +62,17 @@ function sanitizeShape(
   const end = Math.floor(Number(value.end));
   const pitchOffset = Math.max(-3, Math.min(3, Number(value.pitchOffset)));
   const rateScale = Math.max(0.72, Math.min(1.35, Number(value.rateScale)));
+  const rawEnergy = Number(value.energyScale ?? 1);
+  const rawEmphasis = Number(value.emphasis ?? 0);
+  const energyScale = Math.max(0.65, Math.min(1.45, rawEnergy));
+  const emphasis = Math.max(0, Math.min(1.5, rawEmphasis));
   if (
     !Number.isFinite(start) || !Number.isFinite(end)
     || !Number.isFinite(pitchOffset) || !Number.isFinite(rateScale)
+    || !Number.isFinite(energyScale) || !Number.isFinite(emphasis)
     || start < 0 || end < start
   ) return null;
-  return { start, end, pitchOffset, rateScale };
+  return { start, end, pitchOffset, rateScale, energyScale, emphasis };
 }
 
 export function loadVoicePhraseEdits(

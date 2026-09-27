@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyPhraseBoundaryOverrides,
   buildPhraseControlArrays,
+  phrasePitchFromDrag,
   updatePhraseBoundaryOverride,
   updatePhraseShapeOverride,
 } from '../src/voice/VoicePhraseEditor';
@@ -42,6 +43,8 @@ describe('VOICE LAB phrase controls', () => {
         end: 2,
         pitchOffset: 1.25,
         rateScale: 1.2,
+        energyScale: 1.15,
+        emphasis: 0.5,
       }],
       [{
         after: 2,
@@ -54,7 +57,18 @@ describe('VOICE LAB phrase controls', () => {
     expect(arrays.pitchOffsets.slice(3)).toEqual([0, 0]);
     expect(arrays.rateScales.slice(0, 3)).toEqual([1.2, 1.2, 1.2]);
     expect(arrays.rateScales.slice(3)).toEqual([1, 1]);
+    expect(arrays.energyScales.slice(0, 3)).toEqual([1.15, 1.15, 1.15]);
+    expect(arrays.energyScales.slice(3)).toEqual([1, 1]);
+    expect(arrays.emphasisScales.slice(0, 3)).toEqual([0.5, 0.5, 0.5]);
+    expect(arrays.emphasisScales.slice(3)).toEqual([0, 0]);
     expect(arrays.pauseOverrides[2]).toBe(0.11);
+  });
+
+  it('maps vertical touch drag to clamped phrase pitch', () => {
+    expect(phrasePitchFromDrag(0, -36)).toBe(1);
+    expect(phrasePitchFromDrag(0.5, 18)).toBe(0);
+    expect(phrasePitchFromDrag(2.8, -100)).toBe(3);
+    expect(phrasePitchFromDrag(-2.8, 100)).toBe(-3);
   });
 
   it('keeps only the latest boundary override for a mora boundary', () => {
@@ -72,12 +86,16 @@ describe('VOICE LAB phrase controls', () => {
       end: 3,
       pitchOffset: 99,
       rateScale: 99,
+      energyScale: 99,
+      emphasis: 99,
     });
     expect(clamped).toEqual([{
       start: 1,
       end: 3,
       pitchOffset: 3,
       rateScale: 1.35,
+      energyScale: 1.45,
+      emphasis: 1.5,
     }]);
 
     expect(updatePhraseShapeOverride(clamped, {
@@ -85,6 +103,8 @@ describe('VOICE LAB phrase controls', () => {
       end: 3,
       pitchOffset: 0,
       rateScale: 1,
+      energyScale: 1,
+      emphasis: 0,
     })).toEqual([]);
   });
 });
