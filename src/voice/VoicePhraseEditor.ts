@@ -29,6 +29,16 @@ export interface VoicePhraseControlArrays {
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
+export function phrasePitchFromDrag(
+  startPitch: number,
+  deltaY: number,
+  pixelsPerSemitone = 36,
+): number {
+  const safePixels = Math.max(12, Math.abs(pixelsPerSemitone));
+  const raw = startPitch - deltaY / safePixels;
+  return clamp(Math.round(raw * 10) / 10, -3, 3);
+}
+
 export function applyPhraseBoundaryOverrides(
   script: VoiceScript,
   overrides: readonly VoicePhraseBoundaryOverride[],
