@@ -393,7 +393,33 @@ export class VoiceMode {
       void this.analyzeJapanese();
     }, { passive: false });
 
-    this.required<HTMLElement>('#voice-accent-editor').addEventListener('pointerdown', (event) => {
+    const accentEditor = this.required<HTMLElement>('#voice-accent-editor');
+    accentEditor.addEventListener('pointerdown', (event) => {
+      const dragHandle = (event.target as HTMLElement).closest<HTMLElement>('[data-phrase-drag]');
+      if (dragHandle) {
+        const start = Number(dragHandle.dataset.phraseStart);
+        const end = Number(dragHandle.dataset.phraseEnd);
+        if (!Number.isInteger(start) || !Number.isInteger(end)) return;
+        event.preventDefault();
+
+        const existing = this.phraseShapes.find((shape) => (
+          shape.start === start && shape.end === end
+        ));
+        const startPitch = existing?.pitchOffset ?? 0;
+        this.phrasePitchDrag = {
+          pointerId: event.pointerId,
+          start,
+          end,
+          startY: event.clientY,
+          startPitch,
+          currentPitch: startPitch,
+          handle: dragHandle,
+        };
+        accentEditor.setPointerCapture(event.pointerId);
+        dragHandle.classList.add('dragging');
+        return;
+      }
+
       const target = (event.target as HTMLElement).closest<HTMLButtonElement>(
         'button[data-accent-action],button[data-phrase-action]',
       );
@@ -457,6 +483,41 @@ export class VoiceMode {
       if (!Number.isInteger(nucleus)) return;
       this.setAccentOverride(start, end, nucleus);
     }, { passive: false });
+
+    accentEditor.addEventListener('pointermove', (event) => {
+      const drag = this.phrasePitchDrag;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      event.preventDefault();
+
+      const deltaSemitones = (drag.startY - event.clientY) / 36;
+      const nextPitch = clamp(
+        Math.round((drag.startPitch + deltaSemitones) * 10) / 10,
+        -3,
+        3,
+      );
+      if (Math.abs(nextPitch - drag.currentPitch) < 0.001) return;
+
+      drag.currentPitch = nextPitch;
+      this.setPhrasePitchWithoutRefresh(drag.start, drag.end, nextPitch);
+      drag.handle.textContent = `↕ F0 ${nextPitch >= 0 ? '+' : ''}${nextPitch.toFixed(1)}st`;
+    }, { passive: false });
+
+    const finishPhrasePitchDrag = (event: PointerEvent): void => {
+      const drag = this.phrasePitchDrag;
+      if (!drag || drag.pointerId !== event.pointerId) return;
+      event.preventDefault();
+
+      drag.handle.classList.remove('dragging');
+      if (accentEditor.hasPointerCapture(event.pointerId)) {
+        accentEditor.releasePointerCapture(event.pointerId);
+      }
+      this.phrasePitchDrag = null;
+      this.savePhraseEdits();
+      this.refreshPlan();
+      this.setStatus(`PHRASE F0 · ${drag.currentPitch >= 0 ? '+' : ''}${drag.currentPitch.toFixed(1)} ST`);
+    };
+    accentEditor.addEventListener('pointerup', finishPhrasePitchDrag, { passive: false });
+    accentEditor.addEventListener('pointercancel', finishPhrasePitchDrag, { passive: false });
 
     this.required<HTMLButtonElement>('#voice-reset-prosody').addEventListener('pointerdown', (event) => {
       event.preventDefault();
