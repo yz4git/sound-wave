@@ -69,7 +69,7 @@ interface VoiceLabSettings extends VoiceSynthSettings {
 const STORAGE_KEY = 'sound-wave-voice-lab-settings-v1';
 const DEFAULT_TEXT = 'こんにちは。おんせい ごうせいの じっけんです。ことばの たかさと いきおいを かえてみましょう。';
 const STYLES: readonly VocalStyle[] = ['warm', 'bright', 'airy'];
-const INTONATIONS: readonly VoiceIntonation[] = ['natural', 'flat', 'rise', 'fall', 'question'];
+const INTONATIONS: readonly VoiceIntonation[] = ['auto', 'natural', 'flat', 'rise', 'fall', 'question'];
 const LOCAL_DELIVERY_PRESETS = ['calm', 'excited', 'serious', 'whisper', 'narration'] as const;
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
@@ -173,7 +173,7 @@ export class VoiceMode {
       rate: 1,
       pitch: 60,
       energy: 0.92,
-      intonation: 'natural',
+      intonation: 'auto',
       expression: {
         preset: 'neutral',
         intensity: 1,
@@ -293,6 +293,7 @@ export class VoiceMode {
 
           <div class="voice-control-group">
             <label><span>INTONATION</span><select id="voice-intonation">
+              <option value="auto">AUTO · PUNCTUATION</option>
               <option value="natural">NATURAL ARC</option>
               <option value="flat">FLAT</option>
               <option value="rise">RISING</option>
