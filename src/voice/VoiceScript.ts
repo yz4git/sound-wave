@@ -1,8 +1,10 @@
 import type { VocalVowel } from '../compose/VocalGenerator';
 
-export type VoiceIntonation = 'natural' | 'flat' | 'rise' | 'fall' | 'question';
+export type VoiceIntonation = 'auto' | 'natural' | 'flat' | 'rise' | 'fall' | 'question';
+export type VoiceResolvedIntonation = Exclude<VoiceIntonation, 'auto'> | 'exclaim';
 export type VoiceBoundary = 'none' | 'accent' | 'sentence';
 export type VoicePitchAccent = 'auto' | 'low' | 'high';
+export type VoiceSentenceTerminal = 'statement' | 'question' | 'exclamation';
 
 export interface VoiceUnit {
   index: number;
@@ -19,6 +21,10 @@ export interface VoiceUnit {
   accentCount: number;
   boundaryAfter: VoiceBoundary;
   pauseAfter: number;
+  /** Explicit punctuation attached to this mora, when it ends a sentence. */
+  terminalAfter?: VoiceSentenceTerminal;
+  /** Sentence-level terminal copied to every mora for AUTO intonation. */
+  sentenceTerminal?: VoiceSentenceTerminal;
   geminateBefore: boolean;
   longVowel: boolean;
   moraicN: boolean;
@@ -35,23 +41,24 @@ export interface VoiceScript {
 interface PunctuationSpec {
   pause: number;
   boundary: VoiceBoundary;
+  terminal?: VoiceSentenceTerminal;
 }
 
 const PUNCTUATION = new Map<string, PunctuationSpec>([
   ['、', { pause: 0.16, boundary: 'accent' }],
   [',', { pause: 0.14, boundary: 'accent' }],
   ['，', { pause: 0.14, boundary: 'accent' }],
-  ['。', { pause: 0.34, boundary: 'sentence' }],
-  ['.', { pause: 0.28, boundary: 'sentence' }],
-  ['！', { pause: 0.3, boundary: 'sentence' }],
-  ['!', { pause: 0.26, boundary: 'sentence' }],
-  ['？', { pause: 0.34, boundary: 'sentence' }],
-  ['?', { pause: 0.32, boundary: 'sentence' }],
+  ['。', { pause: 0.34, boundary: 'sentence', terminal: 'statement' }],
+  ['.', { pause: 0.28, boundary: 'sentence', terminal: 'statement' }],
+  ['！', { pause: 0.3, boundary: 'sentence', terminal: 'exclamation' }],
+  ['!', { pause: 0.26, boundary: 'sentence', terminal: 'exclamation' }],
+  ['？', { pause: 0.34, boundary: 'sentence', terminal: 'question' }],
+  ['?', { pause: 0.32, boundary: 'sentence', terminal: 'question' }],
   [';', { pause: 0.18, boundary: 'accent' }],
   ['；', { pause: 0.18, boundary: 'accent' }],
   ['・', { pause: 0.08, boundary: 'accent' }],
   ['/', { pause: 0.07, boundary: 'accent' }],
-  ['\n', { pause: 0.36, boundary: 'sentence' }],
+  ['\n', { pause: 0.36, boundary: 'sentence', terminal: 'statement' }],
 ]);
 
 const KANA: Record<string, string> = {
@@ -177,11 +184,30 @@ function pushUnit(
   });
 }
 
-function markPause(units: VoiceUnit[], pause: number, boundary: VoiceBoundary): void {
+function strongerTerminal(
+  current: VoiceSentenceTerminal | undefined,
+  next: VoiceSentenceTerminal | undefined,
+): VoiceSentenceTerminal | undefined {
+  if (!next) return current;
+  if (!current) return next;
+  if (current === 'question' || next === 'question') return 'question';
+  if (current === 'exclamation' || next === 'exclamation') return 'exclamation';
+  return 'statement';
+}
+
+function markPause(
+  units: VoiceUnit[],
+  pause: number,
+  boundary: VoiceBoundary,
+  terminal?: VoiceSentenceTerminal,
+): void {
   const previous = units[units.length - 1];
   if (!previous) return;
   previous.pauseAfter = Math.max(previous.pauseAfter, pause);
   previous.boundaryAfter = strongerBoundary(previous.boundaryAfter, boundary);
+  if (boundary === 'sentence') {
+    previous.terminalAfter = strongerTerminal(previous.terminalAfter, terminal);
+  }
 }
 
 function parseRomajiWord(
@@ -272,17 +298,25 @@ export function refreshVoiceUnitBoundaryMetadata(units: VoiceUnit[]): void {
   if (units.length === 0) return;
   const final = units[units.length - 1]!;
   final.boundaryAfter = 'sentence';
+  final.terminalAfter ??= 'statement';
 
-  annotateRuns(
-    units,
-    (unit) => unit.boundaryAfter === 'sentence',
-    (unit, localIndex, count) => {
-      unit.phraseIndex = localIndex;
-      unit.phraseCount = count;
-      unit.phraseStart = localIndex === 0;
-      unit.phraseEnd = localIndex === count - 1;
-    },
-  );
+  let sentenceStart = 0;
+  for (let index = 0; index < units.length; index += 1) {
+    const unit = units[index]!;
+    const isLast = index === units.length - 1;
+    if (unit.boundaryAfter !== 'sentence' && !isLast) continue;
+    const terminal = unit.terminalAfter ?? 'statement';
+    const count = Math.max(1, index - sentenceStart + 1);
+    for (let cursor = sentenceStart; cursor <= index; cursor += 1) {
+      const candidate = units[cursor]!;
+      candidate.phraseIndex = cursor - sentenceStart;
+      candidate.phraseCount = count;
+      candidate.phraseStart = cursor === sentenceStart;
+      candidate.phraseEnd = cursor === index;
+      candidate.sentenceTerminal = terminal;
+    }
+    sentenceStart = index + 1;
+  }
 
   annotateRuns(
     units,
@@ -333,7 +367,7 @@ export function parseVoiceScript(text: string): VoiceScript {
     const char = normalized[index]!;
     const punctuation = PUNCTUATION.get(char);
     if (punctuation) {
-      markPause(units, punctuation.pause, punctuation.boundary);
+      markPause(units, punctuation.pause, punctuation.boundary, punctuation.terminal);
       index += 1;
       continue;
     }
@@ -431,13 +465,24 @@ function consonantMicroProsody(unit: VoiceUnit): number {
   return 0;
 }
 
+export function resolveVoiceIntonation(
+  unit: VoiceUnit,
+  intonation: VoiceIntonation | VoiceResolvedIntonation,
+): VoiceResolvedIntonation {
+  if (intonation !== 'auto') return intonation;
+  if (unit.sentenceTerminal === 'question') return 'question';
+  if (unit.sentenceTerminal === 'exclamation') return 'exclaim';
+  return 'natural';
+}
+
 export function prosodyOffsetForUnit(
   unit: VoiceUnit,
   index: number,
   count: number,
-  intonation: VoiceIntonation,
+  intonation: VoiceIntonation | VoiceResolvedIntonation,
 ): number {
-  if (intonation === 'flat') return 0;
+  const resolvedIntonation = resolveVoiceIntonation(unit, intonation);
+  if (resolvedIntonation === 'flat') return 0;
 
   const phraseProgress = unit.phraseCount <= 1
     ? 0
@@ -447,21 +492,34 @@ export function prosodyOffsetForUnit(
   const phraseArc = phraseArcBase * (lexicalAccent ? 0.25 : 1);
   const accent = accentPhraseOffset(unit);
   const micro = consonantMicroProsody(unit);
-  const globalDeclination = count <= 1 ? 0 : -(index / Math.max(1, count - 1)) * 0.12;
+  const sentenceDeclination = -phraseProgress * 0.12;
 
-  if (intonation === 'rise') {
+  if (resolvedIntonation === 'rise') {
     return -0.7 + phraseProgress * 1.9 + accent * 0.35 + micro;
   }
-  if (intonation === 'fall') {
+  if (resolvedIntonation === 'fall') {
     return 0.72 - phraseProgress * 1.8 + accent * 0.35 + micro;
   }
-  if (intonation === 'question') {
+  if (resolvedIntonation === 'question') {
     const terminal = unit.phraseCount <= 1
       ? 1
       : Math.max(0, Math.min(1, (phraseProgress - 0.58) / 0.42));
     const easedTerminal = terminal * terminal * (3 - 2 * terminal);
     const questionLift = (unit.phraseCount <= 1 ? 1.25 : 1.55) * easedTerminal;
-    return phraseArc + accent * 0.8 + micro + questionLift + globalDeclination;
+    return phraseArc + accent * 0.8 + micro + questionLift + sentenceDeclination;
+  }
+  if (resolvedIntonation === 'exclaim') {
+    const terminal = unit.phraseCount <= 1
+      ? 1
+      : Math.max(0, Math.min(1, (phraseProgress - 0.72) / 0.28));
+    const easedTerminal = terminal * terminal * (3 - 2 * terminal);
+    const energeticArc = Math.sin(phraseProgress * Math.PI) * 0.16;
+    return phraseArc * 0.72
+      + accent
+      + micro
+      + energeticArc
+      + easedTerminal * 0.14
+      + sentenceDeclination * 0.35;
   }
 
   const reset = unit.phraseStart ? (lexicalAccent ? 0.09 : 0.18) : 0;
@@ -470,7 +528,7 @@ export function prosodyOffsetForUnit(
     : Math.max(0, Math.min(1, (phraseProgress - 0.68) / 0.32));
   const easedTerminal = terminal * terminal * (3 - 2 * terminal);
   const finalLowering = -(lexicalAccent ? 0.12 : 0.28) * easedTerminal;
-  return phraseArc + accent + micro + reset + finalLowering + globalDeclination;
+  return phraseArc + accent + micro + reset + finalLowering + sentenceDeclination;
 }
 
 // Kept as a simple public contour helper for tests and external callers.
