@@ -145,8 +145,22 @@ describe('continuous vocal AudioWorklet bridge', () => {
     expect(mapped.phraseEnd).toBe(melisma!.phraseEnd);
     expect(mapped.phrase.progressStart).toBe(phraseControl!.progressStart);
     expect(mapped.phrase.progressEnd).toBe(phraseControl!.progressEnd);
-    expect(mapped.phrase.energyStart).toBeCloseTo(phraseControl!.energyStart * mapped.scoreAligned.energyStartScale, 8);
-    expect(mapped.phrase.energyEnd).toBeCloseTo(phraseControl!.energyEnd * mapped.scoreAligned.energyEndScale, 8);
+    const expectedEnergyStart = Math.max(0.7, Math.min(1.2,
+      phraseControl!.energyStart
+        * mapped.scoreAligned.energyStartScale
+        * mapped.producerTuning.dynamicsStartScale
+        * mapped.voiceCharacter.dynamicsScale
+        * mapped.vocalDirector.dynamicsScale,
+    ));
+    const expectedEnergyEnd = Math.max(0.7, Math.min(1.2,
+      phraseControl!.energyEnd
+        * mapped.scoreAligned.energyEndScale
+        * mapped.producerTuning.dynamicsEndScale
+        * mapped.voiceCharacter.dynamicsScale
+        * mapped.vocalDirector.dynamicsScale,
+    ));
+    expect(mapped.phrase.energyStart).toBeCloseTo(expectedEnergyStart, 8);
+    expect(mapped.phrase.energyEnd).toBeCloseTo(expectedEnergyEnd, 8);
     expect(mapped.phrase.centeringEnd).toBeLessThanOrEqual(0.22);
     expect(mapped.phrase.aspirationDepth).toBeGreaterThan(0);
     expect(mapped.phrase.sourceTractCoupling).toBeGreaterThan(0);
