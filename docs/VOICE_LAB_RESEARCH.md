@@ -395,3 +395,14 @@ Phrase editing now has two faster layers above the existing numeric buttons.
 - Curve dragging follows the same iPhone-safe rule as whole-phrase F0 dragging: update in-memory/readout during pointer movement, persist and rebuild only on pointer release.
 
 The storage format remains backward compatible. Phrase edits saved before three-point curves were added load with START=PEAK=END=0.0 semitone.
+
+### 17. Smooth phrase F0 interpolation
+
+The three-point phrase curve now uses smoothstep interpolation on START→PEAK and PEAK→END instead of straight linear ramps.
+
+- START, PEAK and END remain the same persisted values, so existing phrase edits require no migration.
+- Each half-curve eases to zero slope at its handles. This removes the audible and visual hard corner at PEAK while keeping the requested handle values exact.
+- The editor preview is sampled from the same interpolation function used by synthesis, so the drawn curve matches the actual per-mora F0 offsets rather than displaying a simpler approximation.
+- Touch dragging, quantization and ±2.5 semitone limits are unchanged.
+
+This is intentionally a small synthesis-layer improvement: it reduces mechanical phrase contour changes without changing Open JTalk accent nuclei, manual mora pitch drawing or phrase-level base F0.
