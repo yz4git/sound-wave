@@ -83,6 +83,17 @@ describe('Voice Lab speech planning', () => {
     expect(questionEnd).toBeGreaterThan(1.5);
   });
 
+  it('spreads question rise across the sentence ending instead of jumping only on the final mora', () => {
+    const script = parseVoiceScript('あいうえお。');
+    const offsets = script.units.map((unit, index) => (
+      prosodyOffsetForUnit(unit, index, script.units.length, 'question')
+    ));
+
+    expect(offsets[2]).toBeLessThan(offsets[3]!);
+    expect(offsets[3]).toBeLessThan(offsets[4]!);
+    expect(offsets[4]).toBeGreaterThan(1);
+  });
+
   it('adds mora-level accent phrase motion while keeping flat mode flat', () => {
     const script = parseVoiceScript('あさ ひる。');
     const first = script.units[0]!;
