@@ -15,6 +15,7 @@ import {
 import {
   applyPhraseBoundaryOverrides,
   buildPhraseControlArrays,
+  phraseCurveAtProgress,
   phraseCurvePointFromDrag,
   phraseEmphasisPreset,
   phrasePitchFromDrag,
@@ -1386,10 +1387,13 @@ export class VoiceMode {
         ['end', 110, curveEnd],
       ];
       const polyline = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
-      polyline.setAttribute(
-        'points',
-        points.map(([, x, value]) => `${x},${24 - value * 6.4}`).join(' '),
-      );
+      const curveSamples = Array.from({ length: 17 }, (_, index) => {
+        const progress = index / 16;
+        const x = 10 + progress * 100;
+        const value = phraseCurveAtProgress(curveStart, curvePeak, curveEnd, progress);
+        return `${x},${24 - value * 6.4}`;
+      });
+      polyline.setAttribute('points', curveSamples.join(' '));
       polyline.setAttribute('class', 'voice-phrase-curve-line');
       svg.append(polyline);
 
