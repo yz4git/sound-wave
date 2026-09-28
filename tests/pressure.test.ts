@@ -63,10 +63,13 @@ describe('harmonic pressure system', () => {
 
   it('turns high-tension resolve into a multi-wave release and reward', () => {
     const challenge = generateRhythmChallenge(createInitialSkill(), 93);
-    const base = spawnPressureForBar(createPressureState(0.7), challenge, 112, 93);
+    let base = spawnPressureForBar(createPressureState(0.7), challenge, 112, 93);
+    base = advancePressure(base, 250, 0.82).pressure;
+    base = advancePressure(base, 250, 0.82).pressure;
     const beforeCount = base.waves.length;
     const beforeDanger = pressureDanger(base);
 
+    expect(beforeDanger).toBeGreaterThan(0);
     const released = applyPressureIntent(base, 'resolve', 0.82, 1);
 
     expect(released.affected).toBeGreaterThanOrEqual(2);
