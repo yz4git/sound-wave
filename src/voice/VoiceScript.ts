@@ -206,7 +206,8 @@ function markPause(
   previous.pauseAfter = Math.max(previous.pauseAfter, pause);
   previous.boundaryAfter = strongerBoundary(previous.boundaryAfter, boundary);
   if (boundary === 'sentence') {
-    previous.terminalAfter = strongerTerminal(previous.terminalAfter, terminal);
+    const mergedTerminal = strongerTerminal(previous.terminalAfter, terminal);
+    if (mergedTerminal) previous.terminalAfter = mergedTerminal;
   }
 }
 
