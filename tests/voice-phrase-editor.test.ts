@@ -85,6 +85,13 @@ describe('VOICE LAB phrase controls', () => {
     expect(phraseCurvePointFromDrag(2.4, -100)).toBe(2.5);
   });
 
+  it('smooths the phrase F0 curve near the handles instead of using linear corners', () => {
+    expect(phraseCurveAtProgress(0, 2, 0, 0.125)).toBeCloseTo(0.3125, 8);
+    expect(phraseCurveAtProgress(0, 2, 0, 0.25)).toBeCloseTo(1, 8);
+    expect(phraseCurveAtProgress(0, 2, 0, 0.375)).toBeCloseTo(1.6875, 8);
+    expect(phraseCurveAtProgress(0, 2, 0, 0.625)).toBeCloseTo(1.6875, 8);
+  });
+
   it('provides distinct emphasis presets', () => {
     expect(phraseEmphasisPreset('weak')).toEqual({ energyScale: 0.88, emphasis: 0 });
     expect(phraseEmphasisPreset('normal')).toEqual({ energyScale: 1, emphasis: 0 });
