@@ -274,7 +274,17 @@ export function speechFinalityProfileFor(
         releaseScale: 1.06,
         fallCents: 0,
       }
-    : intonation === 'rise'
+    : intonation === 'content-question'
+      ? {
+          creak: 0.05,
+          breath: 0.065,
+          pitchSemitones: 0.02,
+          durationScale: 1.055,
+          energyScale: 0.98,
+          releaseScale: 1.08,
+          fallCents: 0,
+        }
+      : intonation === 'rise'
       ? {
           creak: 0.06,
           breath: 0.055,
@@ -387,7 +397,9 @@ export function speechFinalityProfileFor(
   const amount = expression.preset === 'neutral'
     ? 0
     : clamp(expression.intensity, 0, 1.35);
-  const risingEnding = intonation === 'question' || intonation === 'rise';
+  const risingEnding = intonation === 'question'
+    || intonation === 'content-question'
+    || intonation === 'rise';
   const pitchAmount = risingEnding ? amount * 0.5 : amount;
 
   return {
