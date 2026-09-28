@@ -6,7 +6,9 @@ import type { VoiceCharacterPreset } from '../compose/VoiceCharacter';
 import { WavCapture } from '../compose/SongExport';
 import {
   prosodyOffsetForUnit,
+  resolveVoiceIntonation,
   type VoiceIntonation,
+  type VoiceResolvedIntonation,
   type VoiceScript,
   type VoiceUnit,
 } from './VoiceScript';
@@ -260,7 +262,7 @@ export interface SpeechFinalityProfile {
 
 export function speechFinalityProfileFor(
   expression: VoiceExpressionSettings,
-  intonation: VoiceIntonation,
+  intonation: VoiceResolvedIntonation,
 ): SpeechFinalityProfile {
   const base: SpeechFinalityProfile = intonation === 'question'
     ? {
@@ -282,7 +284,17 @@ export function speechFinalityProfileFor(
           releaseScale: 1.06,
           fallCents: 0,
         }
-      : intonation === 'fall'
+      : intonation === 'exclaim'
+        ? {
+            creak: 0.07,
+            breath: 0.055,
+            pitchSemitones: 0.08,
+            durationScale: 1.01,
+            energyScale: 1.06,
+            releaseScale: 1,
+            fallCents: 1,
+          }
+        : intonation === 'fall'
         ? {
             creak: 0.3,
             breath: 0.065,
@@ -561,7 +573,8 @@ export class VoiceSynth {
       const expression = edits.localExpressions?.[index] ?? globalExpression;
       const expressionControl = voiceExpressionControl(expression);
       const expressionUnit = voiceExpressionForUnit(unit, index, script.units.length, expression);
-      const offset = prosodyOffsetForUnit(unit, index, script.units.length, settings.intonation)
+      const resolvedIntonation = resolveVoiceIntonation(unit, settings.intonation);
+      const offset = prosodyOffsetForUnit(unit, index, script.units.length, resolvedIntonation)
         * expressionControl.pitchRangeScale;
       const manualPitchOffset = clamp(edits.pitchOffsets?.[index] ?? 0, -3.5, 3.5);
       const manualEnergyScale = clamp(edits.energyScales?.[index] ?? 1, 0.45, 1.55);
@@ -576,7 +589,7 @@ export class VoiceSynth {
         script.units[index + 1],
         phraseEmphasis,
       );
-      const finality = speechFinalityProfileFor(expression, settings.intonation);
+      const finality = speechFinalityProfileFor(expression, resolvedIntonation);
       const finalPitchOffset = unit.phraseEnd ? finality.pitchSemitones : 0;
       const finalDurationScale = unit.phraseEnd ? finality.durationScale : 1;
       const finalEnergyScale = unit.phraseEnd ? finality.energyScale : 1;
@@ -662,7 +675,8 @@ export class VoiceSynth {
         plan.units[index + 1]?.unit,
         emphasis,
       );
-      const finality = speechFinalityProfileFor(timed.expression, settings.intonation);
+      const resolvedIntonation = resolveVoiceIntonation(unit, settings.intonation);
+      const finality = speechFinalityProfileFor(timed.expression, resolvedIntonation);
       const previousUnit = plan.units[index - 1]?.unit;
       const pitchTransitionScale = speechPitchTransitionScaleFor(unit, previousUnit);
       const roundedMidi = Math.round(timed.pitchMidi);
