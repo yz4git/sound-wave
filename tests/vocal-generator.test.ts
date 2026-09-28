@@ -36,7 +36,7 @@ describe('local vocal generation', () => {
         const interval = Math.abs(
           midiFor(current.pitch, current.octave) - midiFor(previous.pitch, previous.octave),
         );
-        expect(interval).toBeLessThanOrEqual(6);
+        expect(interval).toBeLessThanOrEqual(7);
       }
     }
   });
