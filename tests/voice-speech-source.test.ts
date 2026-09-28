@@ -35,12 +35,38 @@ describe('VOICE LAB speech source', () => {
     const neutral = speechFinalityProfileFor({ preset: 'neutral', intensity: 1 }, 'natural');
     const question = speechFinalityProfileFor({ preset: 'neutral', intensity: 1 }, 'question');
     const serious = speechFinalityProfileFor({ preset: 'serious', intensity: 1 }, 'natural');
+    const calm = speechFinalityProfileFor({ preset: 'calm', intensity: 1 }, 'natural');
+    const excited = speechFinalityProfileFor({ preset: 'excited', intensity: 1 }, 'natural');
     const whisper = speechFinalityProfileFor({ preset: 'whisper', intensity: 1 }, 'natural');
 
     expect(neutral.creak).toBeGreaterThan(0.1);
+    expect(neutral.pitchSemitones).toBeLessThan(0);
     expect(question.creak).toBeLessThan(neutral.creak);
+    expect(question.pitchSemitones).toBeGreaterThan(0);
+    expect(question.fallCents).toBe(0);
+    expect(question.durationScale).toBeGreaterThan(1);
     expect(serious.creak).toBeGreaterThan(neutral.creak);
+    expect(serious.pitchSemitones).toBeLessThan(neutral.pitchSemitones);
+    expect(calm.durationScale).toBeGreaterThan(neutral.durationScale);
+    expect(calm.releaseScale).toBeGreaterThan(neutral.releaseScale);
+    expect(excited.energyScale).toBeGreaterThan(neutral.energyScale);
     expect(whisper.breath).toBeGreaterThan(neutral.breath);
+    expect(whisper.fallCents).toBeLessThan(neutral.fallCents);
+  });
+
+  it('keeps rising endings open even with serious delivery', () => {
+    const seriousQuestion = speechFinalityProfileFor(
+      { preset: 'serious', intensity: 1.35 },
+      'question',
+    );
+    const seriousRise = speechFinalityProfileFor(
+      { preset: 'serious', intensity: 1.35 },
+      'rise',
+    );
+
+    expect(seriousQuestion.creak).toBeLessThanOrEqual(0.07);
+    expect(seriousQuestion.fallCents).toBe(0);
+    expect(seriousRise.fallCents).toBe(0);
   });
 
   it('keeps Japanese sokuon pre-closure in a speech-like range', () => {
