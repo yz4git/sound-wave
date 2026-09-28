@@ -420,3 +420,16 @@ Phrase EMPHASIS now uses one shared prominence profile instead of independent fi
 
 This keeps the existing emphasis presets and saved phrase data compatible while making 強調 / 最重要 sound less like uniform gain and more like localized spoken prominence.
 
+### 19. Sentence-final contour and delivery-aware finality
+
+VOICE LAB now separates sentence-final F0 shape from final voice quality.
+
+- QUESTION no longer waits until the last mora for a large pitch jump. The rise begins across roughly the final 40% of the sentence and uses a smoothstep envelope into the final target.
+- NATURAL declaratives use a smaller smooth terminal lowering across the final portion of the phrase rather than applying the entire drop to one last mora.
+- The final mora has a dedicated finality profile beneath manual mora edits. It can make small coordinated changes to F0, duration, energy and release without overwriting the user's PITCH / ENERGY / TIMING drawing.
+- NATURAL / FLAT / RISING / FALLING / QUESTION each use different final creak, breath, release and micro-fall behavior.
+- DELIVERY presets also shape the ending: SERIOUS strengthens grounded finality, CALM lengthens and softens release, EXCITED keeps more terminal energy, WHISPER favors breath over creak, and NARRATION uses a measured longer release.
+- Rising and question endings explicitly cap creak and disable terminal micro-fall, even under SERIOUS delivery, so the ending remains perceptually open.
+
+The lexical Open JTalk accent contour remains underneath this layer. Manual phrase F0 curves and mora-level drawing remain above it, preserving direct editorial control.
+
