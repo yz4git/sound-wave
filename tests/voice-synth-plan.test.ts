@@ -4,6 +4,7 @@ import {
   VoiceSynth,
   geminatePreclosureSeconds,
   japaneseBoundaryPauseSeconds,
+  speechEmphasisProfileFor,
   speechPitchTransitionScaleFor,
   type VoiceSynthSettings,
 } from '../src/voice/VoiceSynth';
@@ -236,6 +237,36 @@ describe('Voice Lab synthesis plan', () => {
     expect(curved.units[0]!.pitchMidi - base.units[0]!.pitchMidi).toBeCloseTo(-0.5, 6);
     expect(curved.units[1]!.pitchMidi - base.units[1]!.pitchMidi).toBeCloseTo(1.25, 6);
     expect(curved.units[2]!.pitchMidi - base.units[2]!.pitchMidi).toBeCloseTo(-0.25, 6);
+  });
+
+  it('focuses phrase emphasis on the Japanese accent nucleus', () => {
+    const script = parseVoiceScript('あいう');
+    script.units[0]!.pitchAccent = 'low';
+    script.units[1]!.pitchAccent = 'high';
+    script.units[2]!.pitchAccent = 'low';
+
+    const head = speechEmphasisProfileFor(script.units[0]!, script.units[1], 1);
+    const nucleus = speechEmphasisProfileFor(script.units[1]!, script.units[2], 1);
+    const tail = speechEmphasisProfileFor(script.units[2]!, undefined, 1);
+
+    expect(nucleus.pitchSemitones).toBeGreaterThan(head.pitchSemitones);
+    expect(nucleus.pitchSemitones).toBeGreaterThan(tail.pitchSemitones);
+    expect(nucleus.energyScale).toBeGreaterThan(head.energyScale);
+    expect(nucleus.durationScale).toBeGreaterThan(tail.durationScale);
+    expect(nucleus.attackScale).toBeLessThan(head.attackScale);
+    expect(nucleus.articulationScale).toBeGreaterThan(head.articulationScale);
+
+    const synth = new VoiceSynth();
+    const emphasized = synth.plan(script, SETTINGS, {
+      phraseEmphasisScales: [1, 1, 1],
+    });
+    const base = synth.plan(script, SETTINGS);
+
+    expect(
+      emphasized.units[1]!.pitchMidi - base.units[1]!.pitchMidi,
+    ).toBeGreaterThan(
+      emphasized.units[2]!.pitchMidi - base.units[2]!.pitchMidi,
+    );
   });
 
   it('separates phrase energy from expressive emphasis', () => {
