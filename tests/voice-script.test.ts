@@ -4,6 +4,7 @@ import {
   parseVoiceScript,
   prosodyOffset,
   prosodyOffsetForUnit,
+  resolveVoiceIntonation,
 } from '../src/voice/VoiceScript';
 
 describe('Voice Lab speech planning', () => {
@@ -69,6 +70,43 @@ describe('Voice Lab speech planning', () => {
     expect(script.units.length).toBeGreaterThan(0);
     expect(script.unsupported).toContain('音');
     expect(script.unsupported).toContain('声');
+  });
+
+  it('keeps sentence punctuation metadata for AUTO intonation', () => {
+    const script = parseVoiceScript('あい？うえ！お。');
+
+    expect(script.units[0]?.sentenceTerminal).toBe('question');
+    expect(script.units[1]?.terminalAfter).toBe('question');
+    expect(script.units[2]?.sentenceTerminal).toBe('exclamation');
+    expect(script.units[3]?.terminalAfter).toBe('exclamation');
+    expect(script.units[4]?.sentenceTerminal).toBe('statement');
+
+    expect(resolveVoiceIntonation(script.units[0]!, 'auto')).toBe('question');
+    expect(resolveVoiceIntonation(script.units[2]!, 'auto')).toBe('exclaim');
+    expect(resolveVoiceIntonation(script.units[4]!, 'auto')).toBe('natural');
+  });
+
+  it('lets a trailing question mark dominate mixed sentence punctuation', () => {
+    const script = parseVoiceScript('ほんと！？');
+    const final = script.units.at(-1)!;
+
+    expect(final.terminalAfter).toBe('question');
+    expect(final.sentenceTerminal).toBe('question');
+  });
+
+  it('resets sentence-local declination for each new sentence', () => {
+    const script = parseVoiceScript('あいう。あいう。');
+    const firstStart = script.units[0]!;
+    const secondStart = script.units[3]!;
+
+    expect(firstStart.phraseStart).toBe(true);
+    expect(secondStart.phraseStart).toBe(true);
+    expect(
+      prosodyOffsetForUnit(firstStart, 0, script.units.length, 'auto'),
+    ).toBeCloseTo(
+      prosodyOffsetForUnit(secondStart, 3, script.units.length, 'auto'),
+      8,
+    );
   });
 
   it('provides distinct controllable global prosody shapes', () => {
