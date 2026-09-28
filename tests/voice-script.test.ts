@@ -109,6 +109,43 @@ describe('Voice Lab speech planning', () => {
     );
   });
 
+  it('adds a small F0 reset after a comma-like accent boundary', () => {
+    const script = parseVoiceScript('あい、うえ。');
+    const afterComma = script.units[2]!;
+    const withoutReset = {
+      ...afterComma,
+      boundaryBefore: 'none' as const,
+      pauseBefore: 0,
+    };
+
+    expect(afterComma.boundaryBefore).toBe('accent');
+    expect(afterComma.pauseBefore).toBeGreaterThan(0.1);
+    expect(
+      prosodyOffsetForUnit(afterComma, 2, script.units.length, 'natural'),
+    ).toBeGreaterThan(
+      prosodyOffsetForUnit(withoutReset, 2, script.units.length, 'natural') + 0.12,
+    );
+  });
+
+  it('distinguishes content questions from yes-no questions in AUTO mode', () => {
+    const contentQuestion = parseVoiceScript('どこですか？');
+    const yesNoQuestion = parseVoiceScript('いいですか？');
+
+    expect(contentQuestion.units.every((unit) => unit.questionKind === 'content')).toBe(true);
+    expect(contentQuestion.units.some((unit) => unit.questionFocus)).toBe(true);
+    expect(yesNoQuestion.units.every((unit) => unit.questionKind === 'yes-no')).toBe(true);
+    expect(resolveVoiceIntonation(contentQuestion.units[0]!, 'auto')).toBe('content-question');
+    expect(resolveVoiceIntonation(yesNoQuestion.units[0]!, 'auto')).toBe('question');
+
+    const contentFinal = contentQuestion.units.at(-1)!;
+    const yesNoFinal = yesNoQuestion.units.at(-1)!;
+    expect(
+      prosodyOffsetForUnit(contentFinal, contentQuestion.units.length - 1, contentQuestion.units.length, 'auto'),
+    ).toBeLessThan(
+      prosodyOffsetForUnit(yesNoFinal, yesNoQuestion.units.length - 1, yesNoQuestion.units.length, 'auto'),
+    );
+  });
+
   it('provides distinct controllable global prosody shapes', () => {
     const risingStart = prosodyOffset(0, 5, 'rise', true, false);
     const risingEnd = prosodyOffset(4, 5, 'rise', false, true);
