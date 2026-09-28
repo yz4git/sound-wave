@@ -447,3 +447,17 @@ VOICE LAB now has an AUTO intonation mode that resolves each sentence independen
 - New Voice Lab settings default to AUTO, while older saved settings are not silently rewritten.
 
 This layer stays beneath phrase F0 curves and mora-level PITCH / ENERGY / TIMING edits, so punctuation can provide a useful baseline without taking control away from manual editing.
+
+### 21. Boundary reset and content-question prosody
+
+Two additional sentence-level behaviors are layered under manual editing.
+
+- Accent boundaries now expose the previous boundary and pause duration to the following mora.
+- A comma-like boundary produces a small F0 reset on the next accent-phrase start. The reset scales with pause length, so Japanese comma punctuation is clearly audible while tiny Open JTalk chain boundaries do not create exaggerated pitch jumps.
+- AUTO questions are split conservatively into YES/NO and CONTENT questions.
+- Common Japanese interrogatives such as なに / なんで / だれ / どこ / いつ / どう / なぜ / どれ / どちら / いくら / どの are detected from the mora sequence, including Open JTalk readings generated from kanji.
+- YES/NO questions keep the stronger sentence-final rise.
+- CONTENT questions put a small prominence boost on the interrogative word and use a much smaller terminal rise, keeping the ending open without forcing every question into the same contour.
+- Manual QUESTION still uses the explicit full question contour and does not get reclassified.
+
+These are intentionally conservative heuristics. Open JTalk lexical accent, phrase shape controls and mora-level PITCH / ENERGY / TIMING remain independent layers above the automatic baseline.
