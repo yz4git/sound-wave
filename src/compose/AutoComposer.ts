@@ -201,17 +201,23 @@ function replayMotif(
   memory: MotifMemory,
   item: CompositionChord,
   state: ArrangementBar,
+  scale: readonly PitchClass[],
   random: () => number,
 ): CompositionNote[] {
   const delta = item.chord.root - memory.root;
   const barStart = item.bar * STEPS_PER_BAR;
-  return memory.notes.map((note) => ({
-    ...note,
-    step: barStart + (note.step % STEPS_PER_BAR),
-    pitch: transposePitch(note.pitch, delta),
-    octave: state.registerShift > 0 && note.octave === 4 && random() < 0.42 ? 5 : note.octave,
-    velocity: clamp(note.velocity * state.energy, 0.35, 1),
-  }));
+  return memory.notes.map((note) => {
+    const transposed = transposePitch(note.pitch, delta);
+    return {
+      ...note,
+      step: barStart + (note.step % STEPS_PER_BAR),
+      pitch: scale.includes(transposed)
+        ? transposed
+        : nearestScaleTone(scale, transposed, random),
+      octave: state.registerShift > 0 && note.octave === 4 && random() < 0.42 ? 5 : note.octave,
+      velocity: clamp(note.velocity * state.energy, 0.35, 1),
+    };
+  });
 }
 
 function buildMelody(
@@ -232,7 +238,7 @@ function buildMelody(
     if (state.motifKey) {
       const memory = motifBank.get(state.motifKey);
       if (memory && random() < state.hookRepeat) {
-        const replayed = replayMotif(memory, item, state, random);
+        const replayed = replayMotif(memory, item, state, scale, random);
         melody.push(...replayed);
         previousPitch = replayed.at(-1)?.pitch ?? previousPitch;
         continue;
