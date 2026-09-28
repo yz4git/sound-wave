@@ -477,8 +477,8 @@ export function resolveVoiceIntonation(
 
 export function prosodyOffsetForUnit(
   unit: VoiceUnit,
-  index: number,
-  count: number,
+  _index: number,
+  _count: number,
   intonation: VoiceIntonation | VoiceResolvedIntonation,
 ): number {
   const resolvedIntonation = resolveVoiceIntonation(unit, intonation);
