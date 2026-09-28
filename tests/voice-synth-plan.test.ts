@@ -20,6 +20,31 @@ const SETTINGS: VoiceSynthSettings = {
 };
 
 describe('Voice Lab synthesis plan', () => {
+  it('uses punctuation to choose sentence intonation in AUTO mode', () => {
+    const synth = new VoiceSynth();
+    const autoSettings: VoiceSynthSettings = { ...SETTINGS, intonation: 'auto' };
+    const question = synth.plan(parseVoiceScript('あいう？'), autoSettings);
+    const statement = synth.plan(parseVoiceScript('あいう。'), autoSettings);
+    const exclamation = synth.plan(parseVoiceScript('あいう！'), autoSettings);
+
+    const qFinal = question.units.at(-1)!;
+    const sFinal = statement.units.at(-1)!;
+    const eFinal = exclamation.units.at(-1)!;
+
+    expect(qFinal.pitchMidi).toBeGreaterThan(sFinal.pitchMidi);
+    expect(eFinal.energyScale).toBeGreaterThan(sFinal.energyScale);
+    expect(eFinal.duration).toBeLessThan(sFinal.duration);
+  });
+
+  it('does not carry first-sentence declination into the next sentence in AUTO mode', () => {
+    const synth = new VoiceSynth();
+    const autoSettings: VoiceSynthSettings = { ...SETTINGS, intonation: 'auto' };
+    const combined = synth.plan(parseVoiceScript('あいう。あいう。'), autoSettings);
+    const single = synth.plan(parseVoiceScript('あいう。'), autoSettings);
+
+    expect(combined.units[3]!.pitchMidi).toBeCloseTo(single.units[0]!.pitchMidi, 8);
+  });
+
   it('keeps mora-level F0 continuous instead of semitone quantizing every unit', () => {
     const synth = new VoiceSynth();
     const plan = synth.plan(parseVoiceScript('あさ ひる よる。'), SETTINGS);
