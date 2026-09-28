@@ -70,11 +70,12 @@ export function phraseCurveAtProgress(
   progress: number,
 ): number {
   const t = clamp(progress, 0, 1);
+  const smooth = (value: number): number => value * value * (3 - 2 * value);
   if (t <= 0.5) {
-    const local = t * 2;
+    const local = smooth(t * 2);
     return curveStart + (curvePeak - curveStart) * local;
   }
-  const local = (t - 0.5) * 2;
+  const local = smooth((t - 0.5) * 2);
   return curvePeak + (curveEnd - curvePeak) * local;
 }
 
