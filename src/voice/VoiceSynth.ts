@@ -251,35 +251,149 @@ export function speechEmphasisProfileFor(
 export interface SpeechFinalityProfile {
   creak: number;
   breath: number;
+  pitchSemitones: number;
+  durationScale: number;
+  energyScale: number;
+  releaseScale: number;
+  fallCents: number;
 }
 
 export function speechFinalityProfileFor(
   expression: VoiceExpressionSettings,
   intonation: VoiceIntonation,
 ): SpeechFinalityProfile {
-  if (intonation === 'question') {
-    return { creak: 0.04, breath: 0.05 };
-  }
+  const base: SpeechFinalityProfile = intonation === 'question'
+    ? {
+        creak: 0.035,
+        breath: 0.06,
+        pitchSemitones: 0.08,
+        durationScale: 1.065,
+        energyScale: 1,
+        releaseScale: 1.06,
+        fallCents: 0,
+      }
+    : intonation === 'rise'
+      ? {
+          creak: 0.06,
+          breath: 0.055,
+          pitchSemitones: 0.04,
+          durationScale: 1.04,
+          energyScale: 0.99,
+          releaseScale: 1.06,
+          fallCents: 0,
+        }
+      : intonation === 'fall'
+        ? {
+            creak: 0.3,
+            breath: 0.065,
+            pitchSemitones: -0.1,
+            durationScale: 1.08,
+            energyScale: 0.93,
+            releaseScale: 1.12,
+            fallCents: 7,
+          }
+        : intonation === 'flat'
+          ? {
+              creak: 0.14,
+              breath: 0.065,
+              pitchSemitones: -0.02,
+              durationScale: 1.03,
+              energyScale: 0.97,
+              releaseScale: 1.06,
+              fallCents: 2,
+            }
+          : {
+              creak: 0.24,
+              breath: 0.08,
+              pitchSemitones: -0.04,
+              durationScale: 1.06,
+              energyScale: 0.95,
+              releaseScale: 1.1,
+              fallCents: 5,
+            };
 
-  const base: SpeechFinalityProfile = { creak: 0.24, breath: 0.08 };
-  const target: SpeechFinalityProfile = expression.preset === 'serious'
-    ? { creak: 0.36, breath: 0.045 }
+  const delta = expression.preset === 'serious'
+    ? {
+        creak: 0.12,
+        breath: -0.035,
+        pitchSemitones: -0.08,
+        durationScale: 0.02,
+        energyScale: 0.01,
+        releaseScale: -0.02,
+        fallCents: 2,
+      }
     : expression.preset === 'narration'
-      ? { creak: 0.31, breath: 0.07 }
+      ? {
+          creak: 0.07,
+          breath: -0.01,
+          pitchSemitones: -0.03,
+          durationScale: 0.02,
+          energyScale: -0.01,
+          releaseScale: 0.03,
+          fallCents: 1,
+        }
       : expression.preset === 'calm'
-        ? { creak: 0.18, breath: 0.1 }
+        ? {
+            creak: -0.06,
+            breath: 0.02,
+            pitchSemitones: -0.04,
+            durationScale: 0.04,
+            energyScale: -0.04,
+            releaseScale: 0.06,
+            fallCents: -1,
+          }
         : expression.preset === 'excited'
-          ? { creak: 0.08, breath: 0.075 }
+          ? {
+              creak: -0.16,
+              breath: -0.005,
+              pitchSemitones: 0.08,
+              durationScale: -0.02,
+              energyScale: 0.05,
+              releaseScale: -0.03,
+              fallCents: -2,
+            }
           : expression.preset === 'whisper'
-            ? { creak: 0.02, breath: 0.28 }
-            : base;
+            ? {
+                creak: -0.22,
+                breath: 0.2,
+                pitchSemitones: 0,
+                durationScale: 0.03,
+                energyScale: -0.07,
+                releaseScale: 0.08,
+                fallCents: -5,
+              }
+            : {
+                creak: 0,
+                breath: 0,
+                pitchSemitones: 0,
+                durationScale: 0,
+                energyScale: 0,
+                releaseScale: 0,
+                fallCents: 0,
+              };
 
-  if (expression.preset === 'neutral') return base;
-  const amount = clamp(expression.intensity, 0, 1.35);
-  const lerp = (a: number, b: number): number => a + (b - a) * amount;
+  const amount = expression.preset === 'neutral'
+    ? 0
+    : clamp(expression.intensity, 0, 1.35);
+  const risingEnding = intonation === 'question' || intonation === 'rise';
+  const pitchAmount = risingEnding ? amount * 0.5 : amount;
+
   return {
-    creak: clamp(lerp(base.creak, target.creak), 0, 0.5),
-    breath: clamp(lerp(base.breath, target.breath), 0.02, 0.35),
+    creak: risingEnding
+      ? clamp(base.creak + delta.creak * amount, 0, 0.07)
+      : clamp(base.creak + delta.creak * amount, 0, 0.5),
+    breath: clamp(base.breath + delta.breath * amount, 0.02, 0.35),
+    pitchSemitones: clamp(
+      base.pitchSemitones + delta.pitchSemitones * pitchAmount,
+      -0.24,
+      0.22,
+    ),
+    durationScale: clamp(base.durationScale + delta.durationScale * amount, 0.98, 1.16),
+    energyScale: clamp(base.energyScale + delta.energyScale * amount, 0.82, 1.08),
+    releaseScale: clamp(base.releaseScale + delta.releaseScale * amount, 0.96, 1.22),
+    fallCents: risingEnding
+      ? 0
+      : clamp(base.fallCents + delta.fallCents * amount, 0, 10),
   };
 }
 
@@ -462,6 +576,10 @@ export class VoiceSynth {
         script.units[index + 1],
         phraseEmphasis,
       );
+      const finality = speechFinalityProfileFor(expression, settings.intonation);
+      const finalPitchOffset = unit.phraseEnd ? finality.pitchSemitones : 0;
+      const finalDurationScale = unit.phraseEnd ? finality.durationScale : 1;
+      const finalEnergyScale = unit.phraseEnd ? finality.energyScale : 1;
 
       const pitchMidi = clamp(
         settings.pitch
@@ -469,6 +587,7 @@ export class VoiceSynth {
           + expressionUnit.pitchOffset
           + phrasePitchOffset
           + emphasisProfile.pitchSemitones
+          + finalPitchOffset
           + manualPitchOffset,
         40,
         82,
@@ -477,6 +596,7 @@ export class VoiceSynth {
         japaneseUnitDurationSeconds(unit, effectiveRate)
           * expressionUnit.durationScale
           * emphasisProfile.durationScale
+          * finalDurationScale
           * manualDurationScale,
         0.05,
         0.58,
@@ -486,6 +606,7 @@ export class VoiceSynth {
           * expressionUnit.energyScale
           * phraseEnergyScale
           * emphasisProfile.energyScale
+          * finalEnergyScale
           * manualEnergyScale,
         0.22,
         1.8,
@@ -584,7 +705,7 @@ export class VoiceSynth {
       workletEvent.karaoke = {
         ...workletEvent.karaoke,
         scoopCents: unit.phraseStart ? 1.5 + emphasis * 1.6 : 0,
-        fallCents: unit.phraseEnd ? 2.5 : unit.accentEnd ? 1 : 0,
+        fallCents: unit.phraseEnd ? finality.fallCents : unit.accentEnd ? 1 : 0,
         vibratoGain: 0,
       };
 
@@ -601,7 +722,7 @@ export class VoiceSynth {
           * expressionControl.attackScale
           * emphasisProfile.attackScale
           * (unit.geminateBefore ? 0.78 : 1),
-        releaseSeconds: workletEvent.style.releaseSeconds * (unit.phraseEnd ? 1.08 : 0.88),
+        releaseSeconds: workletEvent.style.releaseSeconds * (unit.phraseEnd ? finality.releaseScale : 0.88),
         speechSourceMix: speechSource.sourceMix,
         speechSourceTilt: clamp(speechSource.sourceTilt * emphasisProfile.sourceTiltScale, 0.32, 0.9),
         speechCoarticulation: speechSource.coarticulation,
