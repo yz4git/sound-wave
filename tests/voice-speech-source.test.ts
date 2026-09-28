@@ -54,6 +54,22 @@ describe('VOICE LAB speech source', () => {
     expect(whisper.fallCents).toBeLessThan(neutral.fallCents);
   });
 
+  it('keeps content questions less terminally raised than yes-no questions', () => {
+    const yesNo = speechFinalityProfileFor(
+      { preset: 'neutral', intensity: 1 },
+      'question',
+    );
+    const content = speechFinalityProfileFor(
+      { preset: 'neutral', intensity: 1 },
+      'content-question',
+    );
+
+    expect(content.pitchSemitones).toBeLessThan(yesNo.pitchSemitones);
+    expect(content.releaseScale).toBeGreaterThan(yesNo.releaseScale);
+    expect(content.fallCents).toBe(0);
+    expect(content.creak).toBeLessThanOrEqual(0.07);
+  });
+
   it('keeps rising endings open even with serious delivery', () => {
     const seriousQuestion = speechFinalityProfileFor(
       { preset: 'serious', intensity: 1.35 },
