@@ -125,6 +125,66 @@ function vocalOctaveFor(pitch: PitchClass, sourceOctave: number, previousEvent: 
   return best;
 }
 
+function stabilizeVocalRegister(line: VocalEvent[]): void {
+  if (line.length === 0) return;
+  const octaves = [4, 5] as const;
+  const states: Array<Array<{ cost: number; previous: number }>> = [];
+
+  for (let index = 0; index < line.length; index += 1) {
+    const event = line[index]!;
+    const row: Array<{ cost: number; previous: number }> = [];
+    for (let choice = 0; choice < octaves.length; choice += 1) {
+      const octave = octaves[choice]!;
+      const midi = midiFor(event.pitch, octave);
+      const sourcePenalty = octave === event.octave ? 0 : 0.45;
+      const centerPenalty = Math.abs(midi - 71.5) * 0.01;
+
+      if (index === 0) {
+        row.push({ cost: sourcePenalty + centerPenalty, previous: -1 });
+        continue;
+      }
+
+      let bestCost = Number.POSITIVE_INFINITY;
+      let bestPrevious = 0;
+      const previousEvent = line[index - 1]!;
+      for (let previousChoice = 0; previousChoice < octaves.length; previousChoice += 1) {
+        const previousState = states[index - 1]?.[previousChoice];
+        if (!previousState) continue;
+        const previousMidi = midiFor(previousEvent.pitch, octaves[previousChoice]!);
+        const interval = Math.abs(midi - previousMidi);
+        const jumpPenalty = interval <= 6
+          ? interval * interval * 0.02
+          : 200 + (interval - 6) * (interval - 6) * 20;
+        const cost = previousState.cost + sourcePenalty + centerPenalty + jumpPenalty;
+        if (cost < bestCost) {
+          bestCost = cost;
+          bestPrevious = previousChoice;
+        }
+      }
+      row.push({ cost: bestCost, previous: bestPrevious });
+    }
+    states.push(row);
+  }
+
+  const finalRow = states[states.length - 1]!;
+  let choice = finalRow[1]!.cost < finalRow[0]!.cost ? 1 : 0;
+  const choices = new Array<number>(line.length);
+  for (let index = line.length - 1; index >= 0; index -= 1) {
+    choices[index] = choice;
+    const previous = states[index]![choice]!.previous;
+    if (previous >= 0) choice = previous;
+  }
+
+  for (let index = 0; index < line.length; index += 1) {
+    const event = line[index]!;
+    event.octave = octaves[choices[index]!]!;
+    if (event.glideFromMidi !== null && index > 0) {
+      const previous = line[index - 1]!;
+      event.glideFromMidi = midiFor(previous.pitch, previous.octave);
+    }
+  }
+}
+
 function vowelVelocityScale(vowel: VocalVowel): number {
   if (vowel === 'i') return 0.95;
   if (vowel === 'e') return 0.97;
@@ -255,6 +315,7 @@ export function generateVocalLine(composition: AutoComposition, seed = compositi
     previousEvent = event;
   }
 
+  stabilizeVocalRegister(vocal);
   connectShortGaps(vocal);
   ensureSoftMelisma(vocal);
   planNextVowels(vocal);
