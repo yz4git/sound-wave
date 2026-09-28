@@ -456,12 +456,20 @@ export function prosodyOffsetForUnit(
     return 0.72 - phraseProgress * 1.8 + accent * 0.35 + micro;
   }
   if (intonation === 'question') {
-    const questionLift = unit.phraseEnd ? 1.85 : phraseProgress > 0.72 ? (phraseProgress - 0.72) * 1.2 : 0;
+    const terminal = unit.phraseCount <= 1
+      ? 1
+      : Math.max(0, Math.min(1, (phraseProgress - 0.58) / 0.42));
+    const easedTerminal = terminal * terminal * (3 - 2 * terminal);
+    const questionLift = (unit.phraseCount <= 1 ? 1.25 : 1.55) * easedTerminal;
     return phraseArc + accent * 0.8 + micro + questionLift + globalDeclination;
   }
 
   const reset = unit.phraseStart ? (lexicalAccent ? 0.09 : 0.18) : 0;
-  const finalLowering = unit.phraseEnd ? (lexicalAccent ? -0.05 : -0.2) : 0;
+  const terminal = unit.phraseCount <= 1
+    ? 1
+    : Math.max(0, Math.min(1, (phraseProgress - 0.68) / 0.32));
+  const easedTerminal = terminal * terminal * (3 - 2 * terminal);
+  const finalLowering = -(lexicalAccent ? 0.12 : 0.28) * easedTerminal;
   return phraseArc + accent + micro + reset + finalLowering + globalDeclination;
 }
 
