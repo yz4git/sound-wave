@@ -433,3 +433,17 @@ VOICE LAB now separates sentence-final F0 shape from final voice quality.
 
 The lexical Open JTalk accent contour remains underneath this layer. Manual phrase F0 curves and mora-level drawing remain above it, preserving direct editorial control.
 
+### 20. Punctuation-aware AUTO intonation and sentence resets
+
+VOICE LAB now has an AUTO intonation mode that resolves each sentence independently from punctuation.
+
+- `？` / `?` selects QUESTION for that sentence.
+- `！` / `!` selects an EXCLAIM contour with a compact energetic ending rather than reusing the full manual FALLING contour.
+- `。` / `.` / newline selects NATURAL declarative shaping.
+- Mixed terminal punctuation gives question marks highest priority, then exclamation, then statement.
+- The detected terminal is copied to every mora in the sentence so sentence-internal F0 planning and sentence-final voice quality use the same intent.
+- Global declination is no longer based on the absolute unit index across the whole text. It restarts from zero at every sentence boundary.
+- Manual NATURAL / FLAT / RISING / FALLING / QUESTION selections still override punctuation. Existing saved manual selections remain valid.
+- New Voice Lab settings default to AUTO, while older saved settings are not silently rewritten.
+
+This layer stays beneath phrase F0 curves and mora-level PITCH / ENERGY / TIMING edits, so punctuation can provide a useful baseline without taking control away from manual editing.
