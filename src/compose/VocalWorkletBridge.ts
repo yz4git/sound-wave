@@ -186,7 +186,9 @@ export function vocalEventToWorklet(
   const baseResonance = vocalResonanceControlFor(event, phraseControl);
   const plannedExpression = scoreAlignedExpressionFor(event, phoneme, normalizedDuration, phraseControl);
 
-  const requestedPreRoll = plannedExpression.consonantPreRollSeconds + producerTuning.timingLeadSeconds;
+  const requestedPreRoll = plannedExpression.consonantPreRollSeconds > 0
+    ? plannedExpression.consonantPreRollSeconds + producerTuning.timingLeadSeconds
+    : 0;
   const appliedPreRoll = Math.min(requestedPreRoll, Math.max(0, when));
   const scheduledWhen = when - appliedPreRoll;
   const scheduledDuration = normalizedDuration + appliedPreRoll;
