@@ -406,3 +406,17 @@ The three-point phrase curve now uses smoothstep interpolation on START→PEAK a
 - Touch dragging, quantization and ±2.5 semitone limits are unchanged.
 
 This is intentionally a small synthesis-layer improvement: it reduces mechanical phrase contour changes without changing Open JTalk accent nuclei, manual mora pitch drawing or phrase-level base F0.
+
+### 18. Accent-focused phrase emphasis
+
+Phrase EMPHASIS now uses one shared prominence profile instead of independent fixed multipliers for pitch, duration and level.
+
+- A Japanese lexical accent nucleus is detected conservatively as a HIGH mora followed by LOW, or a HIGH mora at an accent-phrase end.
+- The accent nucleus receives the strongest emphasis response.
+- Accent-phrase starts receive the next strongest response, followed by other lexical HIGH morae and then unaccented morae.
+- The same prominence profile drives F0 lift, duration expansion, energy, attack shortening, articulation and source spectral tilt.
+- Manual mora PITCH / ENERGY / TIMING edits remain the final user layer and are not overwritten.
+- Phrase ENERGY remains separate: ENERGY changes level without implicitly changing F0 or duration, while EMPHASIS is intentionally multi-dimensional.
+
+This keeps the existing emphasis presets and saved phrase data compatible while making 強調 / 最重要 sound less like uniform gain and more like localized spoken prominence.
+
