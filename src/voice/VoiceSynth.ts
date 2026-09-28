@@ -169,6 +169,85 @@ export function speechPitchTransitionScaleFor(
   return 1;
 }
 
+export interface SpeechEmphasisProfile {
+  pitchSemitones: number;
+  durationScale: number;
+  energyScale: number;
+  attackScale: number;
+  articulationScale: number;
+  sourceTiltScale: number;
+}
+
+export function speechEmphasisProfileFor(
+  unit: VoiceUnit,
+  nextUnit: VoiceUnit | undefined,
+  emphasis: number,
+): SpeechEmphasisProfile {
+  const amount = clamp(emphasis, 0, 1.5);
+  if (amount <= 0) {
+    return {
+      pitchSemitones: 0,
+      durationScale: 1,
+      energyScale: 1,
+      attackScale: 1,
+      articulationScale: 1,
+      sourceTiltScale: 1,
+    };
+  }
+
+  const accentNucleus = unit.pitchAccent === 'high'
+    && (unit.accentEnd || nextUnit?.pitchAccent === 'low');
+  const lexicalHigh = unit.pitchAccent === 'high';
+
+  const pitchWeight = accentNucleus
+    ? 0.34
+    : unit.accentStart
+      ? 0.24
+      : lexicalHigh
+        ? 0.14
+        : 0.05;
+  const durationWeight = accentNucleus
+    ? 0.055
+    : unit.accentStart
+      ? 0.035
+      : unit.accentEnd
+        ? 0.026
+        : 0.012;
+  const energyWeight = accentNucleus
+    ? 0.18
+    : unit.accentStart
+      ? 0.14
+      : lexicalHigh
+        ? 0.09
+        : 0.045;
+  const articulationWeight = accentNucleus
+    ? 0.12
+    : unit.accentStart
+      ? 0.09
+      : lexicalHigh
+        ? 0.07
+        : 0.045;
+  const attackWeight = accentNucleus
+    ? 0.13
+    : unit.accentStart
+      ? 0.1
+      : 0.05;
+  const tiltWeight = accentNucleus
+    ? 0.075
+    : unit.accentStart
+      ? 0.055
+      : 0.03;
+
+  return {
+    pitchSemitones: amount * pitchWeight,
+    durationScale: 1 + amount * durationWeight,
+    energyScale: 1 + amount * energyWeight,
+    attackScale: 1 - Math.min(0.2, amount * attackWeight),
+    articulationScale: 1 + amount * articulationWeight,
+    sourceTiltScale: 1 - Math.min(0.12, amount * tiltWeight),
+  };
+}
+
 export interface SpeechFinalityProfile {
   creak: number;
   breath: number;
@@ -378,23 +457,18 @@ export class VoiceSynth {
       const phraseEnergyScale = clamp(edits.phraseEnergyScales?.[index] ?? 1, 0.65, 1.45);
       const phraseEmphasis = clamp(edits.phraseEmphasisScales?.[index] ?? 0, 0, 1.5);
       const effectiveRate = settings.rate * phraseRateScale;
-
-      const emphasisPitch = phraseEmphasis * (
-        unit.accentStart
-          ? 0.28
-          : unit.pitchAccent === 'high'
-            ? 0.16
-            : 0.08
+      const emphasisProfile = speechEmphasisProfileFor(
+        unit,
+        script.units[index + 1],
+        phraseEmphasis,
       );
-      const emphasisDurationScale = 1 + phraseEmphasis * (unit.accentStart ? 0.045 : 0.018);
-      const emphasisEnergyScale = 1 + phraseEmphasis * (unit.accentStart ? 0.18 : 0.1);
 
       const pitchMidi = clamp(
         settings.pitch
           + offset
           + expressionUnit.pitchOffset
           + phrasePitchOffset
-          + emphasisPitch
+          + emphasisProfile.pitchSemitones
           + manualPitchOffset,
         40,
         82,
@@ -402,7 +476,7 @@ export class VoiceSynth {
       const duration = clamp(
         japaneseUnitDurationSeconds(unit, effectiveRate)
           * expressionUnit.durationScale
-          * emphasisDurationScale
+          * emphasisProfile.durationScale
           * manualDurationScale,
         0.05,
         0.58,
@@ -411,7 +485,7 @@ export class VoiceSynth {
         unitEnergyScale(unit)
           * expressionUnit.energyScale
           * phraseEnergyScale
-          * emphasisEnergyScale
+          * emphasisProfile.energyScale
           * manualEnergyScale,
         0.22,
         1.8,
@@ -462,6 +536,11 @@ export class VoiceSynth {
       const expressionControl = voiceExpressionControl(timed.expression);
       const speechSource = speechSourceProfileFor(timed.expression);
       const emphasis = timed.phraseEmphasis;
+      const emphasisProfile = speechEmphasisProfileFor(
+        unit,
+        plan.units[index + 1]?.unit,
+        emphasis,
+      );
       const finality = speechFinalityProfileFor(timed.expression, settings.intonation);
       const previousUnit = plan.units[index - 1]?.unit;
       const pitchTransitionScale = speechPitchTransitionScaleFor(unit, previousUnit);
@@ -520,11 +599,11 @@ export class VoiceSynth {
         breathLevel: clamp(workletEvent.style.breathLevel * expressionControl.breathScale, 0, 1.2),
         attackSeconds: workletEvent.style.attackSeconds
           * expressionControl.attackScale
-          * (1 - Math.min(0.18, emphasis * 0.11))
+          * emphasisProfile.attackScale
           * (unit.geminateBefore ? 0.78 : 1),
         releaseSeconds: workletEvent.style.releaseSeconds * (unit.phraseEnd ? 1.08 : 0.88),
         speechSourceMix: speechSource.sourceMix,
-        speechSourceTilt: clamp(speechSource.sourceTilt * (1 - emphasis * 0.07), 0.32, 0.9),
+        speechSourceTilt: clamp(speechSource.sourceTilt * emphasisProfile.sourceTiltScale, 0.32, 0.9),
         speechCoarticulation: speechSource.coarticulation,
         speechPulseNoise: speechSource.pulseNoise,
         speechPitchTransitionScale: pitchTransitionScale,
@@ -539,7 +618,7 @@ export class VoiceSynth {
         articulationScale: clamp(
           workletEvent.voiceCharacter.articulationScale
             * expressionControl.articulationScale
-            * (1 + emphasis * 0.08),
+            * emphasisProfile.articulationScale,
           0.62,
           1.5,
         ),
