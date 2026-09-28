@@ -67,6 +67,50 @@ describe('VOICE LAB Japanese G2P mapping', () => {
     expect(secondPhrase.map((unit) => unit.pitchAccent)).toEqual(['low', 'high', 'high', 'high']);
   });
 
+  it('preserves content-question detection through Open JTalk readings', () => {
+    const nodes: JapaneseFrontendNode[] = [
+      {
+        string: '何',
+        read: 'ナニ',
+        pron: 'ナニ',
+        acc: 1,
+        mora_size: 2,
+        chain_flag: -1,
+      },
+      {
+        string: 'です',
+        read: 'デス',
+        pron: 'デス',
+        acc: 1,
+        mora_size: 2,
+        chain_flag: 0,
+      },
+      {
+        string: 'か',
+        read: 'カ',
+        pron: 'カ',
+        acc: 0,
+        mora_size: 1,
+        chain_flag: 1,
+      },
+      {
+        string: '？',
+        read: '、',
+        pron: '、',
+        acc: 0,
+        mora_size: 0,
+        chain_flag: 0,
+      },
+    ];
+
+    const { script } = buildScriptFromJapaneseFrontend(nodes, '何ですか？');
+
+    expect(script.units[0]?.questionKind).toBe('content');
+    expect(script.units[0]?.questionFocus).toBe(true);
+    expect(script.units[1]?.questionFocus).toBe(true);
+    expect(script.units.at(-1)?.sentenceTerminal).toBe('question');
+  });
+
   it('maps analyzed morae back to source-text ranges for local style alignment', () => {
     const nodes: JapaneseFrontendNode[] = [
       {
