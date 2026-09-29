@@ -401,6 +401,12 @@ function connectiveKindForFrontendNode(
   return kind;
 }
 
+function shouldSuppressFallbackContinuation(node: JapaneseFrontendNode): boolean {
+  const surface = kataToHira((node.string || '').normalize('NFKC'));
+  if (!node.pos_group1 || node.pos_group1.includes('接続助詞')) return false;
+  return surface === 'が' || surface === 'から' || surface === 'し';
+}
+
 function discourseRoleForFrontendNode(
   node: JapaneseFrontendNode,
 ): Exclude<VoiceDiscourseRole, 'none'> | null {
@@ -526,8 +532,14 @@ export function buildScriptFromJapaneseFrontend(
   for (const span of spans) {
     if (span.end >= script.units.length - 1) continue;
     const kind = connectiveKindForFrontendNode(span.node);
-    if (!kind) continue;
-    applyVoiceContinuationBoundary(script.units, span.end, kind);
+    if (kind) {
+      applyVoiceContinuationBoundary(script.units, span.end, kind);
+      continue;
+    }
+    if (shouldSuppressFallbackContinuation(span.node)) {
+      const endUnit = script.units[span.end];
+      if (endUnit) endUnit.suppressContinuationInference = true;
+    }
   }
 
   for (let index = 0; index < spans.length; index += 1) {
