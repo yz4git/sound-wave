@@ -461,3 +461,16 @@ Two additional sentence-level behaviors are layered under manual editing.
 - Manual QUESTION still uses the explicit full question contour and does not get reclassified.
 
 These are intentionally conservative heuristics. Open JTalk lexical accent, phrase shape controls and mora-level PITCH / ENERGY / TIMING remain independent layers above the automatic baseline.
+
+### 22. Connective-clause continuation prosody
+
+VOICE LAB now treats common Japanese connective endings as continuation cues instead of ordinary phrase closures.
+
+- Kana/romaji fallback detects conservative multi-mora connective patterns only when they occur at an accent boundary: けど / けれど, ので / から, なら / たら, ても / でも / のに.
+- Open JTalk analysis additionally uses frontend token surfaces, allowing single-mora connective particles such as が and し to be recognized without confusing ordinary lexical morae.
+- Connective phrase endings receive a small continuation F0 lift and modest duration extension instead of fully closing.
+- The following clause receives a small F0 reset and energy recovery, with a sharper pitch transition so the new clause is perceptually distinct.
+- Connective boundaries keep the phrase-energy envelope more open and use less spectral centering than ordinary phrase endings.
+- Existing commas and manually edited pauses remain authoritative; connective logic only raises very short automatically inferred pauses to a subtle continuation pause.
+
+The automatic continuation layer stays below Open JTalk lexical accent, phrase-shape controls, emphasis and mora-level PITCH / ENERGY / TIMING edits.
