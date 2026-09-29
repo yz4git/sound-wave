@@ -82,6 +82,28 @@ describe('Voice Lab synthesis plan', () => {
     expect(japaneseBoundaryPauseSeconds(breath, 1.65)).toBeGreaterThan(0.09);
   });
 
+  it('renders filled pauses slower and softer than the same morae in plain speech', () => {
+    const synth = new VoiceSynth();
+    const filler = synth.plan(parseVoiceScript('えーと いく。'), SETTINGS);
+    const plain = synth.plan(parseVoiceScript('えーといく。'), SETTINGS);
+
+    expect(filler.units[0]!.unit.filledPause).toBe(true);
+    expect(filler.units[0]!.duration).toBeGreaterThan(plain.units[0]!.duration);
+    expect(filler.units[0]!.energyScale).toBeLessThan(plain.units[0]!.energyScale);
+  });
+
+  it('keeps hesitation pauses unless a manual pause override replaces them', () => {
+    const synth = new VoiceSynth();
+    const script = parseVoiceScript('あ……い。');
+    const automatic = synth.plan(script, SETTINGS);
+    const manual = synth.plan(script, SETTINGS, {
+      pauseOverrides: [0, null],
+    });
+
+    expect(script.units[0]!.expressivePauseAfter).toBeGreaterThan(0.15);
+    expect(automatic.units[1]!.start).toBeGreaterThan(manual.units[1]!.start + 0.12);
+  });
+
   it('keeps mora-level F0 continuous instead of semitone quantizing every unit', () => {
     const synth = new VoiceSynth();
     const plan = synth.plan(parseVoiceScript('あさ ひる よる。'), SETTINGS);
