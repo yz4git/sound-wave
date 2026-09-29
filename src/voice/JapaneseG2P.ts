@@ -422,7 +422,20 @@ function discourseRoleForFrontendNode(
   if (surface === 'や' && group1.includes('並立助詞')) return 'list';
   if ((surface === 'とか' || surface === 'など')
     && (group1.includes('並立助詞') || group1.includes('副助詞'))) return 'list';
+  if (['だけ', 'こそ', 'さえ', 'しか', 'まで', 'ばかり'].includes(surface)
+    && (group1.includes('副助詞') || group1.includes('係助詞'))) return 'focus';
   return null;
+}
+
+function focusStrengthForFrontendNode(node: JapaneseFrontendNode): number {
+  const surface = kataToHira((node.string || '').normalize('NFKC'));
+  if (surface === 'こそ') return 1;
+  if (surface === 'さえ') return 0.92;
+  if (surface === 'しか') return 0.88;
+  if (surface === 'だけ') return 0.78;
+  if (surface === 'まで') return 0.68;
+  if (surface === 'ばかり') return 0.64;
+  return 0.72;
 }
 
 export function buildScriptFromJapaneseFrontend(
@@ -569,6 +582,12 @@ export function buildScriptFromJapaneseFrontend(
       applyVoiceDiscourseMarker(script.units, span.end, role, {
         boundary: true,
         pause: 0.035,
+      });
+    } else if (role === 'focus') {
+      applyVoiceDiscourseMarker(script.units, span.end, role, {
+        focusStart,
+        focusEnd,
+        focusStrength: focusStrengthForFrontendNode(span.node),
       });
     } else {
       applyVoiceDiscourseMarker(script.units, span.end, role, {
