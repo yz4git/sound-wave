@@ -490,3 +490,19 @@ VOICE LAB now uses Open JTalk frontend part-of-speech metadata for a small disco
 - Accent phrases now carry an ordinal within each sentence. A gentle capped downstep accumulates across later accent phrases, while topic/connective/list resets partially reopen the contour.
 
 All discourse effects remain below manual phrase controls and mora-level PITCH / ENERGY / TIMING edits. If Open JTalk POS metadata is absent, the engine falls back to the older conservative surface heuristics rather than inventing detailed particle roles.
+
+### 24. Focus particles, quoted/parenthetical speech, and breath planning
+
+VOICE LAB now adds a lightweight information-structure and speaking-scope layer on top of Open JTalk analysis.
+
+- Focus particles `こそ / さえ / しか / だけ / まで / ばかり` are recognized only when Open JTalk POS supports a focus-like particle reading.
+- The lexical token immediately before the focus particle receives graded prominence. `こそ` is strongest, followed by `さえ`, `しか`, `だけ`, `まで`, and `ばかり`.
+- Focus is realized as a small F0 lift plus modest energy and duration support. Strong focus also slows the focused token by about 1.5%, preserving speech naturalness rather than turning it into a sung accent.
+- Japanese quotation marks and common quote characters are retained as non-spoken scope metadata. Quoted material uses slightly slower pacing and a small pitch/energy opening, while the quote marks themselves are never spoken.
+- Parenthetical material is also retained as non-spoken scope metadata. It is spoken slightly faster, with lower energy and a small F0 reduction so it reads as an aside rather than a new main clause.
+- Quote and parenthetical boundaries create small phrase transitions without overriding sentence punctuation inside the scope.
+- Long sentences now choose automatic breath locations only from existing accent boundaries. The planner waits for a sufficiently long mora span, avoids arbitrary word-internal cuts, and raises the selected pause to a restrained inhalation-sized gap.
+- Planned breath boundaries receive a small breath release in the speech source. Rate scaling preserves a usable breathing pause even during faster delivery.
+- Automatic scope rate is multiplied underneath manual phrase-rate editing, so user timing remains the final control layer.
+
+This keeps the lightweight DSP engine deterministic while making longer Japanese passages more readable and less uniformly paced.
