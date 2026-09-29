@@ -178,6 +178,29 @@ describe('Voice Lab speech planning', () => {
     );
   });
 
+  it('applies gentle phrase-by-phrase downstep across a long sentence', () => {
+    const script = parseVoiceScript('あいうえおかきく。');
+    for (const index of [1, 3, 5]) {
+      script.units[index]!.boundaryAfter = 'accent';
+      script.units[index]!.pauseAfter = 0.012;
+    }
+    finalizeVoiceUnits(script.units);
+
+    const laterStart = script.units[4]!;
+    const withoutDownstep = {
+      ...laterStart,
+      accentPhraseIndex: 0,
+    };
+
+    expect(laterStart.accentPhraseIndex).toBe(2);
+    expect(laterStart.accentPhraseCount).toBeGreaterThanOrEqual(4);
+    expect(
+      prosodyOffsetForUnit(laterStart, laterStart.index, script.units.length, 'natural'),
+    ).toBeLessThan(
+      prosodyOffsetForUnit(withoutDownstep, laterStart.index, script.units.length, 'natural') - 0.08,
+    );
+  });
+
   it('provides distinct controllable global prosody shapes', () => {
     const risingStart = prosodyOffset(0, 5, 'rise', true, false);
     const risingEnd = prosodyOffset(4, 5, 'rise', false, true);
