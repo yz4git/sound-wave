@@ -474,3 +474,19 @@ VOICE LAB now treats common Japanese connective endings as continuation cues ins
 - Existing commas and manually edited pauses remain authoritative; connective logic only raises very short automatically inferred pauses to a subtle continuation pause.
 
 The automatic continuation layer stays below Open JTalk lexical accent, phrase-shape controls, emphasis and mora-level PITCH / ENERGY / TIMING edits.
+
+### 23. Discourse particles, focus and phrase downstep
+
+VOICE LAB now uses Open JTalk frontend part-of-speech metadata for a small discourse-prosody layer.
+
+- Open JTalk NJD nodes expose `pos`, `pos_group1`, and `pos_group2`, allowing particles with the same surface form to be separated by function.
+- Topic `は` (and topic-like `も`) receives a small boundary and following-clause F0 reset. The preceding lexical material gets only mild prominence.
+- Subject `が` when tagged as a case particle stays tightly connected to the predicate, while the preceding lexical token receives stronger focus prominence in F0, energy and duration.
+- Connective `が` remains a continuation marker only when Open JTalk tags it as a conjunctive particle. Case-particle `が` is no longer confused with it.
+- Ambiguous `から` is treated as causal continuation only when POS supports a conjunctive reading; source-case `から` is left alone.
+- Quotation `と` tagged as a quotation case particle creates a small quotation boundary and controlled reset before the reporting clause.
+- Enumeration `や` / compatible list particles create a light open boundary and reset for the next list item.
+- Focus prominence is intentionally small: a fractional-semitone F0 lift with modest energy and duration support, not a singing-style accent.
+- Accent phrases now carry an ordinal within each sentence. A gentle capped downstep accumulates across later accent phrases, while topic/connective/list resets partially reopen the contour.
+
+All discourse effects remain below manual phrase controls and mora-level PITCH / ENERGY / TIMING edits. If Open JTalk POS metadata is absent, the engine falls back to the older conservative surface heuristics rather than inventing detailed particle roles.
