@@ -45,6 +45,9 @@ export interface VoiceUnit {
   quoted: boolean;
   parenthetical: boolean;
   breathAfter: boolean;
+  expressivePauseAfter: number;
+  hesitationAfter: boolean;
+  filledPause: boolean;
   autoRateScale: number;
   /** Explicit punctuation attached to this mora, when it ends a sentence. */
   terminalAfter?: VoiceSentenceTerminal;
@@ -221,6 +224,9 @@ function pushUnit(
     quoted: false,
     parenthetical: false,
     breathAfter: false,
+    expressivePauseAfter: 0,
+    hesitationAfter: false,
+    filledPause: false,
     autoRateScale: 1,
     geminateBefore: flags.geminateBefore ?? false,
     longVowel: flags.longVowel ?? false,
@@ -433,6 +439,63 @@ export function applyVoiceDiscourseMarker(
   }
 }
 
+function markExpressivePause(
+  units: VoiceUnit[],
+  pause: number,
+  hesitation = false,
+): void {
+  const previous = units[units.length - 1];
+  if (!previous) return;
+  previous.expressivePauseAfter = Math.max(previous.expressivePauseAfter, pause);
+  previous.hesitationAfter ||= hesitation;
+}
+
+function annotateFilledPauses(units: VoiceUnit[]): void {
+  const patterns: readonly (readonly string[])[] = [
+    ['e', 'e', 'to'],
+    ['e', 'to'],
+  ];
+  for (let start = 0; start < units.length; start += 1) {
+    for (const pattern of patterns) {
+      if (start + pattern.length > units.length) continue;
+      let matches = true;
+      for (let offset = 0; offset < pattern.length; offset += 1) {
+        const unit = units[start + offset]!;
+        const syllable = unit.syllable.toLowerCase();
+        if (syllable !== pattern[offset]) {
+          matches = false;
+          break;
+        }
+      }
+      if (!matches) continue;
+      const last = units[start + pattern.length - 1]!;
+      // Two-mora えっと is identified by its sokuon. Plain えと remains lexical.
+      if (pattern.length === 2 && !last.geminateBefore) continue;
+      for (let cursor = start; cursor < start + pattern.length; cursor += 1) {
+        units[cursor]!.filledPause = true;
+      }
+      last.expressivePauseAfter = Math.max(last.expressivePauseAfter, 0.13);
+      last.hesitationAfter = true;
+      start += pattern.length - 1;
+      break;
+    }
+  }
+}
+
+export function applyVoicePreFocusPause(
+  units: VoiceUnit[],
+  focusStart: number,
+  strength: number,
+): void {
+  const before = units[Math.floor(focusStart) - 1];
+  if (!before || before.boundaryAfter === 'sentence') return;
+  const amount = Math.max(0, Math.min(1, strength));
+  before.expressivePauseAfter = Math.max(
+    before.expressivePauseAfter,
+    0.035 + amount * 0.035,
+  );
+}
+
 function annotateRuns(
   units: VoiceUnit[],
   isBoundary: (unit: VoiceUnit, index: number) => boolean,
@@ -464,6 +527,7 @@ export function refreshVoiceUnitBoundaryMetadata(units: VoiceUnit[]): void {
       : unit.quoted
         ? 0.96
         : 1;
+    if (unit.filledPause) unit.autoRateScale *= 0.9;
     if (unit.focusStrength >= 0.72) unit.autoRateScale *= 0.985;
   }
   const final = units[units.length - 1]!;
@@ -618,6 +682,26 @@ export function parseVoiceScript(text: string): VoiceScript {
   while (index < normalized.length) {
     const char = normalized[index]!;
 
+    if (normalized.startsWith('...', index)) {
+      markExpressivePause(units, 0.2, true);
+      index += 3;
+      continue;
+    }
+    if (char === '…') {
+      let end = index + 1;
+      while (normalized[end] === '…') end += 1;
+      markExpressivePause(units, end - index >= 2 ? 0.24 : 0.18, true);
+      index = end;
+      continue;
+    }
+    if (char === '―' || char === '—') {
+      let end = index + 1;
+      while (normalized[end] === char) end += 1;
+      markExpressivePause(units, end - index >= 2 ? 0.2 : 0.14, true);
+      index = end;
+      continue;
+    }
+
     if (QUOTE_OPEN.has(char) || char === '"') {
       if (char !== '"' || quoteStarts.length === 0) {
         markPause(units, 0.04, 'accent');
@@ -723,6 +807,7 @@ export function parseVoiceScript(text: string): VoiceScript {
 
   for (const start of quoteStarts) markScope(start, units.length - 1, 'quote');
   for (const start of parenStarts) markScope(start, units.length - 1, 'parenthetical');
+  annotateFilledPauses(units);
 
   finalizeVoiceUnits(units);
   return { units, unsupported: [...new Set(unsupported)] };
@@ -828,7 +913,9 @@ export function prosodyOffsetForUnit(
           : 0;
   const focusLift = unit.focusStrength * 0.16
     + (unit.quoted ? 0.035 : 0)
-    - (unit.parenthetical ? 0.055 : 0);
+    - (unit.parenthetical ? 0.055 : 0)
+    - (unit.filledPause ? 0.08 : 0)
+    - (unit.hesitationAfter ? 0.045 : 0);
   const downstep = -Math.min(0.3, unit.accentPhraseIndex * 0.05);
   const discourseMotion = discourseTail + discourseReset + focusLift + downstep;
 
