@@ -45,6 +45,20 @@ describe('Voice Lab synthesis plan', () => {
     expect(combined.units[3]!.pitchMidi).toBeCloseTo(single.units[0]!.pitchMidi, 8);
   });
 
+  it('turns discourse focus into subtle pitch energy and duration prominence', () => {
+    const synth = new VoiceSynth();
+    const plainScript = parseVoiceScript('あいう');
+    const focusedScript = parseVoiceScript('あいう');
+    focusedScript.units[0]!.focusStrength = 0.82;
+
+    const plain = synth.plan(plainScript, SETTINGS);
+    const focused = synth.plan(focusedScript, SETTINGS);
+
+    expect(focused.units[0]!.pitchMidi).toBeGreaterThan(plain.units[0]!.pitchMidi + 0.1);
+    expect(focused.units[0]!.energyScale).toBeGreaterThan(plain.units[0]!.energyScale);
+    expect(focused.units[0]!.duration).toBeGreaterThan(plain.units[0]!.duration);
+  });
+
   it('keeps mora-level F0 continuous instead of semitone quantizing every unit', () => {
     const synth = new VoiceSynth();
     const plan = synth.plan(parseVoiceScript('あさ ひる よる。'), SETTINGS);
