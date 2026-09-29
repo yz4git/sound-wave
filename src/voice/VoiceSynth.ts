@@ -155,7 +155,9 @@ export function japaneseBoundaryPauseSeconds(unit: VoiceUnit, rate: number): num
   const exponent = unit.boundaryAfter === 'sentence' ? 0.46 : 0.68;
   const rateScale = 1 / (normalizedRate ** exponent);
   const boundaryScale = unit.boundaryAfter === 'sentence' ? 1.04 : 0.94;
-  return clamp(unit.pauseAfter * rateScale * boundaryScale, 0.025, 0.52);
+  const planned = unit.pauseAfter * rateScale * boundaryScale;
+  const breathFloor = unit.breathAfter ? 0.115 / (normalizedRate ** 0.24) : 0;
+  return clamp(Math.max(planned, breathFloor), 0.025, 0.52);
 }
 
 export function speechPitchTransitionScaleFor(
@@ -168,6 +170,7 @@ export function speechPitchTransitionScaleFor(
     && previousUnit.pitchAccent !== unit.pitchAccent;
   if (lexicalStep) return 0.72;
   if (unit.continuationBefore !== 'none') return 0.76;
+  if (unit.discourseBefore === 'quote' || unit.parenthetical !== previousUnit.parenthetical) return 0.79;
   if (unit.accentStart || unit.phraseStart) return 0.84;
   return 1;
 }
@@ -471,6 +474,8 @@ function unitEnergyScale(unit: VoiceUnit): number {
   if (unit.accentEnd) scale *= 0.98;
   if (unit.continuationAfter !== 'none') scale *= 0.97;
   if (unit.continuationBefore !== 'none') scale *= 1.025;
+  if (unit.quoted) scale *= 1.015;
+  if (unit.parenthetical) scale *= 0.92;
   if (unit.focusStrength > 0) scale *= 1 + unit.focusStrength * 0.055;
   if (unit.phraseEnd) scale *= 0.94;
   if (unit.longVowel) scale *= 0.97;
@@ -613,7 +618,7 @@ export class VoiceSynth {
       const phraseRateScale = clamp(edits.phraseRateScales?.[index] ?? 1, 0.72, 1.35);
       const phraseEnergyScale = clamp(edits.phraseEnergyScales?.[index] ?? 1, 0.65, 1.45);
       const phraseEmphasis = clamp(edits.phraseEmphasisScales?.[index] ?? 0, 0, 1.5);
-      const effectiveRate = settings.rate * phraseRateScale;
+      const effectiveRate = settings.rate * phraseRateScale * unit.autoRateScale;
       const emphasisProfile = speechEmphasisProfileFor(
         unit,
         script.units[index + 1],
@@ -773,7 +778,11 @@ export class VoiceSynth {
         speechPulseNoise: speechSource.pulseNoise,
         speechPitchTransitionScale: pitchTransitionScale,
         speechFinalCreak: unit.phraseEnd ? finality.creak : 0,
-        speechFinalBreath: unit.phraseEnd ? finality.breath : 0,
+        speechFinalBreath: unit.phraseEnd
+          ? finality.breath
+          : unit.breathAfter
+            ? 0.09
+            : 0,
       };
 
       workletEvent.voiceCharacter = {
