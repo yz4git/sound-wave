@@ -1,8 +1,10 @@
 import {
   applyVoiceContinuationBoundary,
+  applyVoiceDiscourseMarker,
   finalizeVoiceUnits,
   parseVoiceScript,
   type VoiceContinuationKind,
+  type VoiceDiscourseRole,
   type VoicePitchAccent,
   type VoiceScript,
 } from './VoiceScript';
@@ -20,6 +22,14 @@ export interface JapaneseFrontendNode {
   acc: number;
   mora_size: number;
   chain_flag: number;
+  pos?: string;
+  pos_group1?: string;
+  pos_group2?: string;
+  pos_group3?: string;
+  ctype?: string;
+  cform?: string;
+  orig?: string;
+  chain_rule?: string;
 }
 
 export interface JapaneseUnitSourceRange {
@@ -379,7 +389,34 @@ function connectiveKindForFrontendNode(
   node: JapaneseFrontendNode,
 ): Exclude<VoiceContinuationKind, 'none'> | null {
   const surface = kataToHira((node.string || '').normalize('NFKC'));
-  return JAPANESE_CONNECTIVE_SURFACES.get(surface) ?? null;
+  const kind = JAPANESE_CONNECTIVE_SURFACES.get(surface);
+  if (!kind) return null;
+
+  // When Open JTalk exposes POS detail, reject case/subject particles that
+  // happen to share the same surface as a connective (especially が / から).
+  if (node.pos_group1) {
+    if (node.pos_group1.includes('接続助詞')) return kind;
+    if (surface === 'が' || surface === 'から' || surface === 'し') return null;
+  }
+  return kind;
+}
+
+function discourseRoleForFrontendNode(
+  node: JapaneseFrontendNode,
+): Exclude<VoiceDiscourseRole, 'none'> | null {
+  if (node.pos && node.pos !== '助詞') return null;
+  const surface = kataToHira((node.string || '').normalize('NFKC'));
+  const group1 = node.pos_group1 ?? '';
+  const group2 = node.pos_group2 ?? '';
+
+  if (surface === 'は' && group1.includes('係助詞')) return 'topic';
+  if (surface === 'も' && (group1.includes('係助詞') || group1.includes('副助詞'))) return 'topic';
+  if (surface === 'が' && group1.includes('格助詞')) return 'subject';
+  if (surface === 'と' && group1.includes('格助詞') && group2.includes('引用')) return 'quote';
+  if (surface === 'や' && group1.includes('並立助詞')) return 'list';
+  if ((surface === 'とか' || surface === 'など')
+    && (group1.includes('並立助詞') || group1.includes('副助詞'))) return 'list';
+  return null;
 }
 
 export function buildScriptFromJapaneseFrontend(
@@ -491,6 +528,45 @@ export function buildScriptFromJapaneseFrontend(
     const kind = connectiveKindForFrontendNode(span.node);
     if (!kind) continue;
     applyVoiceContinuationBoundary(script.units, span.end, kind);
+  }
+
+  for (let index = 0; index < spans.length; index += 1) {
+    const span = spans[index]!;
+    if (span.end >= script.units.length - 1) continue;
+    const role = discourseRoleForFrontendNode(span.node);
+    if (!role) continue;
+    const previous = spans[index - 1];
+    const focusStart = previous?.start ?? span.start;
+    const focusEnd = previous?.end ?? span.end;
+
+    if (role === 'topic') {
+      applyVoiceDiscourseMarker(script.units, span.end, role, {
+        boundary: true,
+        pause: 0.035,
+        focusStart,
+        focusEnd,
+        focusStrength: 0.24,
+      });
+    } else if (role === 'subject') {
+      applyVoiceDiscourseMarker(script.units, span.end, role, {
+        focusStart,
+        focusEnd,
+        focusStrength: 0.82,
+      });
+    } else if (role === 'quote') {
+      applyVoiceDiscourseMarker(script.units, span.end, role, {
+        boundary: true,
+        pause: 0.035,
+      });
+    } else {
+      applyVoiceDiscourseMarker(script.units, span.end, role, {
+        boundary: true,
+        pause: 0.055,
+        focusStart,
+        focusEnd,
+        focusStrength: 0.34,
+      });
+    }
   }
 
   finalizeVoiceUnits(script.units);
