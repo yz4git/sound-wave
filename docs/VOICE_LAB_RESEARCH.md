@@ -506,3 +506,18 @@ VOICE LAB now adds a lightweight information-structure and speaking-scope layer 
 - Automatic scope rate is multiplied underneath manual phrase-rate editing, so user timing remains the final control layer.
 
 This keeps the lightweight DSP engine deterministic while making longer Japanese passages more readable and less uniformly paced.
+
+### 25. Hesitation timing, filled pauses, and emotion-aware focus
+
+VOICE LAB now models a small set of expressive timing cues that sit between lexical prosody and manual editing.
+
+- `…`, repeated `……`, ASCII `...`, and long dashes such as `――` are treated as hesitation pauses rather than sentence endings.
+- Hesitation markers keep the utterance inside the same sentence contour, add a rate-aware expressive pause, slightly lower the outgoing F0, lengthen the preceding mora, reduce its energy, and leave a small breath release.
+- Conservative Japanese filled pauses `えーと`, `ええと`, and sokuon `えっと` are detected from mora structure. Plain `えと` is not treated as a filler.
+- Filled-pause morae are spoken roughly 10% slower with lower energy and a restrained lower pitch placement, followed by a short hesitation gap.
+- Focus particles can now create a short pre-focus hold when the focused lexical token is not sentence-initial. This is stored separately from grammatical phrase boundaries so it does not invent a new accent phrase.
+- Manual pause overrides remain the final timing layer: an explicit pause edit replaces automatic boundary, breath, hesitation, and pre-focus timing at that position.
+- Emotional delivery now reacts to contextual focus rather than applying the same focus realization under every preset. EXCITED makes focus more pitch- and energy-forward, SERIOUS keeps pitch steadier and adds weight through energy/duration, WHISPER keeps focus restrained, and NARRATION adds a smaller controlled pitch/energy lift.
+- EXCITED also receives an additional onset lift for exclamatory sentences, making punctuation and delivery cooperate instead of acting as unrelated layers.
+
+These heuristics are intentionally conservative and deterministic. They improve conversational rhythm without requiring a neural language model, while keeping all phrase and mora editing controls authoritative.
