@@ -361,6 +361,56 @@ describe('VOICE LAB Japanese G2P mapping', () => {
     expect(script.units[0]!.autoRateScale).toBeLessThan(1);
   });
 
+  it('adds a short pre-focus hold when a focused token is not sentence-initial', () => {
+    const nodes: JapaneseFrontendNode[] = [
+      {
+        string: '今日は',
+        read: 'キョーワ',
+        pron: 'キョーワ',
+        acc: 1,
+        mora_size: 3,
+        chain_flag: -1,
+        pos: '名詞',
+      },
+      {
+        string: '私',
+        read: 'ワタシ',
+        pron: 'ワタシ',
+        acc: 0,
+        mora_size: 3,
+        chain_flag: 0,
+        pos: '名詞',
+      },
+      {
+        string: 'だけ',
+        read: 'ダケ',
+        pron: 'ダケ',
+        acc: 1,
+        mora_size: 2,
+        chain_flag: 1,
+        pos: '助詞',
+        pos_group1: '副助詞',
+      },
+      {
+        string: '行く',
+        read: 'イク',
+        pron: 'イク',
+        acc: 0,
+        mora_size: 2,
+        chain_flag: 0,
+        pos: '動詞',
+      },
+    ];
+
+    const { script } = buildScriptFromJapaneseFrontend(nodes, '今日は私だけ行く');
+    const focusedStart = script.units.findIndex((unit) => unit.focusStrength > 0);
+    const beforeFocus = script.units[focusedStart - 1]!;
+
+    expect(focusedStart).toBeGreaterThan(0);
+    expect(beforeFocus.expressivePauseAfter).toBeGreaterThanOrEqual(0.05);
+    expect(script.units[focusedStart]!.focusStrength).toBeGreaterThan(0.7);
+  });
+
   it('maps analyzed morae back to source-text ranges for local style alignment', () => {
     const nodes: JapaneseFrontendNode[] = [
       {
