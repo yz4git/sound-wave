@@ -450,6 +450,7 @@ export function japaneseUnitDurationSeconds(unit: VoiceUnit, rate: number): numb
   // 1.45× a short mora keeps the full V+V: contrast near the robust Japanese
   // perceptual duration ratio while still allowing speech-rate compression.
   if (unit.longVowel) base *= 1.45;
+  if (unit.focusStrength > 0) base *= 1 + unit.focusStrength * 0.012;
 
   // Tokyo-style high-vowel devoicing is realized with temporal compression,
   // not just a quieter periodic source.
@@ -470,6 +471,7 @@ function unitEnergyScale(unit: VoiceUnit): number {
   if (unit.accentEnd) scale *= 0.98;
   if (unit.continuationAfter !== 'none') scale *= 0.97;
   if (unit.continuationBefore !== 'none') scale *= 1.025;
+  if (unit.focusStrength > 0) scale *= 1 + unit.focusStrength * 0.055;
   if (unit.phraseEnd) scale *= 0.94;
   if (unit.longVowel) scale *= 0.97;
   if (unit.devoiced) scale *= 0.56;
