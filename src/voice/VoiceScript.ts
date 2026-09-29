@@ -6,6 +6,13 @@ export type VoiceBoundary = 'none' | 'accent' | 'sentence';
 export type VoicePitchAccent = 'auto' | 'low' | 'high';
 export type VoiceSentenceTerminal = 'statement' | 'question' | 'exclamation';
 export type VoiceQuestionKind = 'none' | 'yes-no' | 'content';
+export type VoiceContinuationKind =
+  | 'none'
+  | 'contrast'
+  | 'cause'
+  | 'condition'
+  | 'concessive'
+  | 'additive';
 
 export interface VoiceUnit {
   index: number;
@@ -26,6 +33,8 @@ export interface VoiceUnit {
   pauseBefore: number;
   questionKind: VoiceQuestionKind;
   questionFocus: boolean;
+  continuationAfter: VoiceContinuationKind;
+  continuationBefore: VoiceContinuationKind;
   /** Explicit punctuation attached to this mora, when it ends a sentence. */
   terminalAfter?: VoiceSentenceTerminal;
   /** Sentence-level terminal copied to every mora for AUTO intonation. */
@@ -185,6 +194,8 @@ function pushUnit(
     pauseBefore: 0,
     questionKind: 'none',
     questionFocus: false,
+    continuationAfter: 'none',
+    continuationBefore: 'none',
     geminateBefore: flags.geminateBefore ?? false,
     longVowel: flags.longVowel ?? false,
     moraicN: syllable === 'n' || syllable === 'nn',
@@ -317,6 +328,53 @@ function questionFocusRange(
   return null;
 }
 
+const CONTINUATION_PATTERNS: readonly {
+  kind: Exclude<VoiceContinuationKind, 'none'>;
+  syllables: readonly string[];
+}[] = [
+  { kind: 'contrast', syllables: ['ke', 'do'] },
+  { kind: 'contrast', syllables: ['ke', 're', 'do'] },
+  { kind: 'cause', syllables: ['no', 'de'] },
+  { kind: 'cause', syllables: ['ka', 'ra'] },
+  { kind: 'condition', syllables: ['na', 'ra'] },
+  { kind: 'condition', syllables: ['ta', 'ra'] },
+  { kind: 'concessive', syllables: ['te', 'mo'] },
+  { kind: 'concessive', syllables: ['de', 'mo'] },
+  { kind: 'concessive', syllables: ['no', 'ni'] },
+] as const;
+
+function continuationKindEndingAt(
+  units: readonly VoiceUnit[],
+  end: number,
+): VoiceContinuationKind {
+  for (const entry of CONTINUATION_PATTERNS) {
+    const start = end - entry.syllables.length + 1;
+    if (start < 0) continue;
+    let matches = true;
+    for (let offset = 0; offset < entry.syllables.length; offset += 1) {
+      if (units[start + offset]?.syllable.toLowerCase() !== entry.syllables[offset]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return entry.kind;
+  }
+  return 'none';
+}
+
+export function applyVoiceContinuationBoundary(
+  units: VoiceUnit[],
+  end: number,
+  kind: Exclude<VoiceContinuationKind, 'none'>,
+  pause = 0.052,
+): void {
+  const unit = units[Math.max(0, Math.min(units.length - 1, Math.floor(end)))];
+  if (!unit || unit.boundaryAfter === 'sentence') return;
+  unit.boundaryAfter = strongerBoundary(unit.boundaryAfter, 'accent');
+  unit.pauseAfter = Math.max(unit.pauseAfter, pause);
+  unit.continuationAfter = kind;
+}
+
 function annotateRuns(
   units: VoiceUnit[],
   isBoundary: (unit: VoiceUnit, index: number) => boolean,
@@ -374,9 +432,22 @@ export function refreshVoiceUnitBoundaryMetadata(units: VoiceUnit[]): void {
   }
 
   for (let index = 0; index < units.length; index += 1) {
+    const unit = units[index]!;
+    if (unit.boundaryAfter !== 'accent') {
+      unit.continuationAfter = 'none';
+    } else if (unit.continuationAfter === 'none') {
+      unit.continuationAfter = continuationKindEndingAt(units, index);
+      if (unit.continuationAfter !== 'none') {
+        unit.pauseAfter = Math.max(unit.pauseAfter, 0.052);
+      }
+    }
+  }
+
+  for (let index = 0; index < units.length; index += 1) {
     const previous = units[index - 1];
     units[index]!.boundaryBefore = previous?.boundaryAfter ?? 'none';
     units[index]!.pauseBefore = previous?.pauseAfter ?? 0;
+    units[index]!.continuationBefore = previous?.continuationAfter ?? 'none';
   }
 
   annotateRuns(
@@ -560,12 +631,30 @@ export function prosodyOffsetForUnit(
     ? Math.max(0, Math.min(1, (unit.pauseBefore - 0.03) / 0.14))
     : 0;
   const boundaryReset = boundaryResetStrength * (lexicalAccent ? 0.18 : 0.26);
+  const continuationTailLift = unit.continuationAfter === 'contrast'
+    ? 0.16
+    : unit.continuationAfter === 'condition'
+      ? 0.18
+      : unit.continuationAfter === 'concessive'
+        ? 0.14
+        : unit.continuationAfter === 'cause'
+          ? 0.1
+          : unit.continuationAfter === 'additive'
+            ? 0.08
+            : 0;
+  const continuationReset = unit.continuationBefore === 'contrast'
+    || unit.continuationBefore === 'condition'
+    ? 0.16
+    : unit.continuationBefore !== 'none'
+      ? 0.12
+      : 0;
+  const continuationMotion = continuationTailLift + continuationReset;
 
   if (resolvedIntonation === 'rise') {
-    return -0.7 + phraseProgress * 1.9 + accent * 0.35 + micro + boundaryReset;
+    return -0.7 + phraseProgress * 1.9 + accent * 0.35 + micro + boundaryReset + continuationMotion;
   }
   if (resolvedIntonation === 'fall') {
-    return 0.72 - phraseProgress * 1.8 + accent * 0.35 + micro + boundaryReset;
+    return 0.72 - phraseProgress * 1.8 + accent * 0.35 + micro + boundaryReset + continuationMotion;
   }
   if (resolvedIntonation === 'question') {
     const terminal = unit.phraseCount <= 1
@@ -573,7 +662,7 @@ export function prosodyOffsetForUnit(
       : Math.max(0, Math.min(1, (phraseProgress - 0.58) / 0.42));
     const easedTerminal = terminal * terminal * (3 - 2 * terminal);
     const questionLift = (unit.phraseCount <= 1 ? 1.25 : 1.55) * easedTerminal;
-    return phraseArc + accent * 0.8 + micro + questionLift + sentenceDeclination + boundaryReset;
+    return phraseArc + accent * 0.8 + micro + questionLift + sentenceDeclination + boundaryReset + continuationMotion;
   }
   if (resolvedIntonation === 'content-question') {
     const terminal = unit.phraseCount <= 1
@@ -588,7 +677,8 @@ export function prosodyOffsetForUnit(
       + focusLift
       + questionLift
       + sentenceDeclination
-      + boundaryReset;
+      + boundaryReset
+      + continuationMotion;
   }
   if (resolvedIntonation === 'exclaim') {
     const terminal = unit.phraseCount <= 1
@@ -602,7 +692,8 @@ export function prosodyOffsetForUnit(
       + energeticArc
       + easedTerminal * 0.14
       + sentenceDeclination * 0.35
-      + boundaryReset;
+      + boundaryReset
+      + continuationMotion;
   }
 
   const reset = unit.phraseStart ? (lexicalAccent ? 0.09 : 0.18) : 0;
@@ -611,7 +702,7 @@ export function prosodyOffsetForUnit(
     : Math.max(0, Math.min(1, (phraseProgress - 0.68) / 0.32));
   const easedTerminal = terminal * terminal * (3 - 2 * terminal);
   const finalLowering = -(lexicalAccent ? 0.12 : 0.28) * easedTerminal;
-  return phraseArc + accent + micro + reset + finalLowering + sentenceDeclination + boundaryReset;
+  return phraseArc + accent + micro + reset + finalLowering + sentenceDeclination + boundaryReset + continuationMotion;
 }
 
 // Kept as a simple public contour helper for tests and external callers.
