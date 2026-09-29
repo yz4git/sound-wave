@@ -1,6 +1,8 @@
 import {
+  applyVoiceContinuationBoundary,
   finalizeVoiceUnits,
   parseVoiceScript,
+  type VoiceContinuationKind,
   type VoicePitchAccent,
   type VoiceScript,
 } from './VoiceScript';
@@ -358,6 +360,28 @@ interface NodeSpan {
   node: JapaneseFrontendNode;
 }
 
+const JAPANESE_CONNECTIVE_SURFACES = new Map<string, Exclude<VoiceContinuationKind, 'none'>>([
+  ['けど', 'contrast'],
+  ['けれど', 'contrast'],
+  ['けれども', 'contrast'],
+  ['が', 'contrast'],
+  ['ので', 'cause'],
+  ['から', 'cause'],
+  ['なら', 'condition'],
+  ['たら', 'condition'],
+  ['ても', 'concessive'],
+  ['でも', 'concessive'],
+  ['のに', 'concessive'],
+  ['し', 'additive'],
+]);
+
+function connectiveKindForFrontendNode(
+  node: JapaneseFrontendNode,
+): Exclude<VoiceContinuationKind, 'none'> | null {
+  const surface = kataToHira((node.string || '').normalize('NFKC'));
+  return JAPANESE_CONNECTIVE_SURFACES.get(surface) ?? null;
+}
+
 export function buildScriptFromJapaneseFrontend(
   nodes: JapaneseFrontendNode[],
   sourceText = '',
@@ -460,6 +484,13 @@ export function buildScriptFromJapaneseFrontend(
       endUnit.boundaryAfter = 'accent';
       endUnit.pauseAfter = Math.max(endUnit.pauseAfter, 0.012);
     }
+  }
+
+  for (const span of spans) {
+    if (span.end >= script.units.length - 1) continue;
+    const kind = connectiveKindForFrontendNode(span.node);
+    if (!kind) continue;
+    applyVoiceContinuationBoundary(script.units, span.end, kind);
   }
 
   finalizeVoiceUnits(script.units);
