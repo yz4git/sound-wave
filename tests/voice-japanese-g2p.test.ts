@@ -205,8 +205,8 @@ describe('VOICE LAB Japanese G2P mapping', () => {
 
     const topic = buildScriptFromJapaneseFrontend(topicNodes, '私は行く').script;
     const subject = buildScriptFromJapaneseFrontend(subjectNodes, '私が行く').script;
-    const topicParticle = topic.units.find((unit) => unit.display === 'わ')!;
-    const subjectParticle = subject.units.find((unit) => unit.display === 'が')!;
+    const topicParticle = topic.units.find((unit) => unit.discourseAfter === 'topic')!;
+    const subjectParticle = subject.units.find((unit) => unit.discourseAfter === 'subject')!;
 
     expect(topicParticle.discourseAfter).toBe('topic');
     expect(topic.units[topicParticle.index + 1]?.discourseBefore).toBe('topic');
@@ -314,7 +314,7 @@ describe('VOICE LAB Japanese G2P mapping', () => {
     ];
 
     const { script } = buildScriptFromJapaneseFrontend(nodes, '東京から行く');
-    const karaEnd = script.units.findLast((unit) => unit.display === 'ら')!;
+    const karaEnd = script.units.filter((unit) => unit.display === 'ら').at(-1)!;
 
     expect(karaEnd.continuationAfter).toBe('none');
   });
