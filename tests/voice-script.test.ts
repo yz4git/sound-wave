@@ -127,6 +127,38 @@ describe('Voice Lab speech planning', () => {
     );
   });
 
+  it('marks connective endings and gives the following clause a continuation reset', () => {
+    const script = parseVoiceScript('いくけど、かえる。');
+    const connectiveEnd = script.units.find((unit) => unit.display === 'ど')!;
+    const next = script.units[connectiveEnd.index + 1]!;
+
+    expect(connectiveEnd.continuationAfter).toBe('contrast');
+    expect(next.continuationBefore).toBe('contrast');
+    expect(connectiveEnd.pauseAfter).toBeGreaterThan(0.1);
+
+    const withoutContinuation = {
+      ...next,
+      continuationBefore: 'none' as const,
+    };
+    expect(
+      prosodyOffsetForUnit(next, next.index, script.units.length, 'natural'),
+    ).toBeGreaterThan(
+      prosodyOffsetForUnit(withoutContinuation, next.index, script.units.length, 'natural') + 0.1,
+    );
+  });
+
+  it('detects several multi-mora connective families conservatively at boundaries', () => {
+    const cause = parseVoiceScript('いくので、まつ。');
+    const condition = parseVoiceScript('いくなら、まつ。');
+    const concessive = parseVoiceScript('いっても、まつ。');
+    const lexical = parseVoiceScript('からだ、げんき。');
+
+    expect(cause.units.find((unit) => unit.display === 'で')?.continuationAfter).toBe('cause');
+    expect(condition.units.find((unit) => unit.display === 'ら')?.continuationAfter).toBe('condition');
+    expect(concessive.units.find((unit) => unit.display === 'も')?.continuationAfter).toBe('concessive');
+    expect(lexical.units.every((unit) => unit.continuationAfter === 'none')).toBe(true);
+  });
+
   it('distinguishes content questions from yes-no questions in AUTO mode', () => {
     const contentQuestion = parseVoiceScript('どこですか？');
     const yesNoQuestion = parseVoiceScript('いいですか？');
