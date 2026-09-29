@@ -156,6 +156,15 @@ export function voiceExpressionForUnit(
 
   if (settings.preset === 'excited') {
     pitchOffset += (unit.phraseStart ? 0.22 : 0) + Math.sin(progress * Math.PI * 2) * 0.12 * settings.intensity;
+    if (unit.sentenceTerminal === 'exclamation' && unit.phraseStart) {
+      pitchOffset += 0.18 * settings.intensity;
+      energyScale *= 1 + 0.06 * settings.intensity;
+    }
+    if (unit.focusStrength > 0) {
+      pitchOffset += unit.focusStrength * 0.16 * settings.intensity;
+      energyScale *= 1 + unit.focusStrength * 0.075 * settings.intensity;
+      durationScale *= 1 + unit.focusStrength * 0.025 * settings.intensity;
+    }
     energyScale *= unit.accentStart ? 1.08 : 1;
     durationScale *= unit.phraseEnd ? 1.04 : 0.98;
   } else if (settings.preset === 'calm') {
@@ -165,12 +174,24 @@ export function voiceExpressionForUnit(
   } else if (settings.preset === 'serious') {
     pitchOffset += unit.accentStart ? -0.06 * settings.intensity : 0;
     energyScale *= unit.accentStart ? 1.035 : 1;
+    if (unit.focusStrength > 0) {
+      energyScale *= 1 + unit.focusStrength * 0.065 * settings.intensity;
+      durationScale *= 1 + unit.focusStrength * 0.02 * settings.intensity;
+    }
   } else if (settings.preset === 'whisper') {
     pitchOffset += Math.sin(index * 1.37) * 0.04 * settings.intensity;
     energyScale *= unit.phraseEnd ? 0.9 : 1;
     durationScale *= unit.phraseStart ? 1.04 : 1;
+    if (unit.focusStrength > 0) {
+      energyScale *= 1 + unit.focusStrength * 0.025 * settings.intensity;
+      durationScale *= 1 + unit.focusStrength * 0.03 * settings.intensity;
+    }
   } else if (settings.preset === 'narration') {
     pitchOffset += unit.phraseStart ? 0.08 * settings.intensity : unit.phraseEnd ? -0.08 * settings.intensity : 0;
+    if (unit.focusStrength > 0) {
+      pitchOffset += unit.focusStrength * 0.07 * settings.intensity;
+      energyScale *= 1 + unit.focusStrength * 0.04 * settings.intensity;
+    }
     energyScale *= unit.accentStart ? 1.025 : 1;
     durationScale *= unit.phraseEnd ? 1.06 : 1;
   }
