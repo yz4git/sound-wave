@@ -201,6 +201,32 @@ describe('Voice Lab speech planning', () => {
     );
   });
 
+  it('keeps ellipsis and dash hesitation inside the same sentence', () => {
+    const ellipsis = parseVoiceScript('あ……い。');
+    const dash = parseVoiceScript('う――え。');
+
+    expect(ellipsis.units[0]!.hesitationAfter).toBe(true);
+    expect(ellipsis.units[0]!.expressivePauseAfter).toBeGreaterThanOrEqual(0.24);
+    expect(ellipsis.units[0]!.boundaryAfter).not.toBe('sentence');
+    expect(ellipsis.units[1]!.sentenceTerminal).toBe('statement');
+
+    expect(dash.units[0]!.hesitationAfter).toBe(true);
+    expect(dash.units[0]!.expressivePauseAfter).toBeGreaterThanOrEqual(0.2);
+  });
+
+  it('recognizes conservative Japanese filled pauses without treating plain words as fillers', () => {
+    const longFiller = parseVoiceScript('えーと いく。');
+    const sokuonFiller = parseVoiceScript('えっと いく。');
+    const lexical = parseVoiceScript('えと いく。');
+
+    expect(longFiller.units.slice(0, 3).every((unit) => unit.filledPause)).toBe(true);
+    expect(longFiller.units[2]!.hesitationAfter).toBe(true);
+    expect(longFiller.units[2]!.expressivePauseAfter).toBeGreaterThanOrEqual(0.13);
+
+    expect(sokuonFiller.units.slice(0, 2).every((unit) => unit.filledPause)).toBe(true);
+    expect(lexical.units.slice(0, 2).every((unit) => !unit.filledPause)).toBe(true);
+  });
+
   it('keeps quote and parenthetical spans as non-spoken context metadata', () => {
     const script = parseVoiceScript('あ「いう」え（おか）き。');
 
