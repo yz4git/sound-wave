@@ -150,14 +150,15 @@ export function geminatePreclosureSeconds(
 }
 
 export function japaneseBoundaryPauseSeconds(unit: VoiceUnit, rate: number): number {
-  if (unit.pauseAfter <= 0) return 0;
+  if (unit.pauseAfter <= 0 && unit.expressivePauseAfter <= 0 && !unit.breathAfter) return 0;
   const normalizedRate = clamp(rate, 0.55, 1.8);
   const exponent = unit.boundaryAfter === 'sentence' ? 0.46 : 0.68;
   const rateScale = 1 / (normalizedRate ** exponent);
   const boundaryScale = unit.boundaryAfter === 'sentence' ? 1.04 : 0.94;
-  const planned = unit.pauseAfter * rateScale * boundaryScale;
+  const boundaryPause = unit.pauseAfter * rateScale * boundaryScale;
+  const expressivePause = unit.expressivePauseAfter / (normalizedRate ** 0.42);
   const breathFloor = unit.breathAfter ? 0.115 / (normalizedRate ** 0.24) : 0;
-  return clamp(Math.max(planned, breathFloor), 0.025, 0.52);
+  return clamp(Math.max(boundaryPause, expressivePause, breathFloor), 0.025, 0.52);
 }
 
 export function speechPitchTransitionScaleFor(
@@ -453,6 +454,8 @@ export function japaneseUnitDurationSeconds(unit: VoiceUnit, rate: number): numb
   // 1.45× a short mora keeps the full V+V: contrast near the robust Japanese
   // perceptual duration ratio while still allowing speech-rate compression.
   if (unit.longVowel) base *= 1.45;
+  if (unit.filledPause) base *= 1.12;
+  if (unit.hesitationAfter) base *= 1.035;
   if (unit.focusStrength > 0) base *= 1 + unit.focusStrength * 0.012;
 
   // Tokyo-style high-vowel devoicing is realized with temporal compression,
@@ -476,6 +479,8 @@ function unitEnergyScale(unit: VoiceUnit): number {
   if (unit.continuationBefore !== 'none') scale *= 1.025;
   if (unit.quoted) scale *= 1.015;
   if (unit.parenthetical) scale *= 0.92;
+  if (unit.filledPause) scale *= 0.86;
+  if (unit.hesitationAfter) scale *= 0.96;
   if (unit.focusStrength > 0) scale *= 1 + unit.focusStrength * 0.055;
   if (unit.phraseEnd) scale *= 0.94;
   if (unit.longVowel) scale *= 0.97;
@@ -782,7 +787,9 @@ export class VoiceSynth {
           ? finality.breath
           : unit.breathAfter
             ? 0.09
-            : 0,
+            : unit.hesitationAfter
+              ? 0.055
+              : 0,
       };
 
       workletEvent.voiceCharacter = {
