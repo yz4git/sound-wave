@@ -111,6 +111,52 @@ describe('VOICE LAB Japanese G2P mapping', () => {
     expect(script.units.at(-1)?.sentenceTerminal).toBe('question');
   });
 
+  it('uses Open JTalk token surfaces to recognize single-mora connectives safely', () => {
+    const nodes: JapaneseFrontendNode[] = [
+      {
+        string: '雨',
+        read: 'アメ',
+        pron: 'アメ',
+        acc: 1,
+        mora_size: 2,
+        chain_flag: -1,
+      },
+      {
+        string: 'が',
+        read: 'ガ',
+        pron: 'ガ',
+        acc: 0,
+        mora_size: 1,
+        chain_flag: 1,
+      },
+      {
+        string: '行く',
+        read: 'イク',
+        pron: 'イク',
+        acc: 0,
+        mora_size: 2,
+        chain_flag: 0,
+      },
+      {
+        string: '。',
+        read: '、',
+        pron: '、',
+        acc: 0,
+        mora_size: 0,
+        chain_flag: 0,
+      },
+    ];
+
+    const { script } = buildScriptFromJapaneseFrontend(nodes, '雨が行く。');
+    const ga = script.units.find((unit) => unit.display === 'が')!;
+    const next = script.units[ga.index + 1]!;
+
+    expect(ga.continuationAfter).toBe('contrast');
+    expect(ga.boundaryAfter).toBe('accent');
+    expect(ga.pauseAfter).toBeGreaterThanOrEqual(0.052);
+    expect(next.continuationBefore).toBe('contrast');
+  });
+
   it('maps analyzed morae back to source-text ranges for local style alignment', () => {
     const nodes: JapaneseFrontendNode[] = [
       {
