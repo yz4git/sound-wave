@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseVoiceScript } from '../src/voice/VoiceScript';
+import { finalizeVoiceUnits, parseVoiceScript } from '../src/voice/VoiceScript';
 import {
   VoiceSynth,
   geminatePreclosureSeconds,
@@ -84,8 +84,17 @@ describe('Voice Lab synthesis plan', () => {
 
   it('renders filled pauses slower and softer than the same morae in plain speech', () => {
     const synth = new VoiceSynth();
-    const filler = synth.plan(parseVoiceScript('えーと いく。'), SETTINGS);
-    const plain = synth.plan(parseVoiceScript('えーといく。'), SETTINGS);
+    const fillerScript = parseVoiceScript('えーと いく。');
+    const plainScript = parseVoiceScript('えーと いく。');
+    for (const unit of plainScript.units.slice(0, 3)) {
+      unit.filledPause = false;
+      unit.hesitationAfter = false;
+      unit.expressivePauseAfter = 0;
+    }
+    finalizeVoiceUnits(plainScript.units);
+
+    const filler = synth.plan(fillerScript, SETTINGS);
+    const plain = synth.plan(plainScript, SETTINGS);
 
     expect(filler.units[0]!.unit.filledPause).toBe(true);
     expect(filler.units[0]!.duration).toBeGreaterThan(plain.units[0]!.duration);
