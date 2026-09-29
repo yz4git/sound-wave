@@ -38,6 +38,7 @@ export interface VoiceUnit {
   questionFocus: boolean;
   continuationAfter: VoiceContinuationKind;
   continuationBefore: VoiceContinuationKind;
+  suppressContinuationInference: boolean;
   discourseAfter: VoiceDiscourseRole;
   discourseBefore: VoiceDiscourseRole;
   focusStrength: number;
@@ -204,6 +205,7 @@ function pushUnit(
     questionFocus: false,
     continuationAfter: 'none',
     continuationBefore: 'none',
+    suppressContinuationInference: false,
     discourseAfter: 'none',
     discourseBefore: 'none',
     focusStrength: 0,
@@ -478,7 +480,7 @@ export function refreshVoiceUnitBoundaryMetadata(units: VoiceUnit[]): void {
     const unit = units[index]!;
     if (unit.boundaryAfter !== 'accent') {
       unit.continuationAfter = 'none';
-    } else if (unit.continuationAfter === 'none') {
+    } else if (unit.continuationAfter === 'none' && !unit.suppressContinuationInference) {
       unit.continuationAfter = continuationKindEndingAt(units, index);
       if (unit.continuationAfter !== 'none') {
         unit.pauseAfter = Math.max(unit.pauseAfter, 0.052);
