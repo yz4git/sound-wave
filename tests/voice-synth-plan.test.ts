@@ -59,6 +59,29 @@ describe('Voice Lab synthesis plan', () => {
     expect(focused.units[0]!.duration).toBeGreaterThan(plain.units[0]!.duration);
   });
 
+  it('changes local pacing and level for quoted and parenthetical speech', () => {
+    const synth = new VoiceSynth();
+    const scoped = synth.plan(parseVoiceScript('あ「い」う（え）お。'), SETTINGS);
+    const plain = synth.plan(parseVoiceScript('あいうえお。'), SETTINGS);
+
+    const quoted = scoped.units.find((timed) => timed.unit.quoted)!;
+    const aside = scoped.units.find((timed) => timed.unit.parenthetical)!;
+    const plainI = plain.units[1]!;
+    const plainE = plain.units[3]!;
+
+    expect(quoted.duration).toBeGreaterThan(plainI.duration);
+    expect(aside.duration).toBeLessThan(plainE.duration);
+    expect(aside.energyScale).toBeLessThan(plainE.energyScale);
+  });
+
+  it('gives planned breath boundaries a minimum pause at fast speech rates', () => {
+    const script = parseVoiceScript('あいうえお かきくけこ さしすせそ たちつてと なにぬねの。');
+    const breath = script.units.find((unit) => unit.breathAfter)!;
+
+    expect(breath).toBeTruthy();
+    expect(japaneseBoundaryPauseSeconds(breath, 1.65)).toBeGreaterThan(0.09);
+  });
+
   it('keeps mora-level F0 continuous instead of semitone quantizing every unit', () => {
     const synth = new VoiceSynth();
     const plan = synth.plan(parseVoiceScript('あさ ひる よる。'), SETTINGS);
