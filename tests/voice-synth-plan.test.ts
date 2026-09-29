@@ -119,6 +119,33 @@ describe('Voice Lab synthesis plan', () => {
     expect(fastSentence).toBeGreaterThan(sentence.pauseAfter / 1.6);
   });
 
+  it('keeps connective endings open and re-energizes the following clause', () => {
+    const synth = new VoiceSynth();
+    const connectedScript = parseVoiceScript('いくけど、かえる。');
+    const plainScript = parseVoiceScript('いくけど、かえる。');
+
+    for (const unit of plainScript.units) {
+      unit.continuationAfter = 'none';
+      unit.continuationBefore = 'none';
+    }
+
+    const connected = synth.plan(connectedScript, SETTINGS);
+    const plain = synth.plan(plainScript, SETTINGS);
+    const endIndex = connectedScript.units.findIndex((unit) => unit.continuationAfter !== 'none');
+    const nextIndex = endIndex + 1;
+
+    expect(endIndex).toBeGreaterThanOrEqual(0);
+    expect(connected.units[endIndex]!.duration).toBeGreaterThan(plain.units[endIndex]!.duration);
+    expect(connected.units[nextIndex]!.energyScale).toBeGreaterThan(plain.units[nextIndex]!.energyScale);
+    expect(connected.units[nextIndex]!.pitchMidi).toBeGreaterThan(plain.units[nextIndex]!.pitchMidi);
+    expect(
+      speechPitchTransitionScaleFor(
+        connectedScript.units[nextIndex]!,
+        connectedScript.units[endIndex],
+      ),
+    ).toBeLessThan(0.8);
+  });
+
   it('sharpens lexical high-low F0 transitions without snapping every mora', () => {
     const script = parseVoiceScript('あいう');
     script.units[0]!.pitchAccent = 'low';
