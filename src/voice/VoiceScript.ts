@@ -13,7 +13,7 @@ export type VoiceContinuationKind =
   | 'condition'
   | 'concessive'
   | 'additive';
-export type VoiceDiscourseRole = 'none' | 'topic' | 'subject' | 'quote' | 'list';
+export type VoiceDiscourseRole = 'none' | 'topic' | 'subject' | 'quote' | 'list' | 'focus';
 
 export interface VoiceUnit {
   index: number;
@@ -42,6 +42,10 @@ export interface VoiceUnit {
   discourseAfter: VoiceDiscourseRole;
   discourseBefore: VoiceDiscourseRole;
   focusStrength: number;
+  quoted: boolean;
+  parenthetical: boolean;
+  breathAfter: boolean;
+  autoRateScale: number;
   /** Explicit punctuation attached to this mora, when it ends a sentence. */
   terminalAfter?: VoiceSentenceTerminal;
   /** Sentence-level terminal copied to every mora for AUTO intonation. */
@@ -64,6 +68,11 @@ interface PunctuationSpec {
   boundary: VoiceBoundary;
   terminal?: VoiceSentenceTerminal;
 }
+
+const QUOTE_OPEN = new Set(['「', '『', '“', '〝']);
+const QUOTE_CLOSE = new Set(['」', '』', '”', '〟']);
+const PAREN_OPEN = new Set(['(', '[', '【', '〈', '《']);
+const PAREN_CLOSE = new Set([')', ']', '】', '〉', '》']);
 
 const PUNCTUATION = new Map<string, PunctuationSpec>([
   ['、', { pause: 0.16, boundary: 'accent' }],
@@ -209,6 +218,10 @@ function pushUnit(
     discourseAfter: 'none',
     discourseBefore: 'none',
     focusStrength: 0,
+    quoted: false,
+    parenthetical: false,
+    breathAfter: false,
+    autoRateScale: 1,
     geminateBefore: flags.geminateBefore ?? false,
     longVowel: flags.longVowel ?? false,
     moraicN: syllable === 'n' || syllable === 'nn',
@@ -444,6 +457,15 @@ function annotateRuns(
 
 export function refreshVoiceUnitBoundaryMetadata(units: VoiceUnit[]): void {
   if (units.length === 0) return;
+  for (const unit of units) {
+    unit.breathAfter = false;
+    unit.autoRateScale = unit.parenthetical
+      ? 1.06
+      : unit.quoted
+        ? 0.96
+        : 1;
+    if (unit.focusStrength >= 0.72) unit.autoRateScale *= 0.985;
+  }
   const final = units[units.length - 1]!;
   final.boundaryAfter = 'sentence';
   final.terminalAfter ??= 'statement';
@@ -524,6 +546,22 @@ export function refreshVoiceUnitBoundaryMetadata(units: VoiceUnit[]): void {
         units[cursor]!.accentPhraseCount = phraseCount;
       }
     });
+    // Prefer existing accent boundaries as quiet inhalation points in long
+    // sentences. This avoids inserting arbitrary pauses inside lexical words.
+    const sentenceLength = sentenceEnd - phraseSentenceStart + 1;
+    if (sentenceLength >= 18) {
+      let lastBreath = phraseSentenceStart - 1;
+      for (let cursor = phraseSentenceStart; cursor < sentenceEnd; cursor += 1) {
+        const unit = units[cursor]!;
+        const span = cursor - lastBreath;
+        if (unit.boundaryAfter !== 'accent' || span < 11) continue;
+        if (unit.discourseAfter === 'quote') continue;
+        unit.breathAfter = true;
+        unit.pauseAfter = Math.max(unit.pauseAfter, 0.12);
+        lastBreath = cursor;
+      }
+    }
+
     phraseSentenceStart = sentenceEnd + 1;
   }
 }
@@ -559,10 +597,60 @@ export function parseVoiceScript(text: string): VoiceScript {
   const units: VoiceUnit[] = [];
   const unsupported: string[] = [];
   const pendingGeminate = { value: false };
+  const quoteStarts: number[] = [];
+  const parenStarts: number[] = [];
   let index = 0;
+
+  const markScope = (
+    start: number,
+    end: number,
+    scope: 'quote' | 'parenthetical',
+  ): void => {
+    if (end < start) return;
+    for (let cursor = start; cursor <= end; cursor += 1) {
+      const unit = units[cursor];
+      if (!unit) continue;
+      if (scope === 'quote') unit.quoted = true;
+      else unit.parenthetical = true;
+    }
+  };
 
   while (index < normalized.length) {
     const char = normalized[index]!;
+
+    if (QUOTE_OPEN.has(char) || char === '"') {
+      if (char !== '"' || quoteStarts.length === 0) {
+        markPause(units, 0.04, 'accent');
+        quoteStarts.push(units.length);
+      } else {
+        const start = quoteStarts.pop() ?? units.length;
+        markScope(start, units.length - 1, 'quote');
+        markPause(units, 0.055, 'accent');
+      }
+      index += 1;
+      continue;
+    }
+    if (QUOTE_CLOSE.has(char)) {
+      const start = quoteStarts.pop() ?? units.length;
+      markScope(start, units.length - 1, 'quote');
+      markPause(units, 0.055, 'accent');
+      index += 1;
+      continue;
+    }
+    if (PAREN_OPEN.has(char)) {
+      markPause(units, 0.045, 'accent');
+      parenStarts.push(units.length);
+      index += 1;
+      continue;
+    }
+    if (PAREN_CLOSE.has(char)) {
+      const start = parenStarts.pop() ?? units.length;
+      markScope(start, units.length - 1, 'parenthetical');
+      markPause(units, 0.07, 'accent');
+      index += 1;
+      continue;
+    }
+
     const punctuation = PUNCTUATION.get(char);
     if (punctuation) {
       markPause(units, punctuation.pause, punctuation.boundary, punctuation.terminal);
@@ -632,6 +720,9 @@ export function parseVoiceScript(text: string): VoiceScript {
     else if (!/[-_]/.test(char)) unsupported.push(char);
     index += 1;
   }
+
+  for (const start of quoteStarts) markScope(start, units.length - 1, 'quote');
+  for (const start of parenStarts) markScope(start, units.length - 1, 'parenthetical');
 
   finalizeVoiceUnits(units);
   return { units, unsupported: [...new Set(unsupported)] };
@@ -719,11 +810,13 @@ export function prosodyOffsetForUnit(
     ? 0.08
     : unit.discourseAfter === 'list'
       ? 0.1
-      : unit.discourseAfter === 'topic'
-        ? 0.03
-        : unit.discourseAfter === 'quote'
-          ? -0.02
-          : 0;
+      : unit.discourseAfter === 'focus'
+        ? 0.025
+        : unit.discourseAfter === 'topic'
+          ? 0.03
+          : unit.discourseAfter === 'quote'
+            ? -0.02
+            : 0;
   const discourseReset = unit.discourseBefore === 'topic'
     ? 0.14
     : unit.discourseBefore === 'quote'
@@ -733,7 +826,9 @@ export function prosodyOffsetForUnit(
         : unit.discourseBefore === 'subject'
           ? 0.035
           : 0;
-  const focusLift = unit.focusStrength * 0.16;
+  const focusLift = unit.focusStrength * 0.16
+    + (unit.quoted ? 0.035 : 0)
+    - (unit.parenthetical ? 0.055 : 0);
   const downstep = -Math.min(0.3, unit.accentPhraseIndex * 0.05);
   const discourseMotion = discourseTail + discourseReset + focusLift + downstep;
 
