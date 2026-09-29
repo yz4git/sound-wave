@@ -167,6 +167,7 @@ export function speechPitchTransitionScaleFor(
     && unit.pitchAccent !== 'auto'
     && previousUnit.pitchAccent !== unit.pitchAccent;
   if (lexicalStep) return 0.72;
+  if (unit.continuationBefore !== 'none') return 0.76;
   if (unit.accentStart || unit.phraseStart) return 0.84;
   return 1;
 }
@@ -457,6 +458,7 @@ export function japaneseUnitDurationSeconds(unit: VoiceUnit, rate: number): numb
   // Phrase-final lengthening is stronger at a sentence edge than at an
   // internal accent-phrase boundary.
   if (unit.accentEnd && !unit.phraseEnd) base *= 1.045;
+  if (unit.continuationAfter !== 'none' && !unit.phraseEnd) base *= 1.035;
   if (unit.phraseEnd) base *= 1.13;
 
   return clamp(base / clamp(rate, 0.55, 1.8), 0.055, 0.44);
@@ -466,6 +468,8 @@ function unitEnergyScale(unit: VoiceUnit): number {
   let scale = 1;
   if (unit.accentStart) scale *= 1.02;
   if (unit.accentEnd) scale *= 0.98;
+  if (unit.continuationAfter !== 'none') scale *= 0.97;
+  if (unit.continuationBefore !== 'none') scale *= 1.025;
   if (unit.phraseEnd) scale *= 0.94;
   if (unit.longVowel) scale *= 0.97;
   if (unit.devoiced) scale *= 0.56;
@@ -481,7 +485,13 @@ function phraseControlFor(unit: VoiceUnit, energy: number): VocalPhraseControl {
     : (unit.phraseIndex + 1) / Math.max(1, unit.phraseCount);
   const crestStart = 0.9 + Math.sin(progressStart * Math.PI) * 0.075;
   const crestEnd = 0.9 + Math.sin(progressEnd * Math.PI) * 0.075;
-  const boundaryRelease = unit.phraseEnd ? 0.91 : unit.accentEnd ? 0.97 : 1;
+  const boundaryRelease = unit.phraseEnd
+    ? 0.91
+    : unit.continuationAfter !== 'none'
+      ? 0.995
+      : unit.accentEnd
+        ? 0.97
+        : 1;
 
   return {
     phraseIndex: 0,
@@ -492,7 +502,13 @@ function phraseControlFor(unit: VoiceUnit, energy: number): VocalPhraseControl {
     energyStart: clamp(crestStart * energy, 0.58, 1.32),
     energyEnd: clamp(crestEnd * energy * boundaryRelease, 0.55, 1.32),
     centeringStart: unit.phraseEnd ? 0.025 : 0,
-    centeringEnd: unit.phraseEnd ? 0.11 : unit.accentEnd ? 0.045 : 0.015,
+    centeringEnd: unit.phraseEnd
+      ? 0.11
+      : unit.continuationAfter !== 'none'
+        ? 0.025
+        : unit.accentEnd
+          ? 0.045
+          : 0.015,
     aspirationDepth: clamp(0.068 + (1 - energy) * 0.05 + (unit.devoiced ? 0.035 : 0), 0.05, 0.145),
     sourceTractCoupling: unit.devoiced ? 0.0065 : 0.0085,
   };
