@@ -128,6 +128,8 @@ describe('VOICE LAB Japanese G2P mapping', () => {
         acc: 0,
         mora_size: 1,
         chain_flag: 1,
+        pos: '助詞',
+        pos_group1: '接続助詞',
       },
       {
         string: '行く',
@@ -155,6 +157,166 @@ describe('VOICE LAB Japanese G2P mapping', () => {
     expect(ga.boundaryAfter).toBe('accent');
     expect(ga.pauseAfter).toBeGreaterThanOrEqual(0.052);
     expect(next.continuationBefore).toBe('contrast');
+  });
+
+  it('separates topic は from subject が using Open JTalk POS', () => {
+    const topicNodes: JapaneseFrontendNode[] = [
+      {
+        string: '私',
+        read: 'ワタシ',
+        pron: 'ワタシ',
+        acc: 0,
+        mora_size: 3,
+        chain_flag: -1,
+        pos: '名詞',
+      },
+      {
+        string: 'は',
+        read: 'ワ',
+        pron: 'ワ',
+        acc: 0,
+        mora_size: 1,
+        chain_flag: 1,
+        pos: '助詞',
+        pos_group1: '係助詞',
+      },
+      {
+        string: '行く',
+        read: 'イク',
+        pron: 'イク',
+        acc: 0,
+        mora_size: 2,
+        chain_flag: 0,
+        pos: '動詞',
+      },
+    ];
+    const subjectNodes: JapaneseFrontendNode[] = topicNodes.map((node) => ({ ...node }));
+    subjectNodes[1] = {
+      string: 'が',
+      read: 'ガ',
+      pron: 'ガ',
+      acc: 0,
+      mora_size: 1,
+      chain_flag: 1,
+      pos: '助詞',
+      pos_group1: '格助詞',
+      pos_group2: '一般',
+    };
+
+    const topic = buildScriptFromJapaneseFrontend(topicNodes, '私は行く').script;
+    const subject = buildScriptFromJapaneseFrontend(subjectNodes, '私が行く').script;
+    const topicParticle = topic.units.find((unit) => unit.display === 'わ')!;
+    const subjectParticle = subject.units.find((unit) => unit.display === 'が')!;
+
+    expect(topicParticle.discourseAfter).toBe('topic');
+    expect(topic.units[topicParticle.index + 1]?.discourseBefore).toBe('topic');
+    expect(topicParticle.pauseAfter).toBeGreaterThan(subjectParticle.pauseAfter);
+    expect(subjectParticle.discourseAfter).toBe('subject');
+    expect(subjectParticle.continuationAfter).toBe('none');
+    expect(subject.units[0]!.focusStrength).toBeGreaterThan(topic.units[0]!.focusStrength);
+  });
+
+  it('recognizes quote and list particles from Open JTalk POS groups', () => {
+    const nodes: JapaneseFrontendNode[] = [
+      {
+        string: '行く',
+        read: 'イク',
+        pron: 'イク',
+        acc: 0,
+        mora_size: 2,
+        chain_flag: -1,
+        pos: '動詞',
+      },
+      {
+        string: 'と',
+        read: 'ト',
+        pron: 'ト',
+        acc: 0,
+        mora_size: 1,
+        chain_flag: 1,
+        pos: '助詞',
+        pos_group1: '格助詞',
+        pos_group2: '引用',
+      },
+      {
+        string: '犬',
+        read: 'イヌ',
+        pron: 'イヌ',
+        acc: 1,
+        mora_size: 2,
+        chain_flag: 0,
+        pos: '名詞',
+      },
+      {
+        string: 'や',
+        read: 'ヤ',
+        pron: 'ヤ',
+        acc: 0,
+        mora_size: 1,
+        chain_flag: 1,
+        pos: '助詞',
+        pos_group1: '並立助詞',
+      },
+      {
+        string: '猫',
+        read: 'ネコ',
+        pron: 'ネコ',
+        acc: 1,
+        mora_size: 2,
+        chain_flag: 0,
+        pos: '名詞',
+      },
+    ];
+
+    const { script } = buildScriptFromJapaneseFrontend(nodes, '行くと犬や猫');
+    const quote = script.units.find((unit) => unit.display === 'と')!;
+    const list = script.units.find((unit) => unit.display === 'や')!;
+
+    expect(quote.discourseAfter).toBe('quote');
+    expect(quote.pauseAfter).toBeGreaterThanOrEqual(0.035);
+    expect(script.units[quote.index + 1]?.discourseBefore).toBe('quote');
+    expect(list.discourseAfter).toBe('list');
+    expect(list.pauseAfter).toBeGreaterThanOrEqual(0.055);
+    expect(script.units[list.index + 1]?.discourseBefore).toBe('list');
+  });
+
+  it('does not treat case-particle から as a causal connective', () => {
+    const nodes: JapaneseFrontendNode[] = [
+      {
+        string: '東京',
+        read: 'トーキョー',
+        pron: 'トーキョー',
+        acc: 0,
+        mora_size: 4,
+        chain_flag: -1,
+        pos: '名詞',
+      },
+      {
+        string: 'から',
+        read: 'カラ',
+        pron: 'カラ',
+        acc: 1,
+        mora_size: 2,
+        chain_flag: 1,
+        pos: '助詞',
+        pos_group1: '格助詞',
+        pos_group2: '一般',
+      },
+      {
+        string: '行く',
+        read: 'イク',
+        pron: 'イク',
+        acc: 0,
+        mora_size: 2,
+        chain_flag: 0,
+        pos: '動詞',
+      },
+    ];
+
+    const { script } = buildScriptFromJapaneseFrontend(nodes, '東京から行く');
+    const karaEnd = script.units.findLast((unit) => unit.display === 'ら')!;
+
+    expect(karaEnd.continuationAfter).toBe('none');
   });
 
   it('maps analyzed morae back to source-text ranges for local style alignment', () => {
