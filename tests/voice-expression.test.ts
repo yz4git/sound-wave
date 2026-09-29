@@ -51,6 +51,57 @@ describe('Voice Lab expression presets', () => {
     expect(control.voicingScale).toBe(1);
   });
 
+  it('makes excited focus more pitch-forward while serious focus stays weight-forward', () => {
+    const script = parseVoiceScript('あ！');
+    const unit = script.units[0]!;
+    unit.focusStrength = 1;
+
+    const excited = voiceExpressionForUnit(
+      unit,
+      0,
+      1,
+      { preset: 'excited', intensity: 1 },
+    );
+    const serious = voiceExpressionForUnit(
+      unit,
+      0,
+      1,
+      { preset: 'serious', intensity: 1 },
+    );
+    const whisper = voiceExpressionForUnit(
+      unit,
+      0,
+      1,
+      { preset: 'whisper', intensity: 1 },
+    );
+
+    expect(excited.pitchOffset).toBeGreaterThan(serious.pitchOffset + 0.5);
+    expect(excited.energyScale).toBeGreaterThan(serious.energyScale);
+    expect(serious.durationScale).toBeGreaterThan(1);
+    expect(whisper.energyScale).toBeLessThan(1);
+  });
+
+  it('adds an extra excited onset for exclamatory sentences', () => {
+    const exclaim = parseVoiceScript('あ！').units[0]!;
+    const statement = parseVoiceScript('あ。').units[0]!;
+
+    const excitedExclaim = voiceExpressionForUnit(
+      exclaim,
+      0,
+      1,
+      { preset: 'excited', intensity: 1 },
+    );
+    const excitedStatement = voiceExpressionForUnit(
+      statement,
+      0,
+      1,
+      { preset: 'excited', intensity: 1 },
+    );
+
+    expect(excitedExclaim.pitchOffset).toBeGreaterThan(excitedStatement.pitchOffset + 0.15);
+    expect(excitedExclaim.energyScale).toBeGreaterThan(excitedStatement.energyScale);
+  });
+
   it('adds local phrase shaping without changing the text plan', () => {
     const script = parseVoiceScript('あさ。ひる。');
     const first = voiceExpressionForUnit(
