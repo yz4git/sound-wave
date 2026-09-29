@@ -201,6 +201,29 @@ describe('Voice Lab speech planning', () => {
     );
   });
 
+  it('keeps quote and parenthetical spans as non-spoken context metadata', () => {
+    const script = parseVoiceScript('あ「いう」え（おか）き。');
+
+    const quoted = script.units.filter((unit) => unit.quoted);
+    const aside = script.units.filter((unit) => unit.parenthetical);
+
+    expect(quoted.map((unit) => unit.display)).toEqual(['い', 'う']);
+    expect(aside.map((unit) => unit.display)).toEqual(['お', 'か']);
+    expect(quoted.every((unit) => unit.autoRateScale < 1)).toBe(true);
+    expect(aside.every((unit) => unit.autoRateScale > 1)).toBe(true);
+    expect(script.unsupported).toEqual([]);
+  });
+
+  it('chooses existing phrase boundaries as breathing points in long sentences', () => {
+    const script = parseVoiceScript('あいうえお かきくけこ さしすせそ たちつてと なにぬねの。');
+    const breaths = script.units.filter((unit) => unit.breathAfter);
+
+    expect(script.units.length).toBeGreaterThanOrEqual(20);
+    expect(breaths.length).toBeGreaterThanOrEqual(1);
+    expect(breaths.every((unit) => unit.boundaryAfter === 'accent')).toBe(true);
+    expect(breaths.every((unit) => unit.pauseAfter >= 0.12)).toBe(true);
+  });
+
   it('provides distinct controllable global prosody shapes', () => {
     const risingStart = prosodyOffset(0, 5, 'rise', true, false);
     const risingEnd = prosodyOffset(4, 5, 'rise', false, true);
