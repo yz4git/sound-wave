@@ -319,6 +319,48 @@ describe('VOICE LAB Japanese G2P mapping', () => {
     expect(karaEnd.continuationAfter).toBe('none');
   });
 
+  it('uses focus particles to emphasize the preceding lexical token', () => {
+    const nodes: JapaneseFrontendNode[] = [
+      {
+        string: '私',
+        read: 'ワタシ',
+        pron: 'ワタシ',
+        acc: 0,
+        mora_size: 3,
+        chain_flag: -1,
+        pos: '名詞',
+      },
+      {
+        string: 'こそ',
+        read: 'コソ',
+        pron: 'コソ',
+        acc: 1,
+        mora_size: 2,
+        chain_flag: 1,
+        pos: '助詞',
+        pos_group1: '係助詞',
+      },
+      {
+        string: '行く',
+        read: 'イク',
+        pron: 'イク',
+        acc: 0,
+        mora_size: 2,
+        chain_flag: 0,
+        pos: '動詞',
+      },
+    ];
+
+    const { script } = buildScriptFromJapaneseFrontend(nodes, '私こそ行く');
+    const focusParticle = script.units.find((unit) => unit.discourseAfter === 'focus')!;
+
+    expect(focusParticle).toBeTruthy();
+    expect(script.units[0]!.focusStrength).toBe(1);
+    expect(script.units[1]!.focusStrength).toBe(1);
+    expect(script.units[2]!.focusStrength).toBe(1);
+    expect(script.units[0]!.autoRateScale).toBeLessThan(1);
+  });
+
   it('maps analyzed morae back to source-text ranges for local style alignment', () => {
     const nodes: JapaneseFrontendNode[] = [
       {
