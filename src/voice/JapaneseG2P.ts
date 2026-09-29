@@ -1,6 +1,7 @@
 import {
   applyVoiceContinuationBoundary,
   applyVoiceDiscourseMarker,
+  applyVoicePreFocusPause,
   finalizeVoiceUnits,
   parseVoiceScript,
   type VoiceContinuationKind,
@@ -584,11 +585,13 @@ export function buildScriptFromJapaneseFrontend(
         pause: 0.035,
       });
     } else if (role === 'focus') {
+      const focusStrength = focusStrengthForFrontendNode(span.node);
       applyVoiceDiscourseMarker(script.units, span.end, role, {
         focusStart,
         focusEnd,
-        focusStrength: focusStrengthForFrontendNode(span.node),
+        focusStrength,
       });
+      applyVoicePreFocusPause(script.units, focusStart, focusStrength);
     } else {
       applyVoiceDiscourseMarker(script.units, span.end, role, {
         boundary: true,
