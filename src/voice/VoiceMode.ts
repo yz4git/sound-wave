@@ -293,7 +293,7 @@ export class VoiceMode {
 
           <div class="voice-control-group">
             <label><span>INTONATION</span><select id="voice-intonation">
-              <option value="auto">AUTO · PUNCTUATION</option>
+              <option value="auto">AUTO · JAPANESE CONTEXT</option>
               <option value="natural">NATURAL ARC</option>
               <option value="flat">FLAT</option>
               <option value="rise">RISING</option>
