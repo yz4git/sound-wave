@@ -13,6 +13,7 @@ export type VoiceContinuationKind =
   | 'condition'
   | 'concessive'
   | 'additive';
+export type VoiceDiscourseRole = 'none' | 'topic' | 'subject' | 'quote' | 'list';
 
 export interface VoiceUnit {
   index: number;
@@ -27,6 +28,8 @@ export interface VoiceUnit {
   accentEnd: boolean;
   accentIndex: number;
   accentCount: number;
+  accentPhraseIndex: number;
+  accentPhraseCount: number;
   boundaryAfter: VoiceBoundary;
   pauseAfter: number;
   boundaryBefore: VoiceBoundary;
@@ -35,6 +38,9 @@ export interface VoiceUnit {
   questionFocus: boolean;
   continuationAfter: VoiceContinuationKind;
   continuationBefore: VoiceContinuationKind;
+  discourseAfter: VoiceDiscourseRole;
+  discourseBefore: VoiceDiscourseRole;
+  focusStrength: number;
   /** Explicit punctuation attached to this mora, when it ends a sentence. */
   terminalAfter?: VoiceSentenceTerminal;
   /** Sentence-level terminal copied to every mora for AUTO intonation. */
@@ -188,6 +194,8 @@ function pushUnit(
     accentEnd: false,
     accentIndex: 0,
     accentCount: 1,
+    accentPhraseIndex: 0,
+    accentPhraseCount: 1,
     boundaryAfter: 'none',
     pauseAfter: 0,
     boundaryBefore: 'none',
@@ -196,6 +204,9 @@ function pushUnit(
     questionFocus: false,
     continuationAfter: 'none',
     continuationBefore: 'none',
+    discourseAfter: 'none',
+    discourseBefore: 'none',
+    focusStrength: 0,
     geminateBefore: flags.geminateBefore ?? false,
     longVowel: flags.longVowel ?? false,
     moraicN: syllable === 'n' || syllable === 'nn',
@@ -375,6 +386,38 @@ export function applyVoiceContinuationBoundary(
   unit.continuationAfter = kind;
 }
 
+export function applyVoiceDiscourseMarker(
+  units: VoiceUnit[],
+  end: number,
+  role: Exclude<VoiceDiscourseRole, 'none'>,
+  options: {
+    pause?: number;
+    boundary?: boolean;
+    focusStart?: number;
+    focusEnd?: number;
+    focusStrength?: number;
+  } = {},
+): void {
+  if (units.length === 0) return;
+  const safeEnd = Math.max(0, Math.min(units.length - 1, Math.floor(end)));
+  const unit = units[safeEnd];
+  if (!unit || unit.boundaryAfter === 'sentence') return;
+
+  unit.discourseAfter = role;
+  if (options.boundary) {
+    unit.boundaryAfter = strongerBoundary(unit.boundaryAfter, 'accent');
+    unit.pauseAfter = Math.max(unit.pauseAfter, options.pause ?? 0.035);
+  }
+
+  const focusStrength = Math.max(0, Math.min(1, options.focusStrength ?? 0));
+  if (focusStrength <= 0) return;
+  const focusStart = Math.max(0, Math.min(safeEnd, Math.floor(options.focusStart ?? safeEnd)));
+  const focusEnd = Math.max(focusStart, Math.min(safeEnd, Math.floor(options.focusEnd ?? safeEnd)));
+  for (let index = focusStart; index <= focusEnd; index += 1) {
+    units[index]!.focusStrength = Math.max(units[index]!.focusStrength, focusStrength);
+  }
+}
+
 function annotateRuns(
   units: VoiceUnit[],
   isBoundary: (unit: VoiceUnit, index: number) => boolean,
@@ -448,6 +491,7 @@ export function refreshVoiceUnitBoundaryMetadata(units: VoiceUnit[]): void {
     units[index]!.boundaryBefore = previous?.boundaryAfter ?? 'none';
     units[index]!.pauseBefore = previous?.pauseAfter ?? 0;
     units[index]!.continuationBefore = previous?.continuationAfter ?? 'none';
+    units[index]!.discourseBefore = previous?.discourseAfter ?? 'none';
   }
 
   annotateRuns(
@@ -460,6 +504,26 @@ export function refreshVoiceUnitBoundaryMetadata(units: VoiceUnit[]): void {
       unit.accentEnd = localIndex === count - 1;
     },
   );
+
+  let phraseSentenceStart = 0;
+  for (let sentenceEnd = 0; sentenceEnd < units.length; sentenceEnd += 1) {
+    if (units[sentenceEnd]!.boundaryAfter !== 'sentence' && sentenceEnd !== units.length - 1) continue;
+    const phraseRanges: { start: number; end: number }[] = [];
+    let phraseStart = phraseSentenceStart;
+    for (let cursor = phraseSentenceStart; cursor <= sentenceEnd; cursor += 1) {
+      if (units[cursor]!.boundaryAfter === 'none' && cursor !== sentenceEnd) continue;
+      phraseRanges.push({ start: phraseStart, end: cursor });
+      phraseStart = cursor + 1;
+    }
+    const phraseCount = Math.max(1, phraseRanges.length);
+    phraseRanges.forEach((range, phraseIndex) => {
+      for (let cursor = range.start; cursor <= range.end; cursor += 1) {
+        units[cursor]!.accentPhraseIndex = phraseIndex;
+        units[cursor]!.accentPhraseCount = phraseCount;
+      }
+    });
+    phraseSentenceStart = sentenceEnd + 1;
+  }
 }
 
 export function finalizeVoiceUnits(units: VoiceUnit[]): void {
@@ -649,12 +713,33 @@ export function prosodyOffsetForUnit(
       ? 0.12
       : 0;
   const continuationMotion = continuationTailLift + continuationReset;
+  const discourseTail = unit.discourseAfter === 'subject'
+    ? 0.08
+    : unit.discourseAfter === 'list'
+      ? 0.1
+      : unit.discourseAfter === 'topic'
+        ? 0.03
+        : unit.discourseAfter === 'quote'
+          ? -0.02
+          : 0;
+  const discourseReset = unit.discourseBefore === 'topic'
+    ? 0.14
+    : unit.discourseBefore === 'quote'
+      ? 0.1
+      : unit.discourseBefore === 'list'
+        ? 0.11
+        : unit.discourseBefore === 'subject'
+          ? 0.035
+          : 0;
+  const focusLift = unit.focusStrength * 0.16;
+  const downstep = -Math.min(0.3, unit.accentPhraseIndex * 0.05);
+  const discourseMotion = discourseTail + discourseReset + focusLift + downstep;
 
   if (resolvedIntonation === 'rise') {
-    return -0.7 + phraseProgress * 1.9 + accent * 0.35 + micro + boundaryReset + continuationMotion;
+    return -0.7 + phraseProgress * 1.9 + accent * 0.35 + micro + boundaryReset + continuationMotion + discourseMotion;
   }
   if (resolvedIntonation === 'fall') {
-    return 0.72 - phraseProgress * 1.8 + accent * 0.35 + micro + boundaryReset + continuationMotion;
+    return 0.72 - phraseProgress * 1.8 + accent * 0.35 + micro + boundaryReset + continuationMotion + discourseMotion;
   }
   if (resolvedIntonation === 'question') {
     const terminal = unit.phraseCount <= 1
@@ -662,7 +747,7 @@ export function prosodyOffsetForUnit(
       : Math.max(0, Math.min(1, (phraseProgress - 0.58) / 0.42));
     const easedTerminal = terminal * terminal * (3 - 2 * terminal);
     const questionLift = (unit.phraseCount <= 1 ? 1.25 : 1.55) * easedTerminal;
-    return phraseArc + accent * 0.8 + micro + questionLift + sentenceDeclination + boundaryReset + continuationMotion;
+    return phraseArc + accent * 0.8 + micro + questionLift + sentenceDeclination + boundaryReset + continuationMotion + discourseMotion;
   }
   if (resolvedIntonation === 'content-question') {
     const terminal = unit.phraseCount <= 1
@@ -678,7 +763,7 @@ export function prosodyOffsetForUnit(
       + questionLift
       + sentenceDeclination
       + boundaryReset
-      + continuationMotion;
+      + continuationMotion + discourseMotion;
   }
   if (resolvedIntonation === 'exclaim') {
     const terminal = unit.phraseCount <= 1
@@ -693,7 +778,7 @@ export function prosodyOffsetForUnit(
       + easedTerminal * 0.14
       + sentenceDeclination * 0.35
       + boundaryReset
-      + continuationMotion;
+      + continuationMotion + discourseMotion;
   }
 
   const reset = unit.phraseStart ? (lexicalAccent ? 0.09 : 0.18) : 0;
@@ -702,7 +787,7 @@ export function prosodyOffsetForUnit(
     : Math.max(0, Math.min(1, (phraseProgress - 0.68) / 0.32));
   const easedTerminal = terminal * terminal * (3 - 2 * terminal);
   const finalLowering = -(lexicalAccent ? 0.12 : 0.28) * easedTerminal;
-  return phraseArc + accent + micro + reset + finalLowering + sentenceDeclination + boundaryReset + continuationMotion;
+  return phraseArc + accent + micro + reset + finalLowering + sentenceDeclination + boundaryReset + continuationMotion + discourseMotion;
 }
 
 // Kept as a simple public contour helper for tests and external callers.
