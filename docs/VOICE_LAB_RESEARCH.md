@@ -521,3 +521,19 @@ VOICE LAB now models a small set of expressive timing cues that sit between lexi
 - EXCITED also receives an additional onset lift for exclamatory sentences, making punctuation and delivery cooperate instead of acting as unrelated layers.
 
 These heuristics are intentionally conservative and deterministic. They improve conversational rhythm without requiring a neural language model, while keeping all phrase and mora editing controls authoritative.
+
+### 26. Sentence-final attitude, onset breath, and per-take microvariation
+
+VOICE LAB now treats several Japanese sentence-final particles as pragmatic attitude cues beneath manual prosody editing.
+
+- `ね` is modeled as a shared/confirming ending: slightly open pitch, longer release, reduced terminal fall, and a touch of breath.
+- `よ` is modeled as assertive: slightly firmer energy, shorter release, and a more closed terminal shape.
+- `よね` uses the shared profile rather than stacking two separate endings.
+- `かな` is modeled as wondering: a larger but still speech-like terminal lift, longer duration, softer energy, and a more open/breathy release.
+- `かも` is modeled as uncertain: lower energy, longer release, mild lift, and the most breath of the supported attitude endings.
+- Explicit `？` / `！` punctuation still wins over these statement-attitude heuristics. Attitude particles do not replace question/exclamation intonation.
+- Open JTalk POS metadata suppresses attitude inference for lexical items whose reading happens to end in `ね / よ / かな / かも`; for example a noun reading `かも` is not treated as uncertain speech when POS identifies it as a noun.
+
+Longer sentence starts now receive a very short pre-phonation breath lead. This is skipped for short utterances and parenthetical asides, and the first voiced unit receives a small breathier onset rather than a separate spoken token.
+
+Playback also has bounded per-take humanization. The score/prosody plan remains deterministic, but each playback take receives only tiny seeded variation: about ±1.6 cents of pitch, ±1.2% velocity, ±2.5% attack, and ±1.5 ms timing. The same unit/take pair is deterministic for testing, while successive takes avoid being bit-for-bit identical in delivery. Manual pitch, energy, duration, phrase controls, and pause edits remain the controlling layers.
