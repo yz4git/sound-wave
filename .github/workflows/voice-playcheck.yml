@@ -1,0 +1,44 @@
+name: Voice Lab Playcheck
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/voice-playcheck.mjs"
+      - ".github/workflows/voice-playcheck.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  playcheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: Install browser driver
+        run: npm install --no-save --no-package-lock playwright-core@1.55.0
+      - name: Locate Chrome
+        run: which google-chrome || which google-chrome-stable || which chromium || which chromium-browser
+      - name: Start Vite
+        run: |
+          npm run dev -- --host 127.0.0.1 --port 4173 > /tmp/sound-wave-vite.log 2>&1 &
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:4173/ >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          cat /tmp/sound-wave-vite.log
+          exit 1
+      - name: Record Voice Lab samples
+        run: node scripts/voice-playcheck.mjs
+      - name: Upload review audio
+        uses: actions/upload-artifact@v4
+        with:
+          name: voice-lab-playcheck
+          path: voice-review/
+          retention-days: 1
