@@ -275,6 +275,17 @@ describe('Voice Lab synthesis plan', () => {
     expect(sigh.gapAfter).toBeLessThan(0.06);
   });
 
+  it('softens and slows the lead-in to a hesitant wondering ending', () => {
+    const synth = new VoiceSynth();
+    const hesitant = synth.plan(parseVoiceScript('まつかな……'), SETTINGS);
+    const plain = synth.plan(parseVoiceScript('まつかな。'), SETTINGS);
+    const index = hesitant.units.length - 2;
+
+    expect(hesitant.units[index]!.pitchMidi).toBeLessThan(plain.units[index]!.pitchMidi);
+    expect(hesitant.units[index]!.energyScale).toBeLessThan(plain.units[index]!.energyScale);
+    expect(hesitant.units[index]!.duration).toBeGreaterThan(plain.units[index]!.duration);
+  });
+
   it('keeps mora-level F0 continuous instead of semitone quantizing every unit', () => {
     const synth = new VoiceSynth();
     const plan = synth.plan(parseVoiceScript('あさ ひる よる。'), SETTINGS);
