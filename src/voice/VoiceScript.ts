@@ -592,9 +592,7 @@ export function refreshVoiceUnitBoundaryMetadata(units: VoiceUnit[]): void {
     const questionKind: VoiceQuestionKind = terminal === 'question'
       ? focus ? 'content' : 'yes-no'
       : 'none';
-    const attitude = terminal === 'statement'
-      ? sentenceAttitudeRange(units, sentenceStart, index)
-      : null;
+    const attitude = sentenceAttitudeRange(units, sentenceStart, index);
     for (let cursor = sentenceStart; cursor <= index; cursor += 1) {
       const candidate = units[cursor]!;
       candidate.phraseIndex = cursor - sentenceStart;
@@ -615,6 +613,19 @@ export function refreshVoiceUnitBoundaryMetadata(units: VoiceUnit[]): void {
         : 0;
     }
     sentenceStart = index + 1;
+  }
+
+  for (const unit of units) {
+    if (!unit.attitudeFocus) continue;
+    if (unit.sentenceAttitude === 'wonder') {
+      unit.autoRateScale *= unit.hesitationAfter ? 0.93 : 0.96;
+    } else if (unit.sentenceAttitude === 'uncertain') {
+      unit.autoRateScale *= 0.97;
+    } else if (unit.sentenceAttitude === 'shared' && unit.sentenceTerminal === 'question') {
+      unit.autoRateScale *= 0.985;
+    } else if (unit.sentenceAttitude === 'assertive' && unit.sentenceTerminal === 'exclamation') {
+      unit.autoRateScale *= 0.975;
+    }
   }
 
   for (let index = 0; index < units.length; index += 1) {
