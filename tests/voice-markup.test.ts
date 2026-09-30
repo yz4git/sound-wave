@@ -18,6 +18,18 @@ describe('Voice Lab local delivery markup', () => {
     expect(script.localExpressions[2]).toBeNull();
   });
 
+  it('strips speech-event labels from plain text without disturbing local styles', () => {
+    const script = parseVoiceMarkup('あ（笑）[whisper]い[/]（ため息）う');
+
+    expect(script.plainText).toBe('あいう');
+    expect(script.units.map((unit) => unit.display)).toEqual(['あ', 'い', 'う']);
+    expect(script.events.map((event) => event.kind)).toEqual(['laugh', 'sigh']);
+    expect(script.events.map((event) => event.textOffset)).toEqual([1, 2]);
+    expect(script.events.map((event) => event.afterUnit)).toEqual([0, 1]);
+    expect(script.localExpressions[1]?.preset).toBe('whisper');
+    expect(script.markupUsed).toBe(true);
+  });
+
   it('does not create a synthetic phrase boundary at style tag edges', () => {
     const script = parseVoiceMarkup('あ[calm]さ[/]ひ');
 
