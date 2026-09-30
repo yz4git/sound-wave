@@ -143,6 +143,42 @@ describe('Voice Lab synthesis plan', () => {
     expect(short.units[0]!.start).toBe(0);
   });
 
+  it('blends compound sentence attitude into final rate, energy, and pitch', () => {
+    const synth = new VoiceSynth();
+    const sharedQuestion = synth.plan(parseVoiceScript('そうだね？'), SETTINGS);
+    const plainQuestion = synth.plan(parseVoiceScript('そうだ？'), SETTINGS);
+    const emphatic = synth.plan(parseVoiceScript('いくよ！'), {
+      ...SETTINGS,
+      expression: { preset: 'excited', intensity: 1 },
+    });
+    const plainExclaim = synth.plan(parseVoiceScript('いく！'), {
+      ...SETTINGS,
+      expression: { preset: 'excited', intensity: 1 },
+    });
+    const wondering = synth.plan(parseVoiceScript('どうかな……'), SETTINGS);
+
+    expect(sharedQuestion.units.at(-1)!.duration).toBeGreaterThan(plainQuestion.units.at(-1)!.duration);
+    expect(sharedQuestion.units.at(-1)!.pitchMidi).toBeGreaterThan(plainQuestion.units.at(-1)!.pitchMidi);
+    expect(emphatic.units.at(-1)!.energyScale).toBeGreaterThan(plainExclaim.units.at(-1)!.energyScale);
+    expect(wondering.units.at(-1)!.duration).toBeGreaterThan(wondering.units[0]!.duration);
+    expect(wondering.units.at(-1)!.energyScale).toBeLessThan(wondering.units[0]!.energyScale);
+  });
+
+  it('keeps manual mora edits above automatic context delivery', () => {
+    const synth = new VoiceSynth();
+    const script = parseVoiceScript('そうだね？');
+    const automatic = synth.plan(script, SETTINGS);
+    const edited = synth.plan(script, SETTINGS, {
+      pitchOffsets: script.units.map((_, index) => index === script.units.length - 1 ? -1 : 0),
+      energyScales: script.units.map((_, index) => index === script.units.length - 1 ? 0.7 : 1),
+      durationScales: script.units.map((_, index) => index === script.units.length - 1 ? 1.4 : 1),
+    });
+
+    expect(edited.units.at(-1)!.pitchMidi).toBeLessThan(automatic.units.at(-1)!.pitchMidi - 0.9);
+    expect(edited.units.at(-1)!.energyScale).toBeLessThan(automatic.units.at(-1)!.energyScale);
+    expect(edited.units.at(-1)!.duration).toBeGreaterThan(automatic.units.at(-1)!.duration);
+  });
+
   it('keeps mora-level F0 continuous instead of semitone quantizing every unit', () => {
     const synth = new VoiceSynth();
     const plan = synth.plan(parseVoiceScript('あさ ひる よる。'), SETTINGS);
