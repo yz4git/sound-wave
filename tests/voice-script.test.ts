@@ -344,7 +344,7 @@ describe('Voice Lab speech planning', () => {
     ));
     const spread = Math.max(...offsets) - Math.min(...offsets);
 
-    expect(spread).toBeGreaterThan(1.45);
+    expect(spread).toBeGreaterThan(1.7);
   });
 
   it('spreads question rise across the sentence ending instead of jumping only on the final mora', () => {
