@@ -94,6 +94,7 @@ export function applyAccentNucleus(
 export function cloneVoiceScript(script: VoiceScript): VoiceScript {
   return {
     unsupported: [...script.unsupported],
+    events: script.events.map((event) => ({ ...event })),
     units: script.units.map((unit: VoiceUnit) => ({ ...unit })),
   };
 }
