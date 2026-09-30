@@ -48,6 +48,7 @@ export interface VoiceUnit {
   questionKind: VoiceQuestionKind;
   questionFocus: boolean;
   sentenceAttitude: VoiceSentenceAttitude;
+  sentenceHesitation: boolean;
   attitudeFocus: boolean;
   suppressAttitudeInference: boolean;
   continuationAfter: VoiceContinuationKind;
@@ -299,6 +300,7 @@ function pushUnit(
     questionKind: 'none',
     questionFocus: false,
     sentenceAttitude: 'none',
+    sentenceHesitation: false,
     attitudeFocus: false,
     suppressAttitudeInference: false,
     continuationAfter: 'none',
@@ -671,6 +673,7 @@ export function refreshVoiceUnitBoundaryMetadata(units: VoiceUnit[]): void {
       ? focus ? 'content' : 'yes-no'
       : 'none';
     const attitude = sentenceAttitudeRange(units, sentenceStart, index);
+    const sentenceHesitation = unit.hesitationAfter;
     for (let cursor = sentenceStart; cursor <= index; cursor += 1) {
       const candidate = units[cursor]!;
       candidate.phraseIndex = cursor - sentenceStart;
@@ -683,6 +686,7 @@ export function refreshVoiceUnitBoundaryMetadata(units: VoiceUnit[]): void {
         && cursor >= focus.start
         && cursor <= focus.end;
       candidate.sentenceAttitude = attitude?.attitude ?? 'none';
+      candidate.sentenceHesitation = sentenceHesitation;
       candidate.attitudeFocus = attitude !== null && cursor >= attitude.start;
       candidate.breathBefore = cursor === sentenceStart && count >= 6
         ? candidate.parenthetical
@@ -1089,12 +1093,17 @@ export function prosodyOffsetForUnit(
             ? 0.09
             : 0
     : 0;
+  const hesitationTail = unit.sentenceHesitation
+    && (unit.sentenceAttitude === 'wonder' || unit.sentenceAttitude === 'uncertain')
+    ? -0.24 * Math.max(0, Math.min(1, (phraseProgress - 0.52) / 0.48)) ** 1.35
+    : 0;
   const focusLift = unit.focusStrength * 0.16
     + attitudeLift
+    + hesitationTail
     + (unit.quoted ? 0.035 : 0)
     - (unit.parenthetical ? 0.055 : 0)
     - (unit.filledPause ? 0.08 : 0)
-    - (unit.hesitationAfter ? 0.045 : 0);
+    - (unit.hesitationAfter ? 0.055 : 0);
   const downstep = -Math.min(0.3, unit.accentPhraseIndex * 0.05);
   const discourseMotion = discourseTail + discourseReset + focusLift + downstep;
 
