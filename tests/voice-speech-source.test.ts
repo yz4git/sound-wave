@@ -26,11 +26,23 @@ describe('VOICE LAB speech source', () => {
     const excited = speechPresenceProfileFor(unit, { preset: 'excited', intensity: 1 });
 
     expect(neutral.upperFormantGain[0]).toBe(1);
-    expect(neutral.upperFormantGain[2]).toBeGreaterThan(1.1);
+    expect(neutral.upperFormantGain[2]).toBeGreaterThan(1.25);
     expect(neutral.upperFormantGain[3]).toBeGreaterThan(neutral.upperFormantGain[2]);
-    expect(neutral.presenceGainScale).toBeGreaterThan(1.15);
-    expect(neutral.consonantNoiseScale).toBeGreaterThan(1.15);
+    expect(neutral.presenceGainScale).toBeGreaterThan(1.3);
+    expect(neutral.consonantNoiseScale).toBeGreaterThan(1.35);
+    expect(neutral.harmonicPresence).toBeGreaterThan(0.1);
+    expect(neutral.airPresence).toBeGreaterThan(0.05);
+    expect(neutral.fricativeGain).toBeGreaterThan(1.4);
     expect(excited.presenceGainScale).toBeGreaterThan(neutral.presenceGainScale);
+  });
+
+  it('keeps vowel presence restrained while giving fricatives extra air', () => {
+    const vowel = speechPresenceProfileFor(parseVoiceScript('あ。').units[0]!, { preset: 'neutral', intensity: 1 });
+    const fricative = speechPresenceProfileFor(parseVoiceScript('さ。').units[0]!, { preset: 'neutral', intensity: 1 });
+
+    expect(vowel.airPresence).toBeLessThan(0.04);
+    expect(fricative.airPresence).toBeGreaterThan(vowel.airPresence * 2);
+    expect(fricative.fricativeGain).toBeGreaterThan(vowel.fricativeGain);
   });
 
   it('moves whisper toward more tilt and aspiration', () => {
