@@ -24,7 +24,7 @@ const samples = [
 
 const browser = await chromium.launch({
   executablePath,
-  headless: true,
+  headless: false,
   args: ['--autoplay-policy=no-user-gesture-required','--no-sandbox','--disable-dev-shm-usage'],
 });
 
