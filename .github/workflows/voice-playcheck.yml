@@ -35,7 +35,7 @@ jobs:
           cat /tmp/sound-wave-vite.log
           exit 1
       - name: Record Voice Lab samples
-        run: node scripts/voice-playcheck.mjs
+        run: xvfb-run -a node scripts/voice-playcheck.mjs
       - name: Upload review audio
         uses: actions/upload-artifact@v4
         with:
