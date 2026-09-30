@@ -665,6 +665,19 @@ export function needsJapanesePronunciationAnalysis(text: string): boolean {
   return containsKanji(text) || containsAmbiguousJapaneseLongVowel(text);
 }
 
+export type JapaneseFirstUsePlaybackStrategy =
+  | 'precise-local'
+  | 'quick-local'
+  | 'quick-system';
+
+export function japaneseFirstUsePlaybackStrategy(
+  text: string,
+  analyzed: boolean,
+): JapaneseFirstUsePlaybackStrategy {
+  if (analyzed || !needsJapanesePronunciationAnalysis(text)) return 'precise-local';
+  return containsKanji(text) ? 'quick-system' : 'quick-local';
+}
+
 export function isJapaneseG2PReady(): boolean {
   return initialized;
 }
