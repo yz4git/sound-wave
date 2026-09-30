@@ -544,6 +544,15 @@ export function buildScriptFromJapaneseFrontend(
   }
 
   for (const span of spans) {
+    if (span.node.pos && span.node.pos !== '助詞') {
+      for (let cursor = span.start; cursor <= span.end; cursor += 1) {
+        const unit = script.units[cursor];
+        if (unit) unit.suppressAttitudeInference = true;
+      }
+    }
+  }
+
+  for (const span of spans) {
     if (span.end >= script.units.length - 1) continue;
     const kind = connectiveKindForFrontendNode(span.node);
     if (kind) {
