@@ -247,6 +247,7 @@ export class VoiceMode {
             <button type="button" id="voice-analyze-japanese">JAPANESE G2P</button>
             <span id="voice-japanese-status">Open JTalk reading + pitch accent · kanji / おう / えい · first use ~24MB dictionary</span>
           </div>
+          <p class="voice-engine-note">SPEECH EVENTS · （笑） （ため息） （息） （言い直し） （思い直し）</p>
           <div id="voice-accent-editor" class="voice-accent-editor" hidden aria-label="Japanese accent phrase editor"></div>
           <p class="voice-engine-note" id="voice-engine-note"></p>
 
