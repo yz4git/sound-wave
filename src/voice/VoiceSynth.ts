@@ -253,6 +253,9 @@ export interface SpeechPresenceProfile {
   radiationGainDbAdd: number;
   consonantNoiseScale: number;
   fricationScale: number;
+  harmonicPresence: number;
+  airPresence: number;
+  fricativeGain: number;
 }
 
 export function speechPresenceProfileFor(
@@ -272,19 +275,23 @@ export function speechPresenceProfileFor(
   const consonant = unit.syllable.toLowerCase();
   const fricative = /^(s|sh|z|j|ts|ch|f|h)/.test(consonant);
 
+  const airy = expression.preset === 'whisper' ? 1.45 : expression.preset === 'calm' ? 0.82 : 1;
   return {
     upperFormantGain: [
       1,
-      1.055,
-      1.17 * brightPreset,
-      1.24 * brightPreset,
-      1.18 * brightPreset,
+      1.08,
+      1.31 * brightPreset,
+      1.42 * brightPreset,
+      1.3 * brightPreset,
     ],
-    presenceGainScale: 1.2 * brightPreset,
-    presenceFrequencyScale: expression.preset === 'calm' ? 1.01 : 1.045,
-    radiationGainDbAdd: expression.preset === 'whisper' ? 0.7 : 1.35 * brightPreset,
-    consonantNoiseScale: fricative ? 1.22 * brightPreset : 1.08,
-    fricationScale: fricative ? 1.08 : 1.02,
+    presenceGainScale: 1.34 * brightPreset,
+    presenceFrequencyScale: expression.preset === 'calm' ? 1.01 : 1.055,
+    radiationGainDbAdd: expression.preset === 'whisper' ? 1.1 : 1.8 * brightPreset,
+    consonantNoiseScale: fricative ? 1.42 * brightPreset : 1.12,
+    fricationScale: fricative ? 1.14 : 1.035,
+    harmonicPresence: clamp(0.13 * brightPreset, 0.08, 0.18),
+    airPresence: clamp((fricative ? 0.082 : 0.026) * airy * brightPreset, 0.018, 0.13),
+    fricativeGain: clamp((fricative ? 1.5 : 1.08) * brightPreset, 1, 1.85),
   };
 }
 
@@ -1173,6 +1180,9 @@ export class VoiceSynth {
         speechSourceTilt: clamp(speechSource.sourceTilt * emphasisProfile.sourceTiltScale, 0.28, 0.82),
         speechCoarticulation: speechSource.coarticulation,
         speechPulseNoise: speechSource.pulseNoise,
+        speechPresenceBoost: speechPresence.harmonicPresence,
+        speechAirPresence: speechPresence.airPresence,
+        speechFricativeGain: speechPresence.fricativeGain,
         speechPitchTransitionScale: pitchTransitionScale,
         speechFinalCreak: unit.phraseEnd ? finality.creak : 0,
         speechFinalBreath: unit.phraseEnd
