@@ -89,19 +89,19 @@ export function speechEventProfileFor(
   const amount = clamp(strength, 0, 1.2);
   if (kind === 'laugh') {
     return {
-      duration: 0.19 + amount * 0.08,
-      gapAfter: 0.035 + amount * 0.02,
-      pitchSemitones: 2.4 + amount * 1.2,
-      velocityScale: 0.2 + amount * 0.16,
+      duration: 0.2 + amount * 0.07,
+      gapAfter: 0.025 + amount * 0.015,
+      pitchSemitones: 2.1 + amount * 1,
+      velocityScale: 0.15 + amount * 0.12,
       pulseCount: 2,
     };
   }
   if (kind === 'sigh') {
     return {
-      duration: 0.3 + amount * 0.15,
-      gapAfter: 0.065 + amount * 0.045,
-      pitchSemitones: -3.2 - amount * 1.2,
-      velocityScale: 0.13 + amount * 0.1,
+      duration: 0.34 + amount * 0.16,
+      gapAfter: 0.028 + amount * 0.025,
+      pitchSemitones: -3 - amount * 1.1,
+      velocityScale: 0.085 + amount * 0.065,
       pulseCount: 1,
     };
   }
@@ -117,7 +117,7 @@ export function speechEventProfileFor(
   if (kind === 'restart') {
     return {
       duration: 0,
-      gapAfter: 0.1 + amount * 0.045,
+      gapAfter: 0.17 + amount * 0.03,
       pitchSemitones: 0,
       velocityScale: 0,
       pulseCount: 0,
@@ -125,7 +125,7 @@ export function speechEventProfileFor(
   }
   return {
     duration: 0,
-    gapAfter: 0.15 + amount * 0.06,
+    gapAfter: 0.24 + amount * 0.05,
     pitchSemitones: 0,
     velocityScale: 0,
     pulseCount: 0,
@@ -182,8 +182,8 @@ export interface SpeechSourceProfile {
 
 export function speechSourceProfileFor(expression: VoiceExpressionSettings): SpeechSourceProfile {
   const neutral: SpeechSourceProfile = {
-    sourceMix: 0.91,
-    sourceTilt: 0.62,
+    sourceMix: 0.9,
+    sourceTilt: 0.52,
     coarticulation: 0.82,
     pulseNoise: 0.055,
     geminateClosureSeconds: 0.052,
@@ -191,7 +191,7 @@ export function speechSourceProfileFor(expression: VoiceExpressionSettings): Spe
   const target: SpeechSourceProfile = expression.preset === 'whisper'
     ? {
         sourceMix: 0.8,
-        sourceTilt: 0.78,
+        sourceTilt: 0.62,
         coarticulation: 0.82,
         pulseNoise: 0.18,
         geminateClosureSeconds: 0.052,
@@ -199,7 +199,7 @@ export function speechSourceProfileFor(expression: VoiceExpressionSettings): Spe
     : expression.preset === 'excited'
       ? {
           sourceMix: 0.86,
-          sourceTilt: 0.5,
+          sourceTilt: 0.42,
           coarticulation: 0.72,
           pulseNoise: 0.045,
           geminateClosureSeconds: 0.05,
@@ -215,7 +215,7 @@ export function speechSourceProfileFor(expression: VoiceExpressionSettings): Spe
         : expression.preset === 'serious'
           ? {
               sourceMix: 0.92,
-              sourceTilt: 0.56,
+              sourceTilt: 0.47,
               coarticulation: 0.78,
               pulseNoise: 0.04,
               geminateClosureSeconds: 0.052,
@@ -223,7 +223,7 @@ export function speechSourceProfileFor(expression: VoiceExpressionSettings): Spe
           : expression.preset === 'narration'
             ? {
                 sourceMix: 0.93,
-                sourceTilt: 0.63,
+                sourceTilt: 0.54,
                 coarticulation: 0.84,
                 pulseNoise: 0.055,
                 geminateClosureSeconds: 0.053,
@@ -243,6 +243,48 @@ export function speechSourceProfileFor(expression: VoiceExpressionSettings): Spe
       0.048,
       0.058,
     ),
+  };
+}
+
+export interface SpeechPresenceProfile {
+  upperFormantGain: readonly [number, number, number, number, number];
+  presenceGainScale: number;
+  presenceFrequencyScale: number;
+  radiationGainDbAdd: number;
+  consonantNoiseScale: number;
+  fricationScale: number;
+}
+
+export function speechPresenceProfileFor(
+  unit: VoiceUnit,
+  expression: VoiceExpressionSettings,
+): SpeechPresenceProfile {
+  const intensity = clamp(expression.intensity, 0, 1.35);
+  const brightPreset = expression.preset === 'excited'
+    ? 1 + 0.12 * intensity
+    : expression.preset === 'serious'
+      ? 1 + 0.06 * intensity
+      : expression.preset === 'whisper'
+        ? 0.9
+        : expression.preset === 'calm'
+          ? 0.94
+          : 1;
+  const consonant = unit.syllable.toLowerCase();
+  const fricative = /^(s|sh|z|j|ts|ch|f|h)/.test(consonant);
+
+  return {
+    upperFormantGain: [
+      1,
+      1.055,
+      1.17 * brightPreset,
+      1.24 * brightPreset,
+      1.18 * brightPreset,
+    ],
+    presenceGainScale: 1.2 * brightPreset,
+    presenceFrequencyScale: expression.preset === 'calm' ? 1.01 : 1.045,
+    radiationGainDbAdd: expression.preset === 'whisper' ? 0.7 : 1.35 * brightPreset,
+    consonantNoiseScale: fricative ? 1.22 * brightPreset : 1.08,
+    fricationScale: fricative ? 1.08 : 1.02,
   };
 }
 
@@ -992,7 +1034,17 @@ export class VoiceSynth {
       const pause = pauseOverride === null || pauseOverride === undefined
         ? japaneseBoundaryPauseSeconds(unit, effectiveRate)
         : clamp(pauseOverride, 0, 0.36);
-      cursor += duration + pause;
+      const followingEvents = eventsByAfter.get(index) ?? [];
+      const hasRepair = followingEvents.some((event) => (
+        event.kind === 'restart' || event.kind === 'rethink'
+      ));
+      const hasNonverbal = followingEvents.length > 0;
+      const mergedPause = hasRepair
+        ? Math.min(pause, 0.025)
+        : hasNonverbal
+          ? Math.min(pause, 0.055)
+          : pause;
+      cursor += duration + mergedPause;
       appendEvents(index);
     });
 
@@ -1028,6 +1080,10 @@ export class VoiceSynth {
       if (interruptionBefore) previousPitchMidi = null;
       const expressionControl = voiceExpressionControl(timed.expression);
       const speechSource = speechSourceProfileFor(timed.expression);
+      const speechPresence = speechPresenceProfileFor(unit, timed.expression);
+      const precedingSpeechEvents = script.events.filter((event) => event.afterUnit === index - 1);
+      const followsSigh = precedingSpeechEvents.some((event) => event.kind === 'sigh');
+      const followsLaugh = precedingSpeechEvents.some((event) => event.kind === 'laugh');
       const emphasis = timed.phraseEmphasis;
       const emphasisProfile = speechEmphasisProfileFor(
         unit,
@@ -1100,7 +1156,8 @@ export class VoiceSynth {
         breathLevel: clamp(
           workletEvent.style.breathLevel * expressionControl.breathScale
             + (unit.breathBefore > 0 ? 0.08 : 0)
-            + attitude.breathAdd,
+            + attitude.breathAdd
+            + (followsSigh ? 0.105 : followsLaugh ? 0.025 : 0),
           0,
           1.2,
         ),
@@ -1108,11 +1165,12 @@ export class VoiceSynth {
           * expressionControl.attackScale
           * emphasisProfile.attackScale
           * variation.attackScale
+          * (followsSigh ? 1.08 : 1)
           * (unit.geminateBefore ? 0.78 : 1),
         releaseSeconds: workletEvent.style.releaseSeconds
           * (unit.phraseEnd ? finality.releaseScale * attitude.releaseScale : 0.88),
         speechSourceMix: speechSource.sourceMix,
-        speechSourceTilt: clamp(speechSource.sourceTilt * emphasisProfile.sourceTiltScale, 0.32, 0.9),
+        speechSourceTilt: clamp(speechSource.sourceTilt * emphasisProfile.sourceTiltScale, 0.28, 0.82),
         speechCoarticulation: speechSource.coarticulation,
         speechPulseNoise: speechSource.pulseNoise,
         speechPitchTransitionScale: pitchTransitionScale,
@@ -1124,6 +1182,30 @@ export class VoiceSynth {
             : unit.hesitationAfter
               ? 0.055
               : 0,
+      };
+
+      workletEvent.formants = workletEvent.formants.map((band, bandIndex) => ({
+        ...band,
+        gain: band.gain * (speechPresence.upperFormantGain[bandIndex] ?? 1),
+      }));
+      workletEvent.style = {
+        ...workletEvent.style,
+        presenceFrequency: clamp(
+          workletEvent.style.presenceFrequency * speechPresence.presenceFrequencyScale,
+          1800,
+          4600,
+        ),
+        presenceGain: workletEvent.style.presenceGain * speechPresence.presenceGainScale,
+        radiationGainDb: workletEvent.style.radiationGainDb + speechPresence.radiationGainDbAdd,
+      };
+      workletEvent.phoneme = {
+        ...workletEvent.phoneme,
+        fricationSeconds: workletEvent.phoneme.fricationSeconds * speechPresence.fricationScale,
+        noiseMix: clamp(
+          workletEvent.phoneme.noiseMix * speechPresence.consonantNoiseScale,
+          0,
+          1,
+        ),
       };
 
       workletEvent.voiceCharacter = {
@@ -1292,21 +1374,23 @@ export class VoiceSynth {
           intensityModDepth: timedEvent.event.kind === 'laugh' ? 0.014 : 0.003,
           jitterCents: timedEvent.event.kind === 'laugh' ? 0.9 : 0.25,
           breathLevel: timedEvent.event.kind === 'inhale'
-            ? 1.05
+            ? 1
             : timedEvent.event.kind === 'sigh'
-              ? 0.78
-              : 0.28,
+              ? 0.64
+              : 0.22,
           attackSeconds: timedEvent.event.kind === 'laugh'
-            ? eventWorklet.style.attackSeconds * 0.55
-            : eventWorklet.style.attackSeconds * 0.82,
-          releaseSeconds: timedEvent.event.kind === 'sigh'
-            ? Math.max(0.12, eventWorklet.style.releaseSeconds * 1.35)
-            : eventWorklet.style.releaseSeconds * 0.72,
-          speechSourceMix: timedEvent.event.kind === 'inhale'
-            ? 0.32
+            ? eventWorklet.style.attackSeconds * 0.72
             : timedEvent.event.kind === 'sigh'
-              ? 0.56
-              : 0.74,
+              ? eventWorklet.style.attackSeconds * 1.15
+              : eventWorklet.style.attackSeconds * 0.86,
+          releaseSeconds: timedEvent.event.kind === 'sigh'
+            ? Math.max(0.16, eventWorklet.style.releaseSeconds * 1.55)
+            : eventWorklet.style.releaseSeconds * 0.8,
+          speechSourceMix: timedEvent.event.kind === 'inhale'
+            ? 0.28
+            : timedEvent.event.kind === 'sigh'
+              ? 0.44
+              : 0.68,
           speechSourceTilt: timedEvent.event.kind === 'inhale'
             ? 0.88
             : timedEvent.event.kind === 'sigh'
@@ -1340,24 +1424,24 @@ export class VoiceSynth {
           eventWorklet.glideFromHz = midiToHz(pitchMidi + 2.8);
           eventWorklet.phoneme = {
             ...eventWorklet.phoneme,
-            voicedMix: eventWorklet.phoneme.voicedMix * 0.2,
-            aspirationMix: Math.max(0.58, eventWorklet.phoneme.aspirationMix),
-            noiseMix: Math.max(0.16, eventWorklet.phoneme.noiseMix),
+            voicedMix: eventWorklet.phoneme.voicedMix * 0.12,
+            aspirationMix: Math.max(0.62, eventWorklet.phoneme.aspirationMix),
+            noiseMix: Math.max(0.14, eventWorklet.phoneme.noiseMix),
           };
           eventWorklet.formants = eventWorklet.formants.map((band) => ({
             ...band,
-            gain: band.gain * 0.46,
+            gain: band.gain * 0.34,
           }));
         } else {
           eventWorklet.phoneme = {
             ...eventWorklet.phoneme,
-            voicedMix: eventWorklet.phoneme.voicedMix * 0.58,
+            voicedMix: eventWorklet.phoneme.voicedMix * 0.5,
             aspirationMix: Math.max(0.28, eventWorklet.phoneme.aspirationMix),
             noiseMix: Math.max(0.12, eventWorklet.phoneme.noiseMix),
           };
           eventWorklet.formants = eventWorklet.formants.map((band) => ({
             ...band,
-            gain: band.gain * 0.72,
+            gain: band.gain * 0.6,
           }));
         }
 
