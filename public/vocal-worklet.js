@@ -61,6 +61,7 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     this.sourceState = 0;
     this.speechTiltState = 0;
     this.speechAirLowState = 0;
+    this.speechBrightnessLowState = 0;
     this.outputState = 0;
 
     this.formantY1 = new Float64Array(5);
@@ -621,6 +622,7 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       this.envelopeState *= 0.996;
       this.speechTiltState *= 0.997;
       this.speechAirLowState *= 0.994;
+      this.speechBrightnessLowState *= 0.994;
       this.outputState *= 0.998;
       this.nasalState *= 0.996;
       this.fricationLowState *= 0.996;
@@ -936,6 +938,21 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       + speechAir
       + articulation.noise * speechFricativeGain
     ) * this.envelopeState * 0.405;
+
+    // Speech-only post-tract high shelf. The previous presence controls act
+    // inside the source/tract model; this small shelf makes upper harmonics
+    // survive the final mix even on vowel-heavy phrases.
+    const speechBrightnessGain = Math.max(
+      0,
+      Math.min(0.42, (style.speechPresenceBoost || 0) * 2.35),
+    );
+    if (speechBrightnessGain > 0) {
+      this.speechBrightnessLowState += (sample - this.speechBrightnessLowState) * 0.19;
+      const upper = sample - this.speechBrightnessLowState;
+      sample += upper * speechBrightnessGain;
+    } else {
+      this.speechBrightnessLowState += (sample - this.speechBrightnessLowState) * 0.19;
+    }
 
     const readIndex = (
       this.delayWrite
