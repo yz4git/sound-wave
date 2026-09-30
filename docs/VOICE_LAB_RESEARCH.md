@@ -537,3 +537,23 @@ VOICE LAB now treats several Japanese sentence-final particles as pragmatic atti
 Longer sentence starts now receive a very short pre-phonation breath lead. This is skipped for short utterances and parenthetical asides, and the first voiced unit receives a small breathier onset rather than a separate spoken token.
 
 Playback also has bounded per-take humanization. The score/prosody plan remains deterministic, but each playback take receives only tiny seeded variation: about ±1.6 cents of pitch, ±1.2% velocity, ±2.5% attack, and ±1.5 ms timing. The same unit/take pair is deterministic for testing, while successive takes avoid being bit-for-bit identical in delivery. Manual pitch, energy, duration, phrase controls, and pause edits remain the controlling layers.
+
+### 27. Compound attitude + punctuation and context delivery ramps
+
+VOICE LAB now composes pragmatic sentence-final attitude with explicit punctuation instead of forcing one layer to replace the other.
+
+- `ね？` keeps QUESTION intonation while adding a shared/confirmation attitude: a slightly larger terminal lift, longer open release, softer energy, and extra breath.
+- `よ！` keeps EXCLAIM intonation while adding assertive attitude: stronger energy, a tighter release, and a small additional pitch/closure push.
+- `かな……` keeps WONDER attitude while hesitation punctuation lowers the terminal lift, lengthens the final mora/release, softens energy, and increases breath.
+- `かも？` can remain uncertain while still functioning as a question; the uncertainty layer stays softer and breathier than a plain yes/no question.
+- Open JTalk POS disambiguation remains authoritative for lexical lookalikes, so noun readings are not promoted into pragmatic endings simply because their morae resemble `ね / よ / かな / かも`.
+
+Context delivery now ramps rate and energy during the latter part of a sentence instead of applying only an abrupt final-mora change.
+
+- shared questions gradually slow and soften near the ending;
+- assertive exclamations gradually gain energy and, especially under EXCITED delivery, a small amount of forward rate;
+- wondering and uncertain endings gradually slow and soften;
+- trailing hesitation strengthens that deceleration/softening;
+- CALM and WHISPER slightly deepen the late-sentence slowdown, while SERIOUS adds a little weight to assertive endings.
+
+The ramp sits below manual phrase and mora controls. Manual PITCH / ENERGY / TIMING still multiply or offset the automatically planned delivery last, so the automatic context layer improves the baseline without taking control away from editing.
