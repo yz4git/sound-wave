@@ -1,7 +1,9 @@
 import {
   finalizeVoiceUnits,
   parseVoiceScript,
+  stripVoiceSpeechEventMarkup,
   type VoiceScript,
+  type VoiceSpeechEvent,
   type VoiceUnit,
 } from './VoiceScript';
 import {
@@ -66,6 +68,7 @@ export function parseVoiceMarkup(text: string): VoiceMarkupScript {
   const units: VoiceUnit[] = [];
   const localExpressions: (VoiceExpressionSettings | null)[] = [];
   const unsupported: string[] = [];
+  const events: VoiceSpeechEvent[] = [];
   const plainParts: string[] = [];
   const speechSegments: VoiceSpeechSegment[] = [];
   const stack: VoiceExpressionSettings[] = [];
@@ -75,30 +78,41 @@ export function parseVoiceMarkup(text: string): VoiceMarkupScript {
 
   const appendSegment = (segment: string): void => {
     if (!segment) return;
-    plainParts.push(segment);
+    const stripped = stripVoiceSpeechEventMarkup(segment);
+    const spokenSegment = stripped.text;
     const active = stack[stack.length - 1] ?? null;
     const segmentStart = plainCursor;
-    const segmentEnd = segmentStart + segment.length;
-    const lastSpeech = speechSegments[speechSegments.length - 1];
-    const sameExpression = lastSpeech
-      && lastSpeech.expression?.preset === active?.preset
-      && lastSpeech.expression?.intensity === active?.intensity
-      && lastSpeech.plainEnd === segmentStart;
-    if (sameExpression) {
-      lastSpeech.text += segment;
-      lastSpeech.plainEnd = segmentEnd;
-    } else {
-      speechSegments.push({
-        text: segment,
-        expression: active ? { ...active } : null,
-        plainStart: segmentStart,
-        plainEnd: segmentEnd,
-      });
+    const segmentEnd = segmentStart + spokenSegment.length;
+    if (spokenSegment) {
+      plainParts.push(spokenSegment);
+      const lastSpeech = speechSegments[speechSegments.length - 1];
+      const sameExpression = lastSpeech
+        && lastSpeech.expression?.preset === active?.preset
+        && lastSpeech.expression?.intensity === active?.intensity
+        && lastSpeech.plainEnd === segmentStart;
+      if (sameExpression) {
+        lastSpeech.text += spokenSegment;
+        lastSpeech.plainEnd = segmentEnd;
+      } else {
+        speechSegments.push({
+          text: spokenSegment,
+          expression: active ? { ...active } : null,
+          plainStart: segmentStart,
+          plainEnd: segmentEnd,
+        });
+      }
     }
-    plainCursor = segmentEnd;
 
+    const baseUnitIndex = units.length;
     const parsed = parseVoiceScript(segment);
     neutralizeSyntheticFinalBoundary(parsed.units);
+    for (const event of parsed.events) {
+      events.push({
+        ...event,
+        afterUnit: baseUnitIndex + event.afterUnit,
+        textOffset: segmentStart + event.textOffset,
+      });
+    }
     for (const unit of parsed.units) {
       units.push({
         ...unit,
@@ -107,6 +121,8 @@ export function parseVoiceMarkup(text: string): VoiceMarkupScript {
       localExpressions.push(active ? { ...active } : null);
     }
     unsupported.push(...parsed.unsupported);
+    if (parsed.events.length > 0) markupUsed = true;
+    plainCursor = segmentEnd;
   };
 
   for (const match of text.matchAll(TAG)) {
@@ -144,6 +160,7 @@ export function parseVoiceMarkup(text: string): VoiceMarkupScript {
   return {
     units,
     unsupported: [...new Set(unsupported)],
+    events,
     plainText: plainParts.join(''),
     localExpressions,
     speechSegments,
