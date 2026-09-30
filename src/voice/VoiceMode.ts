@@ -43,7 +43,7 @@ import {
   needsJapanesePronunciationAnalysis,
   type JapaneseG2PAnalysis,
 } from './JapaneseG2P';
-import type { VoiceScript } from './VoiceScript';
+import { remapVoiceSpeechEvents, type VoiceScript } from './VoiceScript';
 import { getVoiceProsodyWindow } from './VoiceProsodyWindow';
 import {
   clearVoiceProsodySnapshot,
@@ -809,6 +809,10 @@ export class VoiceMode {
     let script: VoiceScript = markup;
     if (analyzed) {
       script = cloneVoiceScript(this.japaneseAnalysis!.script);
+      script.events = remapVoiceSpeechEvents(
+        markup.events,
+        this.japaneseAnalysis!.unitSourceRanges,
+      );
       this.ensurePhraseEdits(markup.plainText);
       applyPhraseBoundaryOverrides(script, this.phraseBoundaries);
 
@@ -964,7 +968,7 @@ export class VoiceMode {
     const note = this.required<HTMLElement>('#voice-engine-note');
     if (this.settings.engine === 'local') {
       note.textContent = analyzed
-        ? `LOCAL DSP · OPEN JTALK G2P · ${script.units.length} morae · ${this.japaneseAnalysis?.fullContextMatched ? 'full-context phonology + ' : ''}lexical pitch accent${markup.markupUsed ? ' + local delivery' : ''} + saved draw controls`
+        ? `LOCAL DSP · OPEN JTALK G2P · ${script.units.length} morae · ${script.events.length > 0 ? `${script.events.length} speech events · ` : ''}${this.japaneseAnalysis?.fullContextMatched ? 'full-context phonology + ' : ''}lexical pitch accent${markup.markupUsed ? ' + local delivery' : ''} + saved draw controls`
         : script.unsupported.length > 0
           ? `LOCAL DSP · KANJI DETECTED · SPEAK auto-runs reading + pitch accent`
           : `LOCAL DSP · ${script.units.length} morae · ${this.settings.expression.preset.toUpperCase()} delivery${markup.markupUsed ? ' + local spans' : ''} · draw pitch / energy / timing`;
