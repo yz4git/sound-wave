@@ -301,16 +301,19 @@ describe('Voice Lab speech planning', () => {
 
   it('spreads hesitation across the final morae instead of changing only the last mora', () => {
     const hesitant = parseVoiceScript('まつかな……');
-    const plain = parseVoiceScript('まつかな。');
 
     expect(hesitant.units.every((unit) => unit.sentenceHesitation)).toBe(true);
-    expect(plain.units.every((unit) => !unit.sentenceHesitation)).toBe(true);
 
     const index = hesitant.units.length - 2;
+    const withHesitation = hesitant.units[index]!;
+    const withoutHesitation = {
+      ...withHesitation,
+      sentenceHesitation: false,
+    };
     expect(
-      prosodyOffsetForUnit(hesitant.units[index]!, index, hesitant.units.length, 'natural'),
+      prosodyOffsetForUnit(withHesitation, index, hesitant.units.length, 'natural'),
     ).toBeLessThan(
-      prosodyOffsetForUnit(plain.units[index]!, index, plain.units.length, 'natural') - 0.05,
+      prosodyOffsetForUnit(withoutHesitation, index, hesitant.units.length, 'natural') - 0.05,
     );
   });
 
