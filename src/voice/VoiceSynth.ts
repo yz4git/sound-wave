@@ -1016,6 +1016,16 @@ export class VoiceSynth {
 
     plan.units.forEach((timed, index) => {
       const unit = timed.unit;
+      const interruptionBefore = script.events.some((event) => (
+        event.afterUnit === index - 1
+        && (
+          event.kind === 'restart'
+          || event.kind === 'rethink'
+          || event.kind === 'sigh'
+          || event.kind === 'inhale'
+        )
+      ));
+      if (interruptionBefore) previousPitchMidi = null;
       const expressionControl = voiceExpressionControl(timed.expression);
       const speechSource = speechSourceProfileFor(timed.expression);
       const emphasis = timed.phraseEmphasis;
@@ -1206,6 +1216,153 @@ export class VoiceSynth {
       );
       this.worklet.schedule(workletEvent);
       previousPitchMidi = performancePitchMidi;
+    });
+
+    const eventExpression = settings.expression ?? { preset: 'neutral', intensity: 1 };
+    const eventExpressionControl = voiceExpressionControl(eventExpression);
+    plan.events.forEach((timedEvent, eventIndex) => {
+      const profile = speechEventProfileFor(timedEvent.event.kind, timedEvent.event.strength);
+      if (profile.pulseCount <= 0 || timedEvent.duration <= 0) return;
+
+      for (let pulse = 0; pulse < profile.pulseCount; pulse += 1) {
+        const pulseSpan = timedEvent.duration / profile.pulseCount;
+        const pulseDuration = timedEvent.event.kind === 'laugh'
+          ? Math.max(0.065, pulseSpan * 0.72)
+          : timedEvent.duration;
+        const pulseOffset = timedEvent.event.kind === 'laugh'
+          ? pulse * pulseSpan
+          : 0;
+        const pitchMidi = clamp(
+          settings.pitch
+            + profile.pitchSemitones
+            + (timedEvent.event.kind === 'laugh' ? (pulse === 0 ? 0.35 : -0.2) : 0),
+          40,
+          82,
+        );
+        const roundedMidi = Math.round(pitchMidi);
+        const nonverbal: VocalEvent = {
+          step: 1000 + eventIndex * 4 + pulse,
+          pitch: pitchClassForMidi(roundedMidi),
+          octave: octaveForMidi(roundedMidi),
+          durationSteps: 1,
+          velocity: clamp(
+            profile.velocityScale * settings.energy,
+            0.08,
+            timedEvent.event.kind === 'laugh' ? 0.42 : 0.32,
+          ),
+          syllable: 'ha',
+          vowel: 'a',
+          nextVowel: null,
+          articulate: timedEvent.event.kind === 'laugh',
+          phraseStart: true,
+          phraseEnd: true,
+          glideFromMidi: null,
+        };
+
+        const eventWorklet = vocalEventToWorklet(
+          nonverbal,
+          settings.style,
+          startAt + timedEvent.start + pulseOffset,
+          pulseDuration,
+          undefined,
+          undefined,
+          undefined,
+          nonverbal.step % 16,
+          {
+            preset: settings.character,
+            tone: clamp(settings.tone + eventExpressionControl.toneOffset, -1, 1),
+          },
+        );
+        eventWorklet.targetHz = midiToHz(pitchMidi);
+        eventWorklet.ensemble = {
+          label: 'LEAD',
+          harmonyTargetHz: null,
+          harmonyGainScale: 0,
+        };
+        eventWorklet.karaoke = {
+          ...eventWorklet.karaoke,
+          scoopCents: timedEvent.event.kind === 'laugh' ? 3.5 : 0,
+          fallCents: timedEvent.event.kind === 'sigh' ? 10 : 0,
+          vibratoGain: 0,
+        };
+        eventWorklet.style = {
+          ...eventWorklet.style,
+          vibratoDepthCents: 0,
+          doubleLevel: 0,
+          intensityModDepth: timedEvent.event.kind === 'laugh' ? 0.014 : 0.003,
+          jitterCents: timedEvent.event.kind === 'laugh' ? 0.9 : 0.25,
+          breathLevel: timedEvent.event.kind === 'inhale'
+            ? 1.05
+            : timedEvent.event.kind === 'sigh'
+              ? 0.78
+              : 0.28,
+          attackSeconds: timedEvent.event.kind === 'laugh'
+            ? eventWorklet.style.attackSeconds * 0.55
+            : eventWorklet.style.attackSeconds * 0.82,
+          releaseSeconds: timedEvent.event.kind === 'sigh'
+            ? Math.max(0.12, eventWorklet.style.releaseSeconds * 1.35)
+            : eventWorklet.style.releaseSeconds * 0.72,
+          speechSourceMix: timedEvent.event.kind === 'inhale'
+            ? 0.32
+            : timedEvent.event.kind === 'sigh'
+              ? 0.56
+              : 0.74,
+          speechSourceTilt: timedEvent.event.kind === 'inhale'
+            ? 0.88
+            : timedEvent.event.kind === 'sigh'
+              ? 0.82
+              : 0.68,
+          speechCoarticulation: 0.45,
+          speechPulseNoise: timedEvent.event.kind === 'inhale'
+            ? 0.28
+            : timedEvent.event.kind === 'sigh'
+              ? 0.2
+              : 0.14,
+          speechPitchTransitionScale: 0.62,
+          speechFinalCreak: 0,
+          speechFinalBreath: timedEvent.event.kind === 'sigh' ? 0.22 : 0.08,
+        };
+
+        if (timedEvent.event.kind === 'inhale') {
+          eventWorklet.phoneme = {
+            ...eventWorklet.phoneme,
+            voicedMix: 0.015,
+            aspirationMix: 0.96,
+            noiseMix: Math.max(0.34, eventWorklet.phoneme.noiseMix),
+            closureSeconds: 0,
+            burstSeconds: 0,
+          };
+          eventWorklet.formants = eventWorklet.formants.map((band) => ({
+            ...band,
+            gain: band.gain * 0.12,
+          }));
+        } else if (timedEvent.event.kind === 'sigh') {
+          eventWorklet.glideFromHz = midiToHz(pitchMidi + 2.8);
+          eventWorklet.phoneme = {
+            ...eventWorklet.phoneme,
+            voicedMix: eventWorklet.phoneme.voicedMix * 0.2,
+            aspirationMix: Math.max(0.58, eventWorklet.phoneme.aspirationMix),
+            noiseMix: Math.max(0.16, eventWorklet.phoneme.noiseMix),
+          };
+          eventWorklet.formants = eventWorklet.formants.map((band) => ({
+            ...band,
+            gain: band.gain * 0.46,
+          }));
+        } else {
+          eventWorklet.phoneme = {
+            ...eventWorklet.phoneme,
+            voicedMix: eventWorklet.phoneme.voicedMix * 0.58,
+            aspirationMix: Math.max(0.28, eventWorklet.phoneme.aspirationMix),
+            noiseMix: Math.max(0.12, eventWorklet.phoneme.noiseMix),
+          };
+          eventWorklet.formants = eventWorklet.formants.map((band) => ({
+            ...band,
+            gain: band.gain * 0.72,
+          }));
+        }
+
+        this.worklet.schedule(eventWorklet);
+      }
     });
 
     return plan;
