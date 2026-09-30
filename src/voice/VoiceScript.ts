@@ -982,15 +982,15 @@ export function parseVoiceScript(text: string): VoiceScript {
 
 function accentPhraseOffset(unit: VoiceUnit): number {
   if (unit.pitchAccent !== 'auto') {
-    const lexical = unit.pitchAccent === 'high' ? 0.44 : -0.42;
-    const declination = unit.pitchAccent === 'high' ? unit.accentIndex * 0.055 : 0;
+    const lexical = unit.pitchAccent === 'high' ? 0.52 : -0.46;
+    const declination = unit.pitchAccent === 'high' ? unit.accentIndex * 0.06 : 0;
     return lexical - declination - (unit.accentEnd ? 0.08 : 0);
   }
   if (unit.accentCount <= 1) return 0;
-  if (unit.accentIndex === 0) return -0.48;
-  const decline = Math.max(0, unit.accentIndex - 1) * 0.11;
-  const crest = 0.5 - decline;
-  return crest - (unit.accentEnd ? 0.16 : 0);
+  if (unit.accentIndex === 0) return -0.54;
+  const decline = Math.max(0, unit.accentIndex - 1) * 0.12;
+  const crest = 0.59 - decline;
+  return crest - (unit.accentEnd ? 0.17 : 0);
 }
 
 function consonantMicroProsody(unit: VoiceUnit): number {
@@ -1031,7 +1031,7 @@ export function prosodyOffsetForUnit(
     ? 0
     : unit.phraseIndex / Math.max(1, unit.phraseCount - 1);
   const lexicalAccent = unit.pitchAccent !== 'auto';
-  const phraseArcBase = Math.sin(phraseProgress * Math.PI) * 0.24 - phraseProgress * 0.42;
+  const phraseArcBase = Math.sin(phraseProgress * Math.PI) * 0.31 - phraseProgress * 0.46;
   const phraseArc = phraseArcBase * (lexicalAccent ? 0.25 : 1);
   const accent = accentPhraseOffset(unit);
   const micro = consonantMicroProsody(unit);
@@ -1150,7 +1150,15 @@ export function prosodyOffsetForUnit(
     : Math.max(0, Math.min(1, (phraseProgress - 0.68) / 0.32));
   const easedTerminal = terminal * terminal * (3 - 2 * terminal);
   const finalLowering = -(lexicalAccent ? 0.12 : 0.28) * easedTerminal;
-  return phraseArc + accent + micro + reset + finalLowering + sentenceDeclination + boundaryReset + continuationMotion + discourseMotion;
+  return phraseArc * 1.16
+    + accent * 1.12
+    + micro * 1.08
+    + reset
+    + finalLowering
+    + sentenceDeclination
+    + boundaryReset
+    + continuationMotion
+    + discourseMotion;
 }
 
 // Kept as a simple public contour helper for tests and external callers.
