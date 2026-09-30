@@ -40,6 +40,7 @@ import {
 import {
   analyzeJapaneseText,
   containsKanji,
+  japaneseFirstUsePlaybackStrategy,
   needsJapanesePronunciationAnalysis,
   type JapaneseG2PAnalysis,
 } from './JapaneseG2P';
@@ -1717,10 +1718,13 @@ export class VoiceMode {
     }
 
     let resolved = this.resolveLocalScript(text);
-    const needsAnalysis = needsJapanesePronunciationAnalysis(markup.plainText) && !resolved.analyzed;
-    const quickKanaWhileLoading = needsAnalysis && !containsKanji(markup.plainText);
-    if (needsAnalysis) {
-      if (containsKanji(markup.plainText)) {
+    const playbackStrategy = japaneseFirstUsePlaybackStrategy(
+      markup.plainText,
+      resolved.analyzed,
+    );
+    const quickKanaWhileLoading = playbackStrategy === 'quick-local';
+    if (playbackStrategy !== 'precise-local') {
+      if (playbackStrategy === 'quick-system') {
         this.required<HTMLElement>('#voice-japanese-status').textContent =
           'OPEN JTALK LOADING IN BACKGROUND · SYSTEM TTS PLAYS NOW';
         void this.analyzeJapanese(false);
