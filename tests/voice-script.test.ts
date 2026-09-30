@@ -72,6 +72,21 @@ describe('Voice Lab speech planning', () => {
     expect(script.unsupported).toContain('声');
   });
 
+  it('extracts nonverbal speech events without speaking their labels', () => {
+    const script = parseVoiceScript('（息）あ（笑）い（ため息）（言い直し）う（思い直し）え。');
+
+    expect(script.units.map((unit) => unit.display)).toEqual(['あ', 'い', 'う', 'え']);
+    expect(script.unsupported).toEqual([]);
+    expect(script.events.map((event) => event.kind)).toEqual([
+      'inhale',
+      'laugh',
+      'sigh',
+      'restart',
+      'rethink',
+    ]);
+    expect(script.events.map((event) => event.afterUnit)).toEqual([-1, 0, 1, 1, 2]);
+  });
+
   it('keeps sentence punctuation metadata for AUTO intonation', () => {
     const script = parseVoiceScript('あい？うえ！お。');
 
