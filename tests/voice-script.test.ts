@@ -319,6 +319,16 @@ describe('Voice Lab speech planning', () => {
     expect(questionEnd).toBeGreaterThan(1.5);
   });
 
+  it('keeps neutral conversational speech from collapsing into a near-flat F0 range', () => {
+    const script = parseVoiceScript('あいうえお。');
+    const offsets = script.units.map((unit, index) => (
+      prosodyOffsetForUnit(unit, index, script.units.length, 'natural')
+    ));
+    const spread = Math.max(...offsets) - Math.min(...offsets);
+
+    expect(spread).toBeGreaterThan(1.45);
+  });
+
   it('spreads question rise across the sentence ending instead of jumping only on the final mora', () => {
     const script = parseVoiceScript('あいうえお。');
     const offsets = script.units.map((unit, index) => (
