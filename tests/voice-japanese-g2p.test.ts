@@ -9,9 +9,42 @@ import {
   pitchAccentPattern,
   type JapaneseFrontendNode,
 } from '../src/voice/JapaneseG2P';
-import { prosodyOffsetForUnit } from '../src/voice/VoiceScript';
+import { prosodyOffsetForUnit, remapVoiceSpeechEvents } from '../src/voice/VoiceScript';
+import { parseVoiceMarkup } from '../src/voice/VoiceMarkup';
 
 describe('VOICE LAB Japanese G2P mapping', () => {
+  it('remaps speech-event positions onto Open JTalk mora ranges', () => {
+    const markup = parseVoiceMarkup('今日は（笑）行く');
+    const nodes: JapaneseFrontendNode[] = [
+      {
+        string: '今日は',
+        read: 'キョーワ',
+        pron: 'キョーワ',
+        acc: 1,
+        mora_size: 3,
+        chain_flag: -1,
+        pos: '名詞',
+      },
+      {
+        string: '行く',
+        read: 'イク',
+        pron: 'イク',
+        acc: 0,
+        mora_size: 2,
+        chain_flag: 0,
+        pos: '動詞',
+      },
+    ];
+
+    const analysis = buildScriptFromJapaneseFrontend(nodes, markup.plainText);
+    const events = remapVoiceSpeechEvents(markup.events, analysis.unitSourceRanges);
+
+    expect(markup.plainText).toBe('今日は行く');
+    expect(events).toHaveLength(1);
+    expect(events[0]?.kind).toBe('laugh');
+    expect(events[0]?.afterUnit).toBe(2);
+  });
+
   it('creates standard Japanese pitch-accent patterns', () => {
     expect(pitchAccentPattern(4, 0)).toEqual(['low', 'high', 'high', 'high']);
     expect(pitchAccentPattern(4, 1)).toEqual(['high', 'low', 'low', 'low']);
