@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parseVoiceScript } from '../src/voice/VoiceScript';
 import {
   geminatePreclosureSeconds,
   speechAttitudeProfileFor,
@@ -88,60 +89,20 @@ describe('VOICE LAB speech source', () => {
   });
 
   it('maps sentence-final particles to distinct attitude endings', () => {
-    const shared = speechAttitudeProfileFor(
-      { ...({
-        index: 0,
-        display: 'ね',
-        syllable: 'ne',
-        vowel: 'e',
-        phraseStart: true,
-        phraseEnd: true,
-        phraseIndex: 0,
-        phraseCount: 1,
-        accentStart: true,
-        accentEnd: true,
-        accentIndex: 0,
-        accentCount: 1,
-        accentPhraseIndex: 0,
-        accentPhraseCount: 1,
-        boundaryAfter: 'sentence',
-        pauseAfter: 0.3,
-        boundaryBefore: 'none',
-        pauseBefore: 0,
-        questionKind: 'none',
-        questionFocus: false,
-        sentenceAttitude: 'shared',
-        attitudeFocus: true,
-        suppressAttitudeInference: false,
-        continuationAfter: 'none',
-        continuationBefore: 'none',
-        suppressContinuationInference: false,
-        discourseAfter: 'none',
-        discourseBefore: 'none',
-        focusStrength: 0,
-        quoted: false,
-        parenthetical: false,
-        breathBefore: 0,
-        breathAfter: false,
-        expressivePauseAfter: 0,
-        hesitationAfter: false,
-        filledPause: false,
-        autoRateScale: 1,
-        sentenceTerminal: 'statement',
-        terminalAfter: 'statement',
-        geminateBefore: false,
-        longVowel: false,
-        moraicN: false,
-        devoiced: false,
-        pitchAccent: 'auto',
-      } as const) },
-    );
-    const assertive = speechAttitudeProfileFor({ ...shared as never });
+    const shared = speechAttitudeProfileFor(parseVoiceScript('そうだね。').units.at(-1)!);
+    const assertive = speechAttitudeProfileFor(parseVoiceScript('いくよ。').units.at(-1)!);
+    const wonder = speechAttitudeProfileFor(parseVoiceScript('どうしようかな。').units.at(-1)!);
+    const uncertain = speechAttitudeProfileFor(parseVoiceScript('いくかも。').units.at(-1)!);
 
     expect(shared.pitchSemitones).toBeGreaterThan(0);
     expect(shared.releaseScale).toBeGreaterThan(1);
     expect(shared.fallCentsOffset).toBeLessThan(0);
-    expect(assertive).toBeTruthy();
+    expect(assertive.energyScale).toBeGreaterThan(1);
+    expect(assertive.releaseScale).toBeLessThan(1);
+    expect(wonder.pitchSemitones).toBeGreaterThan(shared.pitchSemitones);
+    expect(wonder.durationScale).toBeGreaterThan(shared.durationScale);
+    expect(uncertain.energyScale).toBeLessThan(shared.energyScale);
+    expect(uncertain.breathAdd).toBeGreaterThan(shared.breathAdd);
   });
 
   it('keeps per-take microvariation tiny, deterministic, and take-dependent', () => {
