@@ -5,6 +5,7 @@ export type VoiceResolvedIntonation = Exclude<VoiceIntonation, 'auto'> | 'exclai
 export type VoiceBoundary = 'none' | 'accent' | 'sentence';
 export type VoicePitchAccent = 'auto' | 'low' | 'high';
 export type VoiceSentenceTerminal = 'statement' | 'question' | 'exclamation';
+export type VoiceSentenceAttitude = 'none' | 'shared' | 'assertive' | 'wonder' | 'uncertain';
 export type VoiceQuestionKind = 'none' | 'yes-no' | 'content';
 export type VoiceContinuationKind =
   | 'none'
@@ -36,6 +37,9 @@ export interface VoiceUnit {
   pauseBefore: number;
   questionKind: VoiceQuestionKind;
   questionFocus: boolean;
+  sentenceAttitude: VoiceSentenceAttitude;
+  attitudeFocus: boolean;
+  suppressAttitudeInference: boolean;
   continuationAfter: VoiceContinuationKind;
   continuationBefore: VoiceContinuationKind;
   suppressContinuationInference: boolean;
@@ -44,6 +48,7 @@ export interface VoiceUnit {
   focusStrength: number;
   quoted: boolean;
   parenthetical: boolean;
+  breathBefore: number;
   breathAfter: boolean;
   expressivePauseAfter: number;
   hesitationAfter: boolean;
@@ -215,6 +220,9 @@ function pushUnit(
     pauseBefore: 0,
     questionKind: 'none',
     questionFocus: false,
+    sentenceAttitude: 'none',
+    attitudeFocus: false,
+    suppressAttitudeInference: false,
     continuationAfter: 'none',
     continuationBefore: 'none',
     suppressContinuationInference: false,
@@ -223,6 +231,7 @@ function pushUnit(
     focusStrength: 0,
     quoted: false,
     parenthetical: false,
+    breathBefore: 0,
     breathAfter: false,
     expressivePauseAfter: 0,
     hesitationAfter: false,
@@ -356,6 +365,42 @@ function questionFocusRange(
       }
       if (matches) return { start: cursor, end: cursor + pattern.length - 1 };
     }
+  }
+  return null;
+}
+
+const SENTENCE_ATTITUDE_PATTERNS: readonly {
+  attitude: Exclude<VoiceSentenceAttitude, 'none'>;
+  syllables: readonly string[];
+}[] = [
+  { attitude: 'shared', syllables: ['yo', 'ne'] },
+  { attitude: 'wonder', syllables: ['ka', 'na'] },
+  { attitude: 'uncertain', syllables: ['ka', 'mo'] },
+  { attitude: 'shared', syllables: ['ne'] },
+  { attitude: 'assertive', syllables: ['yo'] },
+] as const;
+
+function sentenceAttitudeRange(
+  units: readonly VoiceUnit[],
+  start: number,
+  end: number,
+): { start: number; attitude: VoiceSentenceAttitude } | null {
+  if (units[end]?.suppressAttitudeInference) return null;
+  for (const entry of SENTENCE_ATTITUDE_PATTERNS) {
+    const patternStart = end - entry.syllables.length + 1;
+    if (patternStart < start) continue;
+    let matches = true;
+    for (let offset = 0; offset < entry.syllables.length; offset += 1) {
+      if (units[patternStart + offset]?.syllable.toLowerCase() !== entry.syllables[offset]) {
+        matches = false;
+        break;
+      }
+      if (units[patternStart + offset]?.suppressAttitudeInference) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) return { start: patternStart, attitude: entry.attitude };
   }
   return null;
 }
@@ -547,6 +592,9 @@ export function refreshVoiceUnitBoundaryMetadata(units: VoiceUnit[]): void {
     const questionKind: VoiceQuestionKind = terminal === 'question'
       ? focus ? 'content' : 'yes-no'
       : 'none';
+    const attitude = terminal === 'statement'
+      ? sentenceAttitudeRange(units, sentenceStart, index)
+      : null;
     for (let cursor = sentenceStart; cursor <= index; cursor += 1) {
       const candidate = units[cursor]!;
       candidate.phraseIndex = cursor - sentenceStart;
@@ -558,6 +606,13 @@ export function refreshVoiceUnitBoundaryMetadata(units: VoiceUnit[]): void {
       candidate.questionFocus = focus !== null
         && cursor >= focus.start
         && cursor <= focus.end;
+      candidate.sentenceAttitude = attitude?.attitude ?? 'none';
+      candidate.attitudeFocus = attitude !== null && cursor >= attitude.start;
+      candidate.breathBefore = cursor === sentenceStart && count >= 6
+        ? candidate.parenthetical
+          ? 0
+          : 0.026
+        : 0;
     }
     sentenceStart = index + 1;
   }
@@ -913,7 +968,19 @@ export function prosodyOffsetForUnit(
         : unit.discourseBefore === 'subject'
           ? 0.035
           : 0;
+  const attitudeLift = unit.attitudeFocus
+    ? unit.sentenceAttitude === 'wonder'
+      ? 0.24
+      : unit.sentenceAttitude === 'shared'
+        ? 0.14
+        : unit.sentenceAttitude === 'assertive'
+          ? 0.035
+          : unit.sentenceAttitude === 'uncertain'
+            ? 0.09
+            : 0
+    : 0;
   const focusLift = unit.focusStrength * 0.16
+    + attitudeLift
     + (unit.quoted ? 0.035 : 0)
     - (unit.parenthetical ? 0.055 : 0)
     - (unit.filledPause ? 0.08 : 0)
