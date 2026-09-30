@@ -986,15 +986,15 @@ export function parseVoiceScript(text: string): VoiceScript {
 
 function accentPhraseOffset(unit: VoiceUnit): number {
   if (unit.pitchAccent !== 'auto') {
-    const lexical = unit.pitchAccent === 'high' ? 0.52 : -0.46;
-    const declination = unit.pitchAccent === 'high' ? unit.accentIndex * 0.06 : 0;
+    const lexical = unit.pitchAccent === 'high' ? 0.58 : -0.5;
+    const declination = unit.pitchAccent === 'high' ? unit.accentIndex * 0.062 : 0;
     return lexical - declination - (unit.accentEnd ? 0.08 : 0);
   }
   if (unit.accentCount <= 1) return 0;
-  if (unit.accentIndex === 0) return -0.54;
-  const decline = Math.max(0, unit.accentIndex - 1) * 0.12;
-  const crest = 0.59 - decline;
-  return crest - (unit.accentEnd ? 0.17 : 0);
+  if (unit.accentIndex === 0) return -0.62;
+  const decline = Math.max(0, unit.accentIndex - 1) * 0.13;
+  const crest = 0.7 - decline;
+  return crest - (unit.accentEnd ? 0.18 : 0);
 }
 
 function consonantMicroProsody(unit: VoiceUnit): number {
@@ -1035,7 +1035,7 @@ export function prosodyOffsetForUnit(
     ? 0
     : unit.phraseIndex / Math.max(1, unit.phraseCount - 1);
   const lexicalAccent = unit.pitchAccent !== 'auto';
-  const phraseArcBase = Math.sin(phraseProgress * Math.PI) * 0.31 - phraseProgress * 0.46;
+  const phraseArcBase = Math.sin(phraseProgress * Math.PI) * 0.36 - phraseProgress * 0.5;
   const phraseArc = phraseArcBase * (lexicalAccent ? 0.25 : 1);
   const accent = accentPhraseOffset(unit);
   const micro = consonantMicroProsody(unit);
@@ -1159,8 +1159,8 @@ export function prosodyOffsetForUnit(
     : Math.max(0, Math.min(1, (phraseProgress - 0.68) / 0.32));
   const easedTerminal = terminal * terminal * (3 - 2 * terminal);
   const finalLowering = -(lexicalAccent ? 0.12 : 0.28) * easedTerminal;
-  return phraseArc * 1.16
-    + accent * 1.12
+  return phraseArc * 1.22
+    + accent * 1.16
     + micro * 1.08
     + reset
     + finalLowering
