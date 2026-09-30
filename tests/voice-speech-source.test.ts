@@ -3,6 +3,7 @@ import { parseVoiceScript } from '../src/voice/VoiceScript';
 import {
   geminatePreclosureSeconds,
   speechAttitudeProfileFor,
+  speechContextDeliveryFor,
   speechFinalityProfileFor,
   speechSourceProfileFor,
   speechTakeVariationFor,
@@ -103,6 +104,50 @@ describe('VOICE LAB speech source', () => {
     expect(wonder.durationScale).toBeGreaterThan(shared.durationScale);
     expect(uncertain.energyScale).toBeLessThan(shared.energyScale);
     expect(uncertain.breathAdd).toBeGreaterThan(shared.breathAdd);
+  });
+
+  it('combines attitude with punctuation instead of replacing it', () => {
+    const sharedQuestion = speechAttitudeProfileFor(parseVoiceScript('そうだね？').units.at(-1)!);
+    const plainShared = speechAttitudeProfileFor(parseVoiceScript('そうだね。').units.at(-1)!);
+    const assertiveExclaim = speechAttitudeProfileFor(parseVoiceScript('いくよ！').units.at(-1)!);
+    const plainAssertive = speechAttitudeProfileFor(parseVoiceScript('いくよ。').units.at(-1)!);
+    const wonderHesitation = speechAttitudeProfileFor(parseVoiceScript('どうしようかな……').units.at(-1)!);
+
+    expect(sharedQuestion.pitchSemitones).toBeGreaterThan(plainShared.pitchSemitones);
+    expect(sharedQuestion.releaseScale).toBeGreaterThan(plainShared.releaseScale);
+    expect(assertiveExclaim.energyScale).toBeGreaterThan(plainAssertive.energyScale);
+    expect(assertiveExclaim.releaseScale).toBeLessThan(plainAssertive.releaseScale);
+    expect(wonderHesitation.durationScale).toBeGreaterThan(1.1);
+    expect(wonderHesitation.breathAdd).toBeGreaterThan(0.06);
+  });
+
+  it('ramps rate and energy toward the compound sentence ending', () => {
+    const shared = parseVoiceScript('これはそうだね？');
+    const emphatic = parseVoiceScript('これはいくよ！');
+    const wondering = parseVoiceScript('これはどうかな……');
+
+    const sharedStart = speechContextDeliveryFor(
+      shared.units[0]!,
+      { preset: 'neutral', intensity: 1 },
+    );
+    const sharedEnd = speechContextDeliveryFor(
+      shared.units.at(-1)!,
+      { preset: 'neutral', intensity: 1 },
+    );
+    const emphaticEnd = speechContextDeliveryFor(
+      emphatic.units.at(-1)!,
+      { preset: 'excited', intensity: 1 },
+    );
+    const wonderingEnd = speechContextDeliveryFor(
+      wondering.units.at(-1)!,
+      { preset: 'neutral', intensity: 1 },
+    );
+
+    expect(sharedEnd.rateScale).toBeLessThan(sharedStart.rateScale);
+    expect(sharedEnd.energyScale).toBeLessThan(sharedStart.energyScale);
+    expect(emphaticEnd.energyScale).toBeGreaterThan(1.05);
+    expect(wonderingEnd.rateScale).toBeLessThan(0.96);
+    expect(wonderingEnd.energyScale).toBeLessThan(0.93);
   });
 
   it('keeps per-take microvariation tiny, deterministic, and take-dependent', () => {
