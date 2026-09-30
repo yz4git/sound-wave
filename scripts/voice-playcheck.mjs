@@ -45,8 +45,28 @@ for (const [name, text] of samples) {
       import('/src/voice/VoiceSynth.ts'),
       import('/src/voice/VoiceScript.ts'),
     ]);
-    window.__voiceReview = { synth: new VoiceSynth(), parseVoiceScript };
+    const synth = new VoiceSynth();
+    window.__voiceReview = { synth, parseVoiceScript };
+    const button = document.createElement('button');
+    button.id = 'voice-review-unlock';
+    button.textContent = 'UNLOCK AUDIO';
+    button.style.position = 'fixed';
+    button.style.zIndex = '99999';
+    button.style.left = '20px';
+    button.style.top = '20px';
+    button.addEventListener('click', () => {
+      window.__voiceReviewUnlockPromise = synth.unlock();
+    }, { once: true });
+    document.body.append(button);
   });
+  await page.click('#voice-review-unlock');
+  await page.evaluate(async () => {
+    await Promise.race([
+      window.__voiceReviewUnlockPromise,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('Audio unlock timeout')), 8000)),
+    ]);
+  });
+  console.log('AUDIO READY', name);
 
   const settings = {
     style: 'warm',
