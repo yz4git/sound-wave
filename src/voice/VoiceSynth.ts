@@ -287,43 +287,47 @@ export function speechAttitudeProfileFor(unit: VoiceUnit): SpeechAttitudeProfile
   }
 
   if (unit.sentenceAttitude === 'shared') {
+    const asking = unit.sentenceTerminal === 'question';
     return {
-      pitchSemitones: 0.08,
-      durationScale: 1.055,
-      energyScale: 0.98,
-      breathAdd: 0.02,
-      releaseScale: 1.05,
-      fallCentsOffset: -3,
+      pitchSemitones: asking ? 0.15 : 0.08,
+      durationScale: asking ? 1.075 : 1.055,
+      energyScale: asking ? 0.97 : 0.98,
+      breathAdd: asking ? 0.03 : 0.02,
+      releaseScale: asking ? 1.085 : 1.05,
+      fallCentsOffset: asking ? 0 : -3,
     };
   }
   if (unit.sentenceAttitude === 'assertive') {
+    const emphatic = unit.sentenceTerminal === 'exclamation';
     return {
-      pitchSemitones: -0.015,
-      durationScale: 1.02,
-      energyScale: 1.035,
+      pitchSemitones: emphatic ? 0.045 : -0.015,
+      durationScale: emphatic ? 1.01 : 1.02,
+      energyScale: emphatic ? 1.085 : 1.035,
       breathAdd: 0,
-      releaseScale: 0.985,
-      fallCentsOffset: 1.5,
+      releaseScale: emphatic ? 0.955 : 0.985,
+      fallCentsOffset: emphatic ? 2.5 : 1.5,
     };
   }
   if (unit.sentenceAttitude === 'wonder') {
+    const trailingHesitation = unit.hesitationAfter;
     return {
-      pitchSemitones: 0.14,
-      durationScale: 1.08,
-      energyScale: 0.95,
-      breathAdd: 0.04,
-      releaseScale: 1.09,
+      pitchSemitones: trailingHesitation ? 0.08 : 0.14,
+      durationScale: trailingHesitation ? 1.115 : 1.08,
+      energyScale: trailingHesitation ? 0.9 : 0.95,
+      breathAdd: trailingHesitation ? 0.065 : 0.04,
+      releaseScale: trailingHesitation ? 1.14 : 1.09,
       fallCentsOffset: -5,
     };
   }
   if (unit.sentenceAttitude === 'uncertain') {
+    const asking = unit.sentenceTerminal === 'question';
     return {
-      pitchSemitones: 0.045,
-      durationScale: 1.07,
-      energyScale: 0.92,
-      breathAdd: 0.05,
-      releaseScale: 1.1,
-      fallCentsOffset: -3,
+      pitchSemitones: asking ? 0.085 : 0.045,
+      durationScale: asking ? 1.085 : 1.07,
+      energyScale: asking ? 0.9 : 0.92,
+      breathAdd: asking ? 0.055 : 0.05,
+      releaseScale: asking ? 1.12 : 1.1,
+      fallCentsOffset: asking ? 0 : -3,
     };
   }
   return {
@@ -333,6 +337,59 @@ export function speechAttitudeProfileFor(unit: VoiceUnit): SpeechAttitudeProfile
     breathAdd: 0,
     releaseScale: 1,
     fallCentsOffset: 0,
+  };
+}
+
+export interface SpeechContextDelivery {
+  rateScale: number;
+  energyScale: number;
+}
+
+export function speechContextDeliveryFor(
+  unit: VoiceUnit,
+  expression: VoiceExpressionSettings,
+): SpeechContextDelivery {
+  const progress = unit.phraseCount <= 1
+    ? 1
+    : unit.phraseIndex / Math.max(1, unit.phraseCount - 1);
+  const tail = clamp((progress - 0.55) / 0.45, 0, 1);
+  const intensity = clamp(expression.intensity, 0, 1.35);
+
+  let rateScale = 1;
+  let energyScale = 1;
+
+  if (unit.sentenceAttitude === 'shared' && unit.sentenceTerminal === 'question') {
+    rateScale *= 1 - 0.025 * tail;
+    energyScale *= 1 - 0.025 * tail;
+  } else if (unit.sentenceAttitude === 'assertive' && unit.sentenceTerminal === 'exclamation') {
+    rateScale *= 1 + 0.018 * tail;
+    energyScale *= 1 + 0.065 * tail;
+  } else if (unit.sentenceAttitude === 'wonder') {
+    rateScale *= 1 - (unit.hesitationAfter ? 0.06 : 0.035) * tail;
+    energyScale *= 1 - (unit.hesitationAfter ? 0.075 : 0.045) * tail;
+  } else if (unit.sentenceAttitude === 'uncertain') {
+    rateScale *= 1 - 0.035 * tail;
+    energyScale *= 1 - 0.065 * tail;
+  }
+
+  if (unit.hesitationAfter) {
+    rateScale *= 0.98;
+    energyScale *= 0.97;
+  }
+
+  if (expression.preset === 'excited') {
+    energyScale *= 1 + 0.025 * tail * intensity;
+    if (unit.sentenceTerminal === 'exclamation') rateScale *= 1 + 0.012 * tail * intensity;
+  } else if (expression.preset === 'calm' || expression.preset === 'whisper') {
+    rateScale *= 1 - 0.012 * tail * intensity;
+    energyScale *= 1 - 0.015 * tail * intensity;
+  } else if (expression.preset === 'serious' && unit.sentenceAttitude === 'assertive') {
+    energyScale *= 1 + 0.02 * tail * intensity;
+  }
+
+  return {
+    rateScale: clamp(rateScale, 0.9, 1.08),
+    energyScale: clamp(energyScale, 0.86, 1.12),
   };
 }
 
@@ -726,7 +783,11 @@ export class VoiceSynth {
       const phraseRateScale = clamp(edits.phraseRateScales?.[index] ?? 1, 0.72, 1.35);
       const phraseEnergyScale = clamp(edits.phraseEnergyScales?.[index] ?? 1, 0.65, 1.45);
       const phraseEmphasis = clamp(edits.phraseEmphasisScales?.[index] ?? 0, 0, 1.5);
-      const effectiveRate = settings.rate * phraseRateScale * unit.autoRateScale;
+      const contextDelivery = speechContextDeliveryFor(unit, expression);
+      const effectiveRate = settings.rate
+        * phraseRateScale
+        * unit.autoRateScale
+        * contextDelivery.rateScale;
       const emphasisProfile = speechEmphasisProfileFor(
         unit,
         script.units[index + 1],
@@ -767,6 +828,7 @@ export class VoiceSynth {
       const energyScale = clamp(
         unitEnergyScale(unit)
           * expressionUnit.energyScale
+          * contextDelivery.energyScale
           * phraseEnergyScale
           * emphasisProfile.energyScale
           * finalEnergyScale
