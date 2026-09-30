@@ -98,6 +98,12 @@ export interface VocalWorkletEvent {
     speechCoarticulation?: number;
     /** Phase-synchronous aspiration/noise mixed into speech phonation. */
     speechPulseNoise?: number;
+    /** Speech-only high-harmonic excitation fed through the tract model. */
+    speechPresenceBoost?: number;
+    /** Speech-only high-passed air mixed after the tract model. */
+    speechAirPresence?: number;
+    /** Speech-only gain for direct consonant/frication noise. */
+    speechFricativeGain?: number;
     /** Speech-only multiplier for inter-mora F0 transition time. */
     speechPitchTransitionScale?: number;
     /** Sentence-final irregular phonation amount for spoken Japanese. */
