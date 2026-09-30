@@ -573,3 +573,17 @@ Speech events carry both a text offset and an after-mora position. Local-deliver
 The playback plan now exposes timed speech events separately from timed morae. Laugh, sigh, and inhale events are synthesized through the same AudioWorklet source-filter engine but use strongly reduced voicing, increased aspiration/noise, no harmony/doubling, and conservative levels. Restart/rethink remain silence-plus-prosody events rather than fake spoken words.
 
 Manual mora PITCH / ENERGY / TIMING and phrase controls still sit above the automatic repair transition. WAV export uses the same event scheduler as live playback, so nonverbal events are rendered consistently in exported audio.
+
+### 29. Playcheck-driven speech quality pass
+
+A live Voice Lab playcheck exposed five practical weaknesses, and the local speech path now addresses all five.
+
+- Spoken-only presence shaping now raises F2/F3/F4/F5 support, the dedicated presence resonator, radiation brightness, and fricative/noisy-consonant energy. This is applied in VoiceSynth after the shared singing model is built, so AUTO COMPOSE singing timbre is not globally brightened.
+- The neutral speech source uses less low-pass spectral tilt, while CALM and WHISPER remain intentionally softer. EXCITED/SERIOUS preserve more upper spectral detail.
+- Natural Japanese F0 motion was widened at the accent-phrase and sentence-arc layers. QUESTION logic remains separate, but ordinary declaratives no longer collapse as easily into a near-flat ~1-semitone contour.
+- `かな……` / uncertain-wondering hesitation now propagates a sentence-level hesitation flag to the last several morae. The lead-in progressively lowers F0, slows rate, reduces energy, lengthens the ending, and increases breath rather than relying mostly on the silent ellipsis gap.
+- Repair events no longer stack a full punctuation pause plus an event pause. `（言い直し）` and `（思い直し）` merge the grammatical pause into the repair timing, keeping restart near conversational repair length while rethink remains deliberately longer.
+- Laugh/sigh events are quieter and closer to surrounding speech. Sigh has a slower attack, longer release, less voiced/formant energy, a shorter post-event gap, and leaves extra breath on the next spoken unit for a smoother sigh-to-speech handoff. Laugh is also reduced in level and gap.
+- First-use Open JTalk loading is non-blocking for SPEAK. Ambiguous kana such as `おんせい / ごうせい` plays immediately through the lightweight local kana path while the dictionary initializes in the background. Kanji plays immediately through SYSTEM TTS while Open JTalk initializes. Once analysis is ready, subsequent takes automatically use precise local Open JTalk reading/accent. Explicit JAPANESE G2P and WAV export may still wait because their purpose is precision rather than instant preview.
+
+Regression coverage now includes widened natural F0 range, upper-formant speech presence, merged repair timing, softened nonverbal events, multi-mora hesitation, and first-use playback strategy.
