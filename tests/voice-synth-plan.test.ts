@@ -113,6 +113,28 @@ describe('Voice Lab synthesis plan', () => {
     expect(automatic.units[1]!.start).toBeGreaterThan(manual.units[1]!.start + 0.12);
   });
 
+  it('uses sentence attitudes to separate shared, assertive, wondering, and uncertain endings', () => {
+    const synth = new VoiceSynth();
+    const shared = synth.plan(parseVoiceScript('そうだね。'), SETTINGS).units.at(-1)!;
+    const assertive = synth.plan(parseVoiceScript('いくよ。'), SETTINGS).units.at(-1)!;
+    const wonder = synth.plan(parseVoiceScript('どうしようかな。'), SETTINGS).units.at(-1)!;
+    const uncertain = synth.plan(parseVoiceScript('いくかも。'), SETTINGS).units.at(-1)!;
+
+    expect(wonder.pitchMidi).toBeGreaterThan(shared.pitchMidi);
+    expect(wonder.duration).toBeGreaterThan(assertive.duration);
+    expect(assertive.energyScale).toBeGreaterThan(uncertain.energyScale);
+    expect(uncertain.duration).toBeGreaterThan(assertive.duration);
+  });
+
+  it('adds a subtle pre-phonation lead for longer sentence starts', () => {
+    const synth = new VoiceSynth();
+    const long = synth.plan(parseVoiceScript('あいうえおか。'), SETTINGS);
+    const short = synth.plan(parseVoiceScript('あい。'), SETTINGS);
+
+    expect(long.units[0]!.start).toBeGreaterThan(0.02);
+    expect(short.units[0]!.start).toBe(0);
+  });
+
   it('keeps mora-level F0 continuous instead of semitone quantizing every unit', () => {
     const synth = new VoiceSynth();
     const plan = synth.plan(parseVoiceScript('あさ ひる よる。'), SETTINGS);
