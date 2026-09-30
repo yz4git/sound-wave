@@ -29,6 +29,7 @@ describe('VOICE LAB speech source', () => {
     expect(neutral.upperFormantGain[2]).toBeGreaterThan(1.25);
     expect(neutral.upperFormantGain[3]).toBeGreaterThan(neutral.upperFormantGain[2]);
     expect(neutral.presenceGainScale).toBeGreaterThan(1.3);
+    expect(neutral.presenceGainAdd).toBeGreaterThan(0.05);
     expect(neutral.consonantNoiseScale).toBeGreaterThan(1.35);
     expect(neutral.harmonicPresence).toBeGreaterThan(0.1);
     expect(neutral.airPresence).toBeGreaterThan(0.05);
