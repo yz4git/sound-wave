@@ -191,8 +191,9 @@ describe('Voice Lab synthesis plan', () => {
     expect(plan.units[0]!.start).toBeGreaterThan(
       plan.events[0]!.start + plan.events[0]!.duration,
     );
-    expect(plan.events[1]!.start).toBeGreaterThan(
+    expect(plan.events[1]!.start).toBeCloseTo(
       plan.units[0]!.start + plan.units[0]!.duration,
+      8,
     );
     expect(plan.units[1]!.start).toBeGreaterThan(
       plan.events[1]!.start + plan.events[1]!.duration,
