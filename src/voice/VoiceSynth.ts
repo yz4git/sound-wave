@@ -10,6 +10,8 @@ import {
   type VoiceIntonation,
   type VoiceResolvedIntonation,
   type VoiceScript,
+  type VoiceSpeechEvent,
+  type VoiceSpeechEventKind,
   type VoiceUnit,
 } from './VoiceScript';
 import {
@@ -59,9 +61,115 @@ export interface VoiceTimedUnit {
   expression: VoiceExpressionSettings;
 }
 
+export interface VoiceTimedSpeechEvent {
+  event: VoiceSpeechEvent;
+  start: number;
+  duration: number;
+  gapAfter: number;
+}
+
 export interface VoicePlaybackPlan {
   duration: number;
   units: VoiceTimedUnit[];
+  events: VoiceTimedSpeechEvent[];
+}
+
+export interface SpeechEventProfile {
+  duration: number;
+  gapAfter: number;
+  pitchSemitones: number;
+  velocityScale: number;
+  pulseCount: number;
+}
+
+export function speechEventProfileFor(
+  kind: VoiceSpeechEventKind,
+  strength: number,
+): SpeechEventProfile {
+  const amount = clamp(strength, 0, 1.2);
+  if (kind === 'laugh') {
+    return {
+      duration: 0.19 + amount * 0.08,
+      gapAfter: 0.035 + amount * 0.02,
+      pitchSemitones: 2.4 + amount * 1.2,
+      velocityScale: 0.2 + amount * 0.16,
+      pulseCount: 2,
+    };
+  }
+  if (kind === 'sigh') {
+    return {
+      duration: 0.3 + amount * 0.15,
+      gapAfter: 0.065 + amount * 0.045,
+      pitchSemitones: -3.2 - amount * 1.2,
+      velocityScale: 0.13 + amount * 0.1,
+      pulseCount: 1,
+    };
+  }
+  if (kind === 'inhale') {
+    return {
+      duration: 0.09 + amount * 0.07,
+      gapAfter: 0.025 + amount * 0.018,
+      pitchSemitones: -2,
+      velocityScale: 0.09 + amount * 0.06,
+      pulseCount: 1,
+    };
+  }
+  if (kind === 'restart') {
+    return {
+      duration: 0,
+      gapAfter: 0.1 + amount * 0.045,
+      pitchSemitones: 0,
+      velocityScale: 0,
+      pulseCount: 0,
+    };
+  }
+  return {
+    duration: 0,
+    gapAfter: 0.15 + amount * 0.06,
+    pitchSemitones: 0,
+    velocityScale: 0,
+    pulseCount: 0,
+  };
+}
+
+export interface SpeechEventTransition {
+  pitchSemitones: number;
+  rateScale: number;
+  energyScale: number;
+}
+
+export function speechEventTransitionFor(
+  events: readonly VoiceSpeechEvent[],
+): SpeechEventTransition {
+  let pitchSemitones = 0;
+  let rateScale = 1;
+  let energyScale = 1;
+  for (const event of events) {
+    if (event.kind === 'restart') {
+      pitchSemitones += 0.14 * event.strength;
+      rateScale *= 0.965;
+      energyScale *= 1 + 0.045 * event.strength;
+    } else if (event.kind === 'rethink') {
+      pitchSemitones -= 0.08 * event.strength;
+      rateScale *= 0.92;
+      energyScale *= 1 - 0.06 * event.strength;
+    } else if (event.kind === 'inhale') {
+      rateScale *= 0.985;
+      energyScale *= 1.015;
+    } else if (event.kind === 'sigh') {
+      pitchSemitones -= 0.04 * event.strength;
+      rateScale *= 0.97;
+      energyScale *= 0.96;
+    } else if (event.kind === 'laugh') {
+      pitchSemitones += 0.04 * event.strength;
+      energyScale *= 1.02;
+    }
+  }
+  return {
+    pitchSemitones: clamp(pitchSemitones, -0.25, 0.25),
+    rateScale: clamp(rateScale, 0.86, 1.06),
+    energyScale: clamp(energyScale, 0.84, 1.12),
+  };
 }
 
 export interface SpeechSourceProfile {
@@ -759,10 +867,34 @@ export class VoiceSynth {
     const edits = normalizeProsodyEdits(prosodyInput);
     const globalExpression = settings.expression ?? { preset: 'neutral', intensity: 1 };
     const units: VoiceTimedUnit[] = [];
+    const events: VoiceTimedSpeechEvent[] = [];
+    const eventsByAfter = new Map<number, VoiceSpeechEvent[]>();
+    for (const event of script.events) {
+      const bucket = eventsByAfter.get(event.afterUnit) ?? [];
+      bucket.push(event);
+      eventsByAfter.set(event.afterUnit, bucket);
+    }
     let cursor = 0;
 
+    const appendEvents = (afterUnit: number): void => {
+      for (const event of eventsByAfter.get(afterUnit) ?? []) {
+        const profile = speechEventProfileFor(event.kind, event.strength);
+        events.push({
+          event,
+          start: cursor,
+          duration: profile.duration,
+          gapAfter: profile.gapAfter,
+        });
+        cursor += profile.duration + profile.gapAfter;
+      }
+    };
+
+    appendEvents(-1);
+
     script.units.forEach((unit, index) => {
-      if (unit.breathBefore > 0) {
+      const precedingEvents = eventsByAfter.get(index - 1) ?? [];
+      const eventTransition = speechEventTransitionFor(precedingEvents);
+      if (unit.breathBefore > 0 && !precedingEvents.some((event) => event.kind === 'inhale')) {
         cursor += unit.breathBefore / (clamp(settings.rate, 0.55, 1.8) ** 0.24);
       }
       if (unit.geminateBefore) {
@@ -787,7 +919,8 @@ export class VoiceSynth {
       const effectiveRate = settings.rate
         * phraseRateScale
         * unit.autoRateScale
-        * contextDelivery.rateScale;
+        * contextDelivery.rateScale
+        * eventTransition.rateScale;
       const emphasisProfile = speechEmphasisProfileFor(
         unit,
         script.units[index + 1],
@@ -811,6 +944,7 @@ export class VoiceSynth {
           + expressionUnit.pitchOffset
           + phrasePitchOffset
           + emphasisProfile.pitchSemitones
+          + eventTransition.pitchSemitones
           + finalPitchOffset
           + manualPitchOffset,
         40,
@@ -829,6 +963,7 @@ export class VoiceSynth {
         unitEnergyScale(unit)
           * expressionUnit.energyScale
           * contextDelivery.energyScale
+          * eventTransition.energyScale
           * phraseEnergyScale
           * emphasisProfile.energyScale
           * finalEnergyScale
@@ -858,9 +993,10 @@ export class VoiceSynth {
         ? japaneseBoundaryPauseSeconds(unit, effectiveRate)
         : clamp(pauseOverride, 0, 0.36);
       cursor += duration + pause;
+      appendEvents(index);
     });
 
-    return { duration: cursor + 0.08, units };
+    return { duration: cursor + 0.08, units, events };
   }
 
   async play(
