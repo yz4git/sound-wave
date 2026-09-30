@@ -557,3 +557,19 @@ Context delivery now ramps rate and energy during the latter part of a sentence 
 - CALM and WHISPER slightly deepen the late-sentence slowdown, while SERIOUS adds a little weight to assertive endings.
 
 The ramp sits below manual phrase and mora controls. Manual PITCH / ENERGY / TIMING still multiply or offset the automatically planned delivery last, so the automatic context layer improves the baseline without taking control away from editing.
+
+### 28. Nonverbal speech events and repair/rethink timing
+
+VOICE LAB now separates a small set of nonverbal and discourse-repair cues from the spoken mora stream.
+
+- `（笑）` / `[laugh]` becomes a light two-pulse laugh event. The label itself is removed before kana parsing, Open JTalk analysis, System TTS, and export.
+- `（ため息）` / `[sigh]` becomes a low-energy breathy sigh with a downward pitch trajectory and longer release.
+- `（息）` / `[inhale]` becomes a short mostly-unvoiced inhale-like breath event before the next speech segment. If an explicit inhale is present at sentence start, the automatic onset breath is not duplicated.
+- `（言い直し）` / `[restart]` is intentionally silent: it inserts a short repair pause, resets inter-mora glide, and gives the next phrase a small fresh pitch/energy onset.
+- `（思い直し）` / `[rethink]` is also silent but longer and more reflective: the next phrase starts slightly lower, softer, and slower.
+
+Speech events carry both a text offset and an after-mora position. Local-delivery markup strips their labels from plain text, and Open JTalk analysis remaps the preserved text offsets onto analyzed mora ranges. This keeps event timing stable even when kanji expands to a different number of morae.
+
+The playback plan now exposes timed speech events separately from timed morae. Laugh, sigh, and inhale events are synthesized through the same AudioWorklet source-filter engine but use strongly reduced voicing, increased aspiration/noise, no harmony/doubling, and conservative levels. Restart/rethink remain silence-plus-prosody events rather than fake spoken words.
+
+Manual mora PITCH / ENERGY / TIMING and phrase controls still sit above the automatic repair transition. WAV export uses the same event scheduler as live playback, so nonverbal events are rendered consistently in exported audio.
