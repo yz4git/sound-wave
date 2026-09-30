@@ -191,7 +191,7 @@ export function speechSourceProfileFor(expression: VoiceExpressionSettings): Spe
   const target: SpeechSourceProfile = expression.preset === 'whisper'
     ? {
         sourceMix: 0.8,
-        sourceTilt: 0.62,
+        sourceTilt: 0.7,
         coarticulation: 0.82,
         pulseNoise: 0.18,
         geminateClosureSeconds: 0.052,
@@ -207,7 +207,7 @@ export function speechSourceProfileFor(expression: VoiceExpressionSettings): Spe
       : expression.preset === 'calm'
         ? {
             sourceMix: 0.94,
-            sourceTilt: 0.7,
+            sourceTilt: 0.62,
             coarticulation: 0.88,
             pulseNoise: 0.07,
             geminateClosureSeconds: 0.054,
