@@ -587,3 +587,18 @@ A live Voice Lab playcheck exposed five practical weaknesses, and the local spee
 - First-use Open JTalk loading is non-blocking for SPEAK. Ambiguous kana such as `おんせい / ごうせい` plays immediately through the lightweight local kana path while the dictionary initializes in the background. Kanji plays immediately through SYSTEM TTS while Open JTalk initializes. Once analysis is ready, subsequent takes automatically use precise local Open JTalk reading/accent. Explicit JAPANESE G2P and WAV export may still wait because their purpose is precision rather than instant preview.
 
 Regression coverage now includes widened natural F0 range, upper-formant speech presence, merged repair timing, softened nonverbal events, multi-mora hesitation, and first-use playback strategy.
+
+### 30. Second live playcheck: brightness shelf verification
+
+A second production-artifact playcheck used the real VOICE LAB UI and exported WAV through the shipping local DSP. It confirmed the previous timing/prosody fixes and exposed that multiplying the shared singer-presence control was ineffective because the base vocal models intentionally set singer presence to zero.
+
+The speech path now uses three separate, speech-only brightness layers:
+
+- moderate F3/F4/F5 and consonant-noise reinforcement inside VoiceSynth,
+- a small high-harmonic/source presence layer plus high-passed air in the AudioWorklet,
+- a gentle post-tract high shelf keyed from the speech presence amount, so vowel-heavy phrases keep upper harmonics after the tract/final mix.
+
+An intentionally stronger formant/radiation experiment was rejected after re-recording because it did not improve the measured upper-band balance. The retained shelf configuration increased 1–5 kHz energy in the verification samples by roughly 16% for a neutral sentence, 13% for a vowel-heavy short phrase, and 9% for a sibilant-heavy phrase versus the preceding build, while output peaks remained comfortably below clipping.
+
+The same playcheck reconfirmed the repair timing fix: punctuation + repair markers no longer stack into ~0.5 s dead gaps. Restart and rethink remain distinct, with restart around the low-0.2 s range and rethink around the low-0.3 s range in the tested default delivery.
+
