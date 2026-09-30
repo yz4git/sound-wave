@@ -459,14 +459,14 @@ export function speechAttitudeProfileFor(unit: VoiceUnit): SpeechAttitudeProfile
     };
   }
   if (unit.sentenceAttitude === 'wonder') {
-    const trailingHesitation = unit.hesitationAfter;
+    const trailingHesitation = unit.sentenceHesitation;
     return {
-      pitchSemitones: trailingHesitation ? 0.08 : 0.14,
-      durationScale: trailingHesitation ? 1.115 : 1.08,
-      energyScale: trailingHesitation ? 0.9 : 0.95,
-      breathAdd: trailingHesitation ? 0.065 : 0.04,
-      releaseScale: trailingHesitation ? 1.14 : 1.09,
-      fallCentsOffset: -5,
+      pitchSemitones: trailingHesitation ? 0.055 : 0.14,
+      durationScale: trailingHesitation ? 1.16 : 1.08,
+      energyScale: trailingHesitation ? 0.86 : 0.95,
+      breathAdd: trailingHesitation ? 0.085 : 0.04,
+      releaseScale: trailingHesitation ? 1.18 : 1.09,
+      fallCentsOffset: trailingHesitation ? -6 : -5,
     };
   }
   if (unit.sentenceAttitude === 'uncertain') {
@@ -515,16 +515,16 @@ export function speechContextDeliveryFor(
     rateScale *= 1 + 0.018 * tail;
     energyScale *= 1 + 0.065 * tail;
   } else if (unit.sentenceAttitude === 'wonder') {
-    rateScale *= 1 - (unit.hesitationAfter ? 0.06 : 0.035) * tail;
-    energyScale *= 1 - (unit.hesitationAfter ? 0.075 : 0.045) * tail;
+    rateScale *= 1 - (unit.sentenceHesitation ? 0.09 : 0.035) * tail;
+    energyScale *= 1 - (unit.sentenceHesitation ? 0.12 : 0.045) * tail;
   } else if (unit.sentenceAttitude === 'uncertain') {
     rateScale *= 1 - 0.035 * tail;
     energyScale *= 1 - 0.065 * tail;
   }
 
-  if (unit.hesitationAfter) {
-    rateScale *= 0.98;
-    energyScale *= 0.97;
+  if (unit.sentenceHesitation) {
+    rateScale *= 1 - 0.015 * tail;
+    energyScale *= 1 - 0.02 * tail;
   }
 
   if (expression.preset === 'excited') {
