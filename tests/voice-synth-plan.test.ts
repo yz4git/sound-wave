@@ -5,6 +5,8 @@ import {
   geminatePreclosureSeconds,
   japaneseBoundaryPauseSeconds,
   speechEmphasisProfileFor,
+  speechEventProfileFor,
+  speechEventTransitionFor,
   speechPitchTransitionScaleFor,
   type VoiceSynthSettings,
 } from '../src/voice/VoiceSynth';
@@ -177,6 +179,72 @@ describe('Voice Lab synthesis plan', () => {
     expect(edited.units.at(-1)!.pitchMidi).toBeLessThan(automatic.units.at(-1)!.pitchMidi - 0.9);
     expect(edited.units.at(-1)!.energyScale).toBeLessThan(automatic.units.at(-1)!.energyScale);
     expect(edited.units.at(-1)!.duration).toBeGreaterThan(automatic.units.at(-1)!.duration);
+  });
+
+  it('inserts nonverbal speech events into the playback timeline', () => {
+    const synth = new VoiceSynth();
+    const script = parseVoiceScript('（息）あ（笑）い（ため息）。');
+    const plan = synth.plan(script, SETTINGS);
+
+    expect(plan.events.map((event) => event.event.kind)).toEqual(['inhale', 'laugh', 'sigh']);
+    expect(plan.events[0]!.start).toBe(0);
+    expect(plan.units[0]!.start).toBeGreaterThan(
+      plan.events[0]!.start + plan.events[0]!.duration,
+    );
+    expect(plan.events[1]!.start).toBeGreaterThan(
+      plan.units[0]!.start + plan.units[0]!.duration,
+    );
+    expect(plan.units[1]!.start).toBeGreaterThan(
+      plan.events[1]!.start + plan.events[1]!.duration,
+    );
+    expect(plan.duration).toBeGreaterThan(plan.units.at(-1)!.start + plan.units.at(-1)!.duration);
+  });
+
+  it('gives restart and rethink distinct next-phrase delivery', () => {
+    const synth = new VoiceSynth();
+    const restartScript = parseVoiceScript('あ（言い直し）い。');
+    const rethinkScript = parseVoiceScript('あ（思い直し）い。');
+    const plainScript = parseVoiceScript('あい。');
+
+    const restart = synth.plan(restartScript, SETTINGS);
+    const rethink = synth.plan(rethinkScript, SETTINGS);
+    const plain = synth.plan(plainScript, SETTINGS);
+
+    expect(restart.events[0]?.event.kind).toBe('restart');
+    expect(rethink.events[0]?.event.kind).toBe('rethink');
+    expect(restart.units[1]!.start).toBeGreaterThan(plain.units[1]!.start + 0.08);
+    expect(rethink.units[1]!.start).toBeGreaterThan(restart.units[1]!.start);
+    expect(restart.units[1]!.pitchMidi).toBeGreaterThan(plain.units[1]!.pitchMidi);
+    expect(rethink.units[1]!.pitchMidi).toBeLessThan(plain.units[1]!.pitchMidi);
+    expect(rethink.units[1]!.energyScale).toBeLessThan(plain.units[1]!.energyScale);
+    expect(rethink.units[1]!.duration).toBeGreaterThan(plain.units[1]!.duration);
+  });
+
+  it('keeps speech-event profiles bounded and lightweight', () => {
+    const laugh = speechEventProfileFor('laugh', 0.68);
+    const sigh = speechEventProfileFor('sigh', 0.82);
+    const inhale = speechEventProfileFor('inhale', 0.72);
+    const restart = speechEventTransitionFor([{
+      kind: 'restart',
+      afterUnit: 0,
+      textOffset: 1,
+      strength: 1,
+    }]);
+    const rethink = speechEventTransitionFor([{
+      kind: 'rethink',
+      afterUnit: 0,
+      textOffset: 1,
+      strength: 1,
+    }]);
+
+    expect(laugh.pulseCount).toBe(2);
+    expect(laugh.duration).toBeLessThan(0.3);
+    expect(sigh.duration).toBeGreaterThan(laugh.duration);
+    expect(inhale.velocityScale).toBeLessThan(sigh.velocityScale);
+    expect(restart.pitchSemitones).toBeGreaterThan(0);
+    expect(restart.energyScale).toBeGreaterThan(1);
+    expect(rethink.pitchSemitones).toBeLessThan(0);
+    expect(rethink.rateScale).toBeLessThan(restart.rateScale);
   });
 
   it('keeps mora-level F0 continuous instead of semitone quantizing every unit', () => {
