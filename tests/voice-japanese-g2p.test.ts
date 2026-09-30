@@ -411,6 +411,34 @@ describe('VOICE LAB Japanese G2P mapping', () => {
     expect(script.units[focusedStart]!.focusStrength).toBeGreaterThan(0.7);
   });
 
+  it('uses POS to avoid mistaking lexical readings for sentence-final particles', () => {
+    const nodes: JapaneseFrontendNode[] = [
+      {
+        string: '鴨',
+        read: 'カモ',
+        pron: 'カモ',
+        acc: 1,
+        mora_size: 2,
+        chain_flag: -1,
+        pos: '名詞',
+        pos_group1: '一般',
+      },
+      {
+        string: '。',
+        read: '、',
+        pron: '、',
+        acc: 0,
+        mora_size: 0,
+        chain_flag: 0,
+      },
+    ];
+
+    const { script } = buildScriptFromJapaneseFrontend(nodes, '鴨。');
+
+    expect(script.units.at(-1)?.sentenceAttitude).toBe('none');
+    expect(script.units.every((unit) => unit.suppressAttitudeInference)).toBe(true);
+  });
+
   it('maps analyzed morae back to source-text ranges for local style alignment', () => {
     const nodes: JapaneseFrontendNode[] = [
       {
