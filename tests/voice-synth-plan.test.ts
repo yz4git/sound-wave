@@ -248,6 +248,33 @@ describe('Voice Lab synthesis plan', () => {
     expect(rethink.rateScale).toBeLessThan(restart.rateScale);
   });
 
+  it('merges repair pauses with punctuation instead of stacking a half-second gap', () => {
+    const synth = new VoiceSynth();
+    const restart = synth.plan(parseVoiceScript('あ。（言い直し）い。'), SETTINGS);
+    const rethink = synth.plan(parseVoiceScript('あ。（思い直し）い。'), SETTINGS);
+
+    const restartGap = restart.units[1]!.start
+      - (restart.units[0]!.start + restart.units[0]!.duration);
+    const rethinkGap = rethink.units[1]!.start
+      - (rethink.units[0]!.start + rethink.units[0]!.duration);
+
+    expect(restartGap).toBeGreaterThan(0.17);
+    expect(restartGap).toBeLessThan(0.29);
+    expect(rethinkGap).toBeGreaterThan(restartGap);
+    expect(rethinkGap).toBeLessThan(0.36);
+  });
+
+  it('keeps laugh and sigh events softer and closer to surrounding speech', () => {
+    const laugh = speechEventProfileFor('laugh', 0.68);
+    const sigh = speechEventProfileFor('sigh', 0.82);
+
+    expect(laugh.velocityScale).toBeLessThan(0.26);
+    expect(laugh.gapAfter).toBeLessThan(0.05);
+    expect(sigh.velocityScale).toBeLessThan(0.16);
+    expect(sigh.duration).toBeGreaterThan(0.42);
+    expect(sigh.gapAfter).toBeLessThan(0.06);
+  });
+
   it('keeps mora-level F0 continuous instead of semitone quantizing every unit', () => {
     const synth = new VoiceSynth();
     const plan = synth.plan(parseVoiceScript('あさ ひる よる。'), SETTINGS);
