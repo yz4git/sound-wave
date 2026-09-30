@@ -265,6 +265,105 @@ export interface SpeechFinalityProfile {
   fallCents: number;
 }
 
+export interface SpeechAttitudeProfile {
+  pitchSemitones: number;
+  durationScale: number;
+  energyScale: number;
+  breathAdd: number;
+  releaseScale: number;
+  fallCentsOffset: number;
+}
+
+export function speechAttitudeProfileFor(unit: VoiceUnit): SpeechAttitudeProfile {
+  if (!unit.phraseEnd) {
+    return {
+      pitchSemitones: 0,
+      durationScale: 1,
+      energyScale: 1,
+      breathAdd: 0,
+      releaseScale: 1,
+      fallCentsOffset: 0,
+    };
+  }
+
+  if (unit.sentenceAttitude === 'shared') {
+    return {
+      pitchSemitones: 0.08,
+      durationScale: 1.055,
+      energyScale: 0.98,
+      breathAdd: 0.02,
+      releaseScale: 1.05,
+      fallCentsOffset: -3,
+    };
+  }
+  if (unit.sentenceAttitude === 'assertive') {
+    return {
+      pitchSemitones: -0.015,
+      durationScale: 1.02,
+      energyScale: 1.035,
+      breathAdd: 0,
+      releaseScale: 0.985,
+      fallCentsOffset: 1.5,
+    };
+  }
+  if (unit.sentenceAttitude === 'wonder') {
+    return {
+      pitchSemitones: 0.14,
+      durationScale: 1.08,
+      energyScale: 0.95,
+      breathAdd: 0.04,
+      releaseScale: 1.09,
+      fallCentsOffset: -5,
+    };
+  }
+  if (unit.sentenceAttitude === 'uncertain') {
+    return {
+      pitchSemitones: 0.045,
+      durationScale: 1.07,
+      energyScale: 0.92,
+      breathAdd: 0.05,
+      releaseScale: 1.1,
+      fallCentsOffset: -3,
+    };
+  }
+  return {
+    pitchSemitones: 0,
+    durationScale: 1,
+    energyScale: 1,
+    breathAdd: 0,
+    releaseScale: 1,
+    fallCentsOffset: 0,
+  };
+}
+
+export interface SpeechTakeVariation {
+  pitchCents: number;
+  velocityScale: number;
+  attackScale: number;
+  timingOffsetSeconds: number;
+}
+
+function signedHash(seed: number): number {
+  let value = seed | 0;
+  value ^= value << 13;
+  value ^= value >>> 17;
+  value ^= value << 5;
+  return ((value >>> 0) / 0xffffffff) * 2 - 1;
+}
+
+export function speechTakeVariationFor(
+  unitIndex: number,
+  takeIndex: number,
+): SpeechTakeVariation {
+  const base = (unitIndex + 1) * 73856093 ^ (takeIndex + 1) * 19349663;
+  return {
+    pitchCents: signedHash(base ^ 0x51f15e) * 1.6,
+    velocityScale: 1 + signedHash(base ^ 0x7f4a7c15) * 0.012,
+    attackScale: 1 + signedHash(base ^ 0x2c1b3c6d) * 0.025,
+    timingOffsetSeconds: signedHash(base ^ 0x165667b1) * 0.0015,
+  };
+}
+
 export function speechFinalityProfileFor(
   expression: VoiceExpressionSettings,
   intonation: VoiceResolvedIntonation,
@@ -528,6 +627,7 @@ function phraseControlFor(unit: VoiceUnit, energy: number): VocalPhraseControl {
 
 export class VoiceSynth {
   private context: AudioContext | null = null;
+  private takeIndex = 0;
   private master: GainNode | null = null;
   private limiter: DynamicsCompressorNode | null = null;
   private readonly worklet = new VocalWorkletBridge();
@@ -605,6 +705,9 @@ export class VoiceSynth {
     let cursor = 0;
 
     script.units.forEach((unit, index) => {
+      if (unit.breathBefore > 0) {
+        cursor += unit.breathBefore / (clamp(settings.rate, 0.55, 1.8) ** 0.24);
+      }
       if (unit.geminateBefore) {
         const precedingMoraDuration = units[units.length - 1]?.duration;
         cursor += geminatePreclosureSeconds(settings.rate, precedingMoraDuration);
@@ -630,9 +733,16 @@ export class VoiceSynth {
         phraseEmphasis,
       );
       const finality = speechFinalityProfileFor(expression, resolvedIntonation);
-      const finalPitchOffset = unit.phraseEnd ? finality.pitchSemitones : 0;
-      const finalDurationScale = unit.phraseEnd ? finality.durationScale : 1;
-      const finalEnergyScale = unit.phraseEnd ? finality.energyScale : 1;
+      const attitude = speechAttitudeProfileFor(unit);
+      const finalPitchOffset = unit.phraseEnd
+        ? finality.pitchSemitones + attitude.pitchSemitones
+        : 0;
+      const finalDurationScale = unit.phraseEnd
+        ? finality.durationScale * attitude.durationScale
+        : 1;
+      const finalEnergyScale = unit.phraseEnd
+        ? finality.energyScale * attitude.energyScale
+        : 1;
 
       const pitchMidi = clamp(
         settings.pitch
@@ -703,6 +813,7 @@ export class VoiceSynth {
     this.worklet.clear();
     const plan = this.plan(script, settings, prosodyInput);
     const startAt = this.context.currentTime + 0.055;
+    const takeIndex = this.takeIndex++;
     let previousPitchMidi: number | null = null;
 
     plan.units.forEach((timed, index) => {
@@ -717,6 +828,9 @@ export class VoiceSynth {
       );
       const resolvedIntonation = resolveVoiceIntonation(unit, settings.intonation);
       const finality = speechFinalityProfileFor(timed.expression, resolvedIntonation);
+      const attitude = speechAttitudeProfileFor(unit);
+      const variation = speechTakeVariationFor(index, takeIndex);
+      const performancePitchMidi = timed.pitchMidi + variation.pitchCents / 100;
       const previousUnit = plan.units[index - 1]?.unit;
       const pitchTransitionScale = speechPitchTransitionScaleFor(unit, previousUnit);
       const roundedMidi = Math.round(timed.pitchMidi);
@@ -739,7 +853,7 @@ export class VoiceSynth {
       const workletEvent = vocalEventToWorklet(
         event,
         settings.style,
-        startAt + timed.start,
+        startAt + timed.start + variation.timingOffsetSeconds,
         timed.duration,
         phrase,
         undefined,
@@ -751,7 +865,7 @@ export class VoiceSynth {
         },
       );
 
-      workletEvent.targetHz = midiToHz(timed.pitchMidi);
+      workletEvent.targetHz = midiToHz(performancePitchMidi);
       workletEvent.glideFromHz = previousPitchMidi === null || unit.phraseStart
         ? null
         : midiToHz(previousPitchMidi);
@@ -759,7 +873,11 @@ export class VoiceSynth {
       workletEvent.karaoke = {
         ...workletEvent.karaoke,
         scoopCents: unit.phraseStart ? 1.5 + emphasis * 1.6 : 0,
-        fallCents: unit.phraseEnd ? finality.fallCents : unit.accentEnd ? 1 : 0,
+        fallCents: unit.phraseEnd
+          ? clamp(finality.fallCents + attitude.fallCentsOffset, 0, 12)
+          : unit.accentEnd
+            ? 1
+            : 0,
         vibratoGain: 0,
       };
 
@@ -771,12 +889,20 @@ export class VoiceSynth {
         shimmerDepth: Math.min(workletEvent.style.shimmerDepth, 0.004),
         doubleLevel: 0,
         onsetPitchCents: unit.phraseStart ? 1.8 : 0,
-        breathLevel: clamp(workletEvent.style.breathLevel * expressionControl.breathScale, 0, 1.2),
+        breathLevel: clamp(
+          workletEvent.style.breathLevel * expressionControl.breathScale
+            + (unit.breathBefore > 0 ? 0.08 : 0)
+            + attitude.breathAdd,
+          0,
+          1.2,
+        ),
         attackSeconds: workletEvent.style.attackSeconds
           * expressionControl.attackScale
           * emphasisProfile.attackScale
+          * variation.attackScale
           * (unit.geminateBefore ? 0.78 : 1),
-        releaseSeconds: workletEvent.style.releaseSeconds * (unit.phraseEnd ? finality.releaseScale : 0.88),
+        releaseSeconds: workletEvent.style.releaseSeconds
+          * (unit.phraseEnd ? finality.releaseScale * attitude.releaseScale : 0.88),
         speechSourceMix: speechSource.sourceMix,
         speechSourceTilt: clamp(speechSource.sourceTilt * emphasisProfile.sourceTiltScale, 0.32, 0.9),
         speechCoarticulation: speechSource.coarticulation,
@@ -875,9 +1001,13 @@ export class VoiceSynth {
         harmonyTargetHz: null,
         harmonyGainScale: 0,
       };
-      workletEvent.velocity = clamp(workletEvent.velocity, 0.16, 0.98);
+      workletEvent.velocity = clamp(
+        workletEvent.velocity * variation.velocityScale,
+        0.16,
+        0.98,
+      );
       this.worklet.schedule(workletEvent);
-      previousPitchMidi = timed.pitchMidi;
+      previousPitchMidi = performancePitchMidi;
     });
 
     return plan;
