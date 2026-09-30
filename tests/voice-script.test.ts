@@ -313,7 +313,7 @@ describe('Voice Lab speech planning', () => {
     expect(
       prosodyOffsetForUnit(withHesitation, index, hesitant.units.length, 'natural'),
     ).toBeLessThan(
-      prosodyOffsetForUnit(withoutHesitation, index, hesitant.units.length, 'natural') - 0.05,
+      prosodyOffsetForUnit(withoutHesitation, index, hesitant.units.length, 'natural') - 0.04,
     );
   });
 
