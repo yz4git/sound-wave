@@ -15,6 +15,16 @@ export type VoiceContinuationKind =
   | 'concessive'
   | 'additive';
 export type VoiceDiscourseRole = 'none' | 'topic' | 'subject' | 'quote' | 'list' | 'focus';
+export type VoiceSpeechEventKind = 'laugh' | 'sigh' | 'inhale' | 'restart' | 'rethink';
+
+export interface VoiceSpeechEvent {
+  kind: VoiceSpeechEventKind;
+  /** Unit immediately before the event. -1 means before the first mora. */
+  afterUnit: number;
+  /** Character offset in speech text after markup removal. */
+  textOffset: number;
+  strength: number;
+}
 
 export interface VoiceUnit {
   index: number;
@@ -69,12 +79,80 @@ export interface VoiceUnit {
 export interface VoiceScript {
   units: VoiceUnit[];
   unsupported: string[];
+  events: VoiceSpeechEvent[];
 }
 
 interface PunctuationSpec {
   pause: number;
   boundary: VoiceBoundary;
   terminal?: VoiceSentenceTerminal;
+}
+
+interface VoiceSpeechEventMarker {
+  kind: VoiceSpeechEventKind;
+  textOffset: number;
+  strength: number;
+}
+
+const SPEECH_EVENT_MARKERS: readonly {
+  raw: string;
+  kind: VoiceSpeechEventKind;
+  strength: number;
+}[] = [
+  { raw: '(言い直し)', kind: 'restart', strength: 1 },
+  { raw: '(思い直し)', kind: 'rethink', strength: 1 },
+  { raw: '(ため息)', kind: 'sigh', strength: 0.82 },
+  { raw: '(溜息)', kind: 'sigh', strength: 0.82 },
+  { raw: '(笑)', kind: 'laugh', strength: 0.68 },
+  { raw: '(息)', kind: 'inhale', strength: 0.72 },
+  { raw: '[restart]', kind: 'restart', strength: 1 },
+  { raw: '[rethink]', kind: 'rethink', strength: 1 },
+  { raw: '[inhale]', kind: 'inhale', strength: 0.72 },
+  { raw: '[laugh]', kind: 'laugh', strength: 0.68 },
+  { raw: '[sigh]', kind: 'sigh', strength: 0.82 },
+] as const;
+
+export function stripVoiceSpeechEventMarkup(text: string): {
+  text: string;
+  markers: VoiceSpeechEventMarker[];
+} {
+  const normalized = text.normalize('NFKC');
+  const markers: VoiceSpeechEventMarker[] = [];
+  let cleaned = '';
+  let index = 0;
+
+  while (index < normalized.length) {
+    const marker = SPEECH_EVENT_MARKERS.find((candidate) => (
+      normalized.startsWith(candidate.raw, index)
+    ));
+    if (!marker) {
+      cleaned += normalized[index]!;
+      index += 1;
+      continue;
+    }
+    markers.push({
+      kind: marker.kind,
+      textOffset: cleaned.length,
+      strength: marker.strength,
+    });
+    index += marker.raw.length;
+  }
+
+  return { text: cleaned, markers };
+}
+
+export function remapVoiceSpeechEvents(
+  events: readonly VoiceSpeechEvent[],
+  ranges: readonly { start: number; end: number }[],
+): VoiceSpeechEvent[] {
+  return events.map((event) => {
+    let afterUnit = -1;
+    for (let index = 0; index < ranges.length; index += 1) {
+      if (ranges[index]!.end <= event.textOffset) afterUnit = index;
+      else break;
+    }
+    return { ...event, afterUnit };
+  });
 }
 
 const QUOTE_OPEN = new Set(['「', '『', '“', '〝']);
@@ -723,13 +801,32 @@ export function finalizeVoiceUnits(units: VoiceUnit[]): void {
 }
 
 export function parseVoiceScript(text: string): VoiceScript {
-  const normalized = toHiragana(text.normalize('NFKC'));
+  const eventMarkup = stripVoiceSpeechEventMarkup(text);
+  const normalized = toHiragana(eventMarkup.text);
   const units: VoiceUnit[] = [];
   const unsupported: string[] = [];
+  const events: VoiceSpeechEvent[] = [];
   const pendingGeminate = { value: false };
   const quoteStarts: number[] = [];
   const parenStarts: number[] = [];
+  let markerCursor = 0;
   let index = 0;
+
+  const flushEventMarkers = (textOffset: number): void => {
+    while (
+      markerCursor < eventMarkup.markers.length
+      && eventMarkup.markers[markerCursor]!.textOffset <= textOffset
+    ) {
+      const marker = eventMarkup.markers[markerCursor]!;
+      events.push({
+        kind: marker.kind,
+        afterUnit: units.length - 1,
+        textOffset: marker.textOffset,
+        strength: marker.strength,
+      });
+      markerCursor += 1;
+    }
+  };
 
   const markScope = (
     start: number,
@@ -746,6 +843,7 @@ export function parseVoiceScript(text: string): VoiceScript {
   };
 
   while (index < normalized.length) {
+    flushEventMarkers(index);
     const char = normalized[index]!;
 
     if (normalized.startsWith('...', index)) {
@@ -873,12 +971,13 @@ export function parseVoiceScript(text: string): VoiceScript {
     index += 1;
   }
 
+  flushEventMarkers(normalized.length);
   for (const start of quoteStarts) markScope(start, units.length - 1, 'quote');
   for (const start of parenStarts) markScope(start, units.length - 1, 'parenthetical');
   annotateFilledPauses(units);
 
   finalizeVoiceUnits(units);
-  return { units, unsupported: [...new Set(unsupported)] };
+  return { units, unsupported: [...new Set(unsupported)], events };
 }
 
 function accentPhraseOffset(unit: VoiceUnit): number {
