@@ -836,21 +836,21 @@ export class VoiceMode {
     };
   }
 
-  private async analyzeJapanese(): Promise<boolean> {
+  private async analyzeJapanese(interruptPlayback = true): Promise<boolean> {
     if (this.japaneseAnalyzing) {
-      this.setStatus('KANJI G2P · ANALYSIS ALREADY RUNNING');
+      if (interruptPlayback) this.setStatus('JAPANESE G2P · ANALYSIS ALREADY RUNNING');
       return false;
     }
     const textarea = this.required<HTMLTextAreaElement>('#voice-text');
     const text = textarea.value.trim();
     if (!text) {
-      this.setStatus('ENTER JAPANESE TEXT');
+      if (interruptPlayback) this.setStatus('ENTER JAPANESE TEXT');
       return false;
     }
 
     const markup = parseVoiceMarkup(text);
     if (!needsJapanesePronunciationAnalysis(markup.plainText)) {
-      this.setStatus('JAPANESE G2P · NO AMBIGUOUS READING TO ANALYZE');
+      if (interruptPlayback) this.setStatus('JAPANESE G2P · NO AMBIGUOUS READING TO ANALYZE');
       return false;
     }
 
@@ -858,14 +858,16 @@ export class VoiceMode {
     const detail = this.required<HTMLElement>('#voice-japanese-status');
     this.japaneseAnalyzing = true;
     button.disabled = true;
-    button.textContent = 'ANALYZING…';
-    this.stop();
+    button.textContent = interruptPlayback ? 'ANALYZING…' : 'G2P LOADING…';
+    if (interruptPlayback) this.stop();
 
     try {
       const analysis = await analyzeJapaneseText(markup.plainText, (progress) => {
         detail.textContent = progress.message;
-        this.setStatus(progress.message);
+        if (interruptPlayback) this.setStatus(progress.message);
       });
+      if (textarea.value.trim() !== text) return false;
+
       this.japaneseAnalysis = analysis;
       this.japaneseAnalysisSource = text;
       this.accentOverrideSource = '';
@@ -874,17 +876,21 @@ export class VoiceMode {
       this.prosodyLoadedSignature = '';
       this.refreshPlan();
       detail.textContent = `OPEN JTALK · ${analysis.script.units.length} morae · ${analysis.fullContextMatched ? 'FULL CONTEXT · ' : ''}${analysis.reading.slice(0, 48)}${analysis.reading.length > 48 ? '…' : ''}`;
-      this.setStatus(
-        markup.markupUsed
-          ? `JAPANESE G2P READY · ${analysis.fullContextMatched ? 'FULL CONTEXT + ' : ''}PITCH ACCENT + LOCAL DELIVERY`
-          : `JAPANESE G2P READY · ${analysis.fullContextMatched ? 'FULL CONTEXT + ' : ''}READING + PITCH ACCENT`,
-      );
+      if (interruptPlayback) {
+        this.setStatus(
+          markup.markupUsed
+            ? `JAPANESE G2P READY · ${analysis.fullContextMatched ? 'FULL CONTEXT + ' : ''}PITCH ACCENT + LOCAL DELIVERY`
+            : `JAPANESE G2P READY · ${analysis.fullContextMatched ? 'FULL CONTEXT + ' : ''}READING + PITCH ACCENT`,
+        );
+      }
       return true;
     } catch (error) {
       console.warn('VOICE LAB Japanese G2P failed.', error);
-      this.clearJapaneseAnalysis();
-      detail.textContent = 'Open JTalk failed · kana input and SYSTEM TTS remain available';
-      this.setStatus('JAPANESE G2P UNAVAILABLE');
+      if (textarea.value.trim() === text) {
+        this.clearJapaneseAnalysis();
+        detail.textContent = 'Open JTalk failed · quick kana and SYSTEM TTS remain available';
+        if (interruptPlayback) this.setStatus('JAPANESE G2P UNAVAILABLE');
+      }
       return false;
     } finally {
       this.japaneseAnalyzing = false;
@@ -1711,16 +1717,20 @@ export class VoiceMode {
     }
 
     let resolved = this.resolveLocalScript(text);
-    if (needsJapanesePronunciationAnalysis(markup.plainText) && !resolved.analyzed) {
-      this.setStatus(containsKanji(markup.plainText)
-        ? 'KANJI DETECTED · AUTO G2P'
-        : 'おう / えい DETECTED · AUTO G2P');
-      const analyzed = await this.analyzeJapanese();
-      if (!analyzed) {
-        this.setStatus('JAPANESE G2P FAILED · FALLING BACK TO SYSTEM TTS');
+    const needsAnalysis = needsJapanesePronunciationAnalysis(markup.plainText) && !resolved.analyzed;
+    const quickKanaWhileLoading = needsAnalysis && !containsKanji(markup.plainText);
+    if (needsAnalysis) {
+      if (containsKanji(markup.plainText)) {
+        this.required<HTMLElement>('#voice-japanese-status').textContent =
+          'OPEN JTALK LOADING IN BACKGROUND · SYSTEM TTS PLAYS NOW';
+        void this.analyzeJapanese(false);
         this.playSystem(markup);
         return;
       }
+
+      this.required<HTMLElement>('#voice-japanese-status').textContent =
+        'QUICK KANA NOW · OPEN JTALK UPGRADES THE NEXT TAKE';
+      void this.analyzeJapanese(false);
       resolved = this.resolveLocalScript(text);
     }
 
@@ -1734,7 +1744,11 @@ export class VoiceMode {
       this.setStatus('SCHEDULING · LOW-LATENCY STREAM');
       const plan = await this.synth.play(script, this.settings, this.getProsodyEdits(script, localExpressions));
       this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
-      this.setStatus(`SPEAKING · ${script.units.length} UNITS · ${plan.duration.toFixed(1)}s`);
+      this.setStatus(
+        quickKanaWhileLoading
+          ? `SPEAKING · QUICK KANA · ${script.units.length} UNITS · G2P PREPARING`
+          : `SPEAKING · ${script.units.length} UNITS · ${plan.duration.toFixed(1)}s`,
+      );
       for (const timed of plan.units.slice(0, 72)) {
         const timer = window.setTimeout(() => {
           const unit = this.root.querySelector<HTMLElement>(`[data-voice-unit="${timed.unit.index}"]`);
