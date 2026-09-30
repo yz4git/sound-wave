@@ -5,6 +5,7 @@ import {
   speechAttitudeProfileFor,
   speechContextDeliveryFor,
   speechFinalityProfileFor,
+  speechPresenceProfileFor,
   speechSourceProfileFor,
   speechTakeVariationFor,
 } from '../src/voice/VoiceSynth';
@@ -17,6 +18,19 @@ describe('VOICE LAB speech source', () => {
     expect(profile.sourceTilt).toBeGreaterThan(0.5);
     expect(profile.coarticulation).toBeGreaterThan(0.75);
     expect(profile.pulseNoise).toBeGreaterThan(0);
+  });
+
+  it('adds speech-only upper-formant presence without changing the base vocal model', () => {
+    const unit = parseVoiceScript('さ。').units[0]!;
+    const neutral = speechPresenceProfileFor(unit, { preset: 'neutral', intensity: 1 });
+    const excited = speechPresenceProfileFor(unit, { preset: 'excited', intensity: 1 });
+
+    expect(neutral.upperFormantGain[0]).toBe(1);
+    expect(neutral.upperFormantGain[2]).toBeGreaterThan(1.1);
+    expect(neutral.upperFormantGain[3]).toBeGreaterThan(neutral.upperFormantGain[2]);
+    expect(neutral.presenceGainScale).toBeGreaterThan(1.15);
+    expect(neutral.consonantNoiseScale).toBeGreaterThan(1.15);
+    expect(excited.presenceGainScale).toBeGreaterThan(neutral.presenceGainScale);
   });
 
   it('moves whisper toward more tilt and aspiration', () => {
