@@ -4,6 +4,7 @@ import {
   buildScriptFromJapaneseFrontend,
   containsAmbiguousJapaneseLongVowel,
   containsKanji,
+  japaneseFirstUsePlaybackStrategy,
   needsJapanesePronunciationAnalysis,
   parseOpenJTalkFullContext,
   pitchAccentPattern,
@@ -43,6 +44,13 @@ describe('VOICE LAB Japanese G2P mapping', () => {
     expect(events).toHaveLength(1);
     expect(events[0]?.kind).toBe('laugh');
     expect(events[0]?.afterUnit).toBe(2);
+  });
+
+  it('keeps first-use G2P playback non-blocking', () => {
+    expect(japaneseFirstUsePlaybackStrategy('おんせいです。', false)).toBe('quick-local');
+    expect(japaneseFirstUsePlaybackStrategy('音声です。', false)).toBe('quick-system');
+    expect(japaneseFirstUsePlaybackStrategy('音声です。', true)).toBe('precise-local');
+    expect(japaneseFirstUsePlaybackStrategy('こんにちは。', false)).toBe('precise-local');
   });
 
   it('creates standard Japanese pitch-accent patterns', () => {
