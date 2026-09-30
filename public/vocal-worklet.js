@@ -60,6 +60,7 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     this.previousFlow = 0;
     this.sourceState = 0;
     this.speechTiltState = 0;
+    this.speechAirLowState = 0;
     this.outputState = 0;
 
     this.formantY1 = new Float64Array(5);
@@ -619,6 +620,7 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       this.advanceModulation(this.lastVibratoRate);
       this.envelopeState *= 0.996;
       this.speechTiltState *= 0.997;
+      this.speechAirLowState *= 0.994;
       this.outputState *= 0.998;
       this.nasalState *= 0.996;
       this.fricationLowState *= 0.996;
@@ -805,8 +807,13 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     this.speechTiltState += (speechRaw - this.speechTiltState) * tiltFollow;
     const tiltedSpeechSource = speechRaw * (1 - speechTilt * 0.7)
       + this.speechTiltState * (speechTilt * 0.7);
+    const speechPresenceBoost = Math.max(
+      0,
+      Math.min(0.28, style.speechPresenceBoost || 0),
+    );
+    const harmonicPresence = (speechRaw - this.speechTiltState) * speechPresenceBoost;
     const rawSource = singingSource * (1 - speechSourceMix)
-      + tiltedSpeechSource * speechSourceMix;
+      + (tiltedSpeechSource + harmonicPresence) * speechSourceMix;
     this.sourceState += (rawSource - this.sourceState) * (0.54 + speechSourceMix * 0.08);
 
     const coupling = Math.max(
@@ -886,6 +893,19 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       * (0.55 + finalBreath * 2.1)
       * releaseBreathGain;
 
+    const speechAirPresence = Math.max(
+      0,
+      Math.min(0.16, style.speechAirPresence || 0),
+    );
+    this.speechAirLowState += (noise - this.speechAirLowState) * 0.22;
+    const speechAir = (noise - this.speechAirLowState)
+      * speechAirPresence
+      * (active.articulate ? 1 : 0.62);
+    const speechFricativeGain = Math.max(
+      0.8,
+      Math.min(2, style.speechFricativeGain || 1),
+    );
+
     const amplitudeVibrato = 1
       + vibratoWave
         * style.intensityModDepth
@@ -913,8 +933,9 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       + aspiration
       + pulseAspiration
       + releaseBreath
-      + articulation.noise
-    ) * this.envelopeState * 0.415;
+      + speechAir
+      + articulation.noise * speechFricativeGain
+    ) * this.envelopeState * 0.405;
 
     const readIndex = (
       this.delayWrite
