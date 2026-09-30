@@ -250,6 +250,30 @@ describe('Voice Lab speech planning', () => {
     expect(breaths.every((unit) => unit.pauseAfter >= 0.12)).toBe(true);
   });
 
+  it('distinguishes common Japanese sentence-final attitudes', () => {
+    const shared = parseVoiceScript('そうだね。');
+    const assertive = parseVoiceScript('いくよ。');
+    const wonder = parseVoiceScript('どうしようかな。');
+    const uncertain = parseVoiceScript('いくかも。');
+    const explicitQuestion = parseVoiceScript('いくよ？');
+
+    expect(shared.units.at(-1)?.sentenceAttitude).toBe('shared');
+    expect(shared.units.at(-1)?.attitudeFocus).toBe(true);
+    expect(assertive.units.at(-1)?.sentenceAttitude).toBe('assertive');
+    expect(wonder.units.at(-1)?.sentenceAttitude).toBe('wonder');
+    expect(wonder.units.at(-2)?.attitudeFocus).toBe(true);
+    expect(uncertain.units.at(-1)?.sentenceAttitude).toBe('uncertain');
+    expect(explicitQuestion.units.at(-1)?.sentenceAttitude).toBe('none');
+  });
+
+  it('adds a tiny breath lead only to sufficiently long sentence starts', () => {
+    const long = parseVoiceScript('あいうえおか。');
+    const short = parseVoiceScript('あい。');
+
+    expect(long.units[0]!.breathBefore).toBeGreaterThan(0.02);
+    expect(short.units[0]!.breathBefore).toBe(0);
+  });
+
   it('provides distinct controllable global prosody shapes', () => {
     const risingStart = prosodyOffset(0, 5, 'rise', true, false);
     const risingEnd = prosodyOffset(4, 5, 'rise', false, true);
