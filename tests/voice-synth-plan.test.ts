@@ -115,10 +115,18 @@ describe('Voice Lab synthesis plan', () => {
 
   it('uses sentence attitudes to separate shared, assertive, wondering, and uncertain endings', () => {
     const synth = new VoiceSynth();
-    const shared = synth.plan(parseVoiceScript('そうだね。'), SETTINGS).units.at(-1)!;
-    const assertive = synth.plan(parseVoiceScript('いくよ。'), SETTINGS).units.at(-1)!;
-    const wonder = synth.plan(parseVoiceScript('どうしようかな。'), SETTINGS).units.at(-1)!;
-    const uncertain = synth.plan(parseVoiceScript('いくかも。'), SETTINGS).units.at(-1)!;
+    const planFor = (attitude: 'shared' | 'assertive' | 'wonder' | 'uncertain') => {
+      const script = parseVoiceScript('あね。');
+      const final = script.units.at(-1)!;
+      final.sentenceAttitude = attitude;
+      final.attitudeFocus = true;
+      return synth.plan(script, SETTINGS).units.at(-1)!;
+    };
+
+    const shared = planFor('shared');
+    const assertive = planFor('assertive');
+    const wonder = planFor('wonder');
+    const uncertain = planFor('uncertain');
 
     expect(wonder.pitchMidi).toBeGreaterThan(shared.pitchMidi);
     expect(wonder.duration).toBeGreaterThan(assertive.duration);
