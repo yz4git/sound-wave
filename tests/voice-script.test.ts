@@ -299,6 +299,21 @@ describe('Voice Lab speech planning', () => {
     expect(wonderingHesitation.units.at(-1)?.sentenceTerminal).toBe('statement');
   });
 
+  it('spreads hesitation across the final morae instead of changing only the last mora', () => {
+    const hesitant = parseVoiceScript('まつかな……');
+    const plain = parseVoiceScript('まつかな。');
+
+    expect(hesitant.units.every((unit) => unit.sentenceHesitation)).toBe(true);
+    expect(plain.units.every((unit) => !unit.sentenceHesitation)).toBe(true);
+
+    const index = hesitant.units.length - 2;
+    expect(
+      prosodyOffsetForUnit(hesitant.units[index]!, index, hesitant.units.length, 'natural'),
+    ).toBeLessThan(
+      prosodyOffsetForUnit(plain.units[index]!, index, plain.units.length, 'natural') - 0.05,
+    );
+  });
+
   it('adds a tiny breath lead only to sufficiently long sentence starts', () => {
     const long = parseVoiceScript('あいうえおか。');
     const short = parseVoiceScript('あい。');
