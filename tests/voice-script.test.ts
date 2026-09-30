@@ -263,7 +263,25 @@ describe('Voice Lab speech planning', () => {
     expect(wonder.units.at(-1)?.sentenceAttitude).toBe('wonder');
     expect(wonder.units.at(-2)?.attitudeFocus).toBe(true);
     expect(uncertain.units.at(-1)?.sentenceAttitude).toBe('uncertain');
-    expect(explicitQuestion.units.at(-1)?.sentenceAttitude).toBe('none');
+    expect(explicitQuestion.units.at(-1)?.sentenceAttitude).toBe('assertive');
+    expect(explicitQuestion.units.at(-1)?.sentenceTerminal).toBe('question');
+  });
+
+  it('keeps attitude metadata when punctuation adds question or exclamation force', () => {
+    const sharedQuestion = parseVoiceScript('そうだね？');
+    const assertiveExclaim = parseVoiceScript('いくよ！');
+    const wonderingHesitation = parseVoiceScript('どうしようかな……');
+
+    expect(sharedQuestion.units.at(-1)?.sentenceAttitude).toBe('shared');
+    expect(sharedQuestion.units.at(-1)?.sentenceTerminal).toBe('question');
+    expect(sharedQuestion.units.at(-1)?.attitudeFocus).toBe(true);
+
+    expect(assertiveExclaim.units.at(-1)?.sentenceAttitude).toBe('assertive');
+    expect(assertiveExclaim.units.at(-1)?.sentenceTerminal).toBe('exclamation');
+
+    expect(wonderingHesitation.units.at(-1)?.sentenceAttitude).toBe('wonder');
+    expect(wonderingHesitation.units.at(-1)?.hesitationAfter).toBe(true);
+    expect(wonderingHesitation.units.at(-1)?.sentenceTerminal).toBe('statement');
   });
 
   it('adds a tiny breath lead only to sufficiently long sentence starts', () => {
