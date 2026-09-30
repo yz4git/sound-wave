@@ -249,6 +249,7 @@ export function speechSourceProfileFor(expression: VoiceExpressionSettings): Spe
 export interface SpeechPresenceProfile {
   upperFormantGain: readonly [number, number, number, number, number];
   presenceGainScale: number;
+  presenceGainAdd: number;
   presenceFrequencyScale: number;
   radiationGainDbAdd: number;
   consonantNoiseScale: number;
@@ -285,6 +286,11 @@ export function speechPresenceProfileFor(
       1.3 * brightPreset,
     ],
     presenceGainScale: 1.34 * brightPreset,
+    presenceGainAdd: expression.preset === 'whisper'
+      ? 0.034
+      : expression.preset === 'calm'
+        ? 0.042
+        : 0.058 * brightPreset,
     presenceFrequencyScale: expression.preset === 'calm' ? 1.01 : 1.055,
     radiationGainDbAdd: expression.preset === 'whisper' ? 1.1 : 1.8 * brightPreset,
     consonantNoiseScale: fricative ? 1.42 * brightPreset : 1.12,
@@ -1205,7 +1211,12 @@ export class VoiceSynth {
           1800,
           4600,
         ),
-        presenceGain: workletEvent.style.presenceGain * speechPresence.presenceGainScale,
+        presenceGain: clamp(
+          workletEvent.style.presenceGain * speechPresence.presenceGainScale
+            + speechPresence.presenceGainAdd,
+          0,
+          0.18,
+        ),
         radiationGainDb: workletEvent.style.radiationGainDb + speechPresence.radiationGainDbAdd,
       };
       workletEvent.phoneme = {
