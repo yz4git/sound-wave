@@ -8,6 +8,7 @@ import {
   speechPresenceProfileFor,
   speechSourceProfileFor,
   speechTakeVariationFor,
+  speechTimbreProfileFor,
 } from '../src/voice/VoiceSynth';
 
 describe('VOICE LAB speech source', () => {
@@ -65,6 +66,34 @@ describe('VOICE LAB speech source', () => {
     expect(calm.vowelTransitionScale).toBeGreaterThan(neutral.vowelTransitionScale);
     expect(excited.cvOverlap).toBeLessThan(neutral.cvOverlap);
     expect(excited.glottalJitterCents).toBeGreaterThan(neutral.glottalJitterCents);
+  });
+
+  it('gives voice characters distinct spoken timbre mechanics', () => {
+    const expression = { preset: 'neutral' as const, intensity: 1 };
+    const natural = speechTimbreProfileFor('natural', 0, expression);
+    const soft = speechTimbreProfileFor('soft', 0, expression);
+    const clear = speechTimbreProfileFor('clear', 0, expression);
+    const airy = speechTimbreProfileFor('airy', 0, expression);
+    const power = speechTimbreProfileFor('power', 0, expression);
+
+    expect(power.closureStrength).toBeGreaterThan(natural.closureStrength);
+    expect(power.bodyMix).toBeGreaterThan(clear.bodyMix);
+    expect(soft.sourceDamping).toBeGreaterThan(clear.sourceDamping);
+    expect(airy.closureStrength).toBeLessThan(soft.closureStrength);
+    expect(clear.upperFormantGain).toBeGreaterThan(soft.upperFormantGain);
+    expect(soft.lowerFormantGain).toBeGreaterThan(clear.lowerFormantGain);
+    expect(airy.formantMotion).toBeGreaterThan(power.formantMotion);
+  });
+
+  it('uses the tone control to shift spoken body and harmonic brightness', () => {
+    const expression = { preset: 'neutral' as const, intensity: 1 };
+    const dark = speechTimbreProfileFor('natural', -1, expression);
+    const bright = speechTimbreProfileFor('natural', 1, expression);
+
+    expect(dark.bodyMix).toBeGreaterThan(bright.bodyMix);
+    expect(dark.sourceDamping).toBeGreaterThan(bright.sourceDamping);
+    expect(bright.upperFormantGain).toBeGreaterThan(dark.upperFormantGain);
+    expect(bright.closureStrength).toBeGreaterThan(dark.closureStrength);
   });
 
   it('moves whisper toward more tilt and aspiration', () => {
