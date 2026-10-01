@@ -9,6 +9,7 @@ import {
   speechFinalityProfileFor,
   speechHarmonicNoiseProfileFor,
   speechPresenceProfileFor,
+  speechQualityProfileFor,
   speechSourceProfileFor,
   speechTakeVariationFor,
   speechTimbreProfileFor,
@@ -16,6 +17,42 @@ import {
 } from '../src/voice/VoiceSynth';
 
 describe('VOICE LAB speech source', () => {
+  it('keeps FAST and HQ rendering paths audibly distinct but control-frame compatible', () => {
+    const unit = parseVoiceScript('さ。').units[0]!;
+    const settings = {
+      style: 'warm' as const,
+      character: 'natural' as const,
+      tone: 0,
+      rate: 1,
+      pitch: 60,
+      energy: 0.92,
+      intonation: 'auto' as const,
+      expression: { preset: 'neutral' as const, intensity: 1 },
+    };
+    const frame = voiceSpeechControlFrameFor(
+      unit,
+      0,
+      60.5,
+      0.9,
+      0.14,
+      settings,
+      settings.expression,
+    );
+    const fast = speechQualityProfileFor('fast', frame);
+    const hq = speechQualityProfileFor('hq', frame);
+
+    expect(fast.sourceOversample).toBe(1);
+    expect(fast.residualAmount).toBe(0);
+    expect(fast.residualBody).toBe(0);
+    expect(fast.residualPresence).toBe(0);
+    expect(fast.residualAir).toBe(0);
+
+    expect(hq.sourceOversample).toBe(2);
+    expect(hq.residualAmount).toBeGreaterThan(0.1);
+    expect(hq.residualPresence).toBeGreaterThan(0.04);
+    expect(hq.residualAir).toBeGreaterThanOrEqual(0);
+  });
+
   it('uses a strongly speech-weighted source for neutral delivery', () => {
     const profile = speechSourceProfileFor({ preset: 'neutral', intensity: 1 });
 
