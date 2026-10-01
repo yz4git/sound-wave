@@ -658,3 +658,18 @@ This pass reviewed recent controllable speech, neural source-filter, articulator
 - A learned TVT memory is deferred until there is an on-device model small enough to justify its cost. The current deterministic mora-synchronous timbre layer provides the architectural hook.
 
 The practical target remains a hybrid system: Open JTalk / editable prosody -> compact articulatory+timbre control frame -> explicit glottal/H+N source -> controllable resonant tract -> optional future neural residual/refiner.
+
+### 32. Browser HQ path and neural-ready control frames
+
+Further research/implementation work adds two architectural pieces for a future compact neural HQ mode without changing the default offline DSP workflow.
+
+- Every spoken mora can now be represented as one `VoiceSpeechControlFrame`: planned F0, energy, duration, six-dimensional articulatory state, character/expression timbre, and Harmonic/Noise balance. The shipping DSP consumes the same quantities today; a future tiny residual network can therefore predict corrections to these frames instead of replacing prosody/manual editing.
+- The speech glottal source now supports a Voice-Lab-only 2x internal evaluation. Midpoint and endpoint glottal-flow values are averaged before differentiation, reducing alias-prone sharp closure excitation at small computational cost. Singing leaves this field undefined.
+
+Browser deployment constraints matter for the future neural stage. Current ONNX Runtime Web documentation supports WASM across iOS/Safari, while its browser support table does not list WebGPU for Safari/iOS. Therefore an optional neural HQ model should target WASM as the compatibility baseline and enable WebGPU only after runtime capability detection on supported browsers. The default local DSP path must remain available with no neural-model download.
+
+The intended future model boundary is deliberately narrow:
+
+`Open JTalk / editable prosody -> mora control frame -> optional small neural residual or neural glottal source -> existing H+N / resonant tract AudioWorklet`
+
+This keeps CtrlSpeech-like fine-grained pitch/loudness/duration control, HiFi-Glot-style source/tract separation, and DDSP-style efficient waveform generation in one architecture.
