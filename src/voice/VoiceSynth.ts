@@ -69,6 +69,36 @@ export interface VoiceTimedSpeechEvent {
   gapAfter: number;
 }
 
+export interface VoiceSpeechControlFrame {
+  unitIndex: number;
+  f0Midi: number;
+  energy: number;
+  duration: number;
+  articulation: SpeechArticulatoryState;
+  timbre: SpeechTimbreProfile;
+  harmonicNoise: SpeechHarmonicNoiseProfile;
+}
+
+export function voiceSpeechControlFrameFor(
+  unit: VoiceUnit,
+  unitIndex: number,
+  f0Midi: number,
+  energy: number,
+  duration: number,
+  settings: VoiceSynthSettings,
+  expression: VoiceExpressionSettings,
+): VoiceSpeechControlFrame {
+  return {
+    unitIndex,
+    f0Midi,
+    energy,
+    duration,
+    articulation: speechArticulatoryStateFor(unit),
+    timbre: speechTimbreProfileFor(settings.character, settings.tone, expression),
+    harmonicNoise: speechHarmonicNoiseProfileFor(unit),
+  };
+}
+
 export interface VoicePlaybackPlan {
   duration: number;
   units: VoiceTimedUnit[];
@@ -1434,14 +1464,19 @@ export class VoiceSynth {
       const expressionControl = voiceExpressionControl(timed.expression);
       const speechSource = speechSourceProfileFor(timed.expression);
       const speechPresence = speechPresenceProfileFor(unit, timed.expression);
-      const speechTimbre = speechTimbreProfileFor(
-        settings.character,
-        settings.tone,
+      const controlFrame = voiceSpeechControlFrameFor(
+        unit,
+        index,
+        timed.pitchMidi,
+        timed.energyScale,
+        timed.duration,
+        settings,
         timed.expression,
       );
-      const articulatoryState = speechArticulatoryStateFor(unit);
+      const speechTimbre = controlFrame.timbre;
+      const articulatoryState = controlFrame.articulation;
       const articulatoryFilter = speechArticulatoryFilterFor(articulatoryState);
-      const harmonicNoise = speechHarmonicNoiseProfileFor(unit);
+      const harmonicNoise = controlFrame.harmonicNoise;
       const precedingSpeechEvents = script.events.filter((event) => event.afterUnit === index - 1);
       const followsSigh = precedingSpeechEvents.some((event) => event.kind === 'sigh');
       const followsLaugh = precedingSpeechEvents.some((event) => event.kind === 'laugh');
