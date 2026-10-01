@@ -310,6 +310,134 @@ export function speechSourceProfileFor(expression: VoiceExpressionSettings): Spe
   };
 }
 
+export interface SpeechTimbreProfile {
+  closureAsymmetry: number;
+  closureStrength: number;
+  bodyMix: number;
+  sourceDamping: number;
+  formantMotion: number;
+  lowerFormantGain: number;
+  upperFormantGain: number;
+}
+
+export function speechTimbreProfileFor(
+  character: VoiceCharacterPreset,
+  tone: number,
+  expression: VoiceExpressionSettings,
+): SpeechTimbreProfile {
+  const base: Record<VoiceCharacterPreset, SpeechTimbreProfile> = {
+    natural: {
+      closureAsymmetry: 0.58,
+      closureStrength: 1.03,
+      bodyMix: 0.1,
+      sourceDamping: 0.14,
+      formantMotion: 0.0024,
+      lowerFormantGain: 1.06,
+      upperFormantGain: 1,
+    },
+    soft: {
+      closureAsymmetry: 0.48,
+      closureStrength: 0.9,
+      bodyMix: 0.13,
+      sourceDamping: 0.22,
+      formantMotion: 0.0028,
+      lowerFormantGain: 1.1,
+      upperFormantGain: 0.94,
+    },
+    clear: {
+      closureAsymmetry: 0.64,
+      closureStrength: 1.08,
+      bodyMix: 0.07,
+      sourceDamping: 0.08,
+      formantMotion: 0.002,
+      lowerFormantGain: 1,
+      upperFormantGain: 1.08,
+    },
+    airy: {
+      closureAsymmetry: 0.44,
+      closureStrength: 0.84,
+      bodyMix: 0.055,
+      sourceDamping: 0.27,
+      formantMotion: 0.003,
+      lowerFormantGain: 0.97,
+      upperFormantGain: 0.95,
+    },
+    power: {
+      closureAsymmetry: 0.72,
+      closureStrength: 1.18,
+      bodyMix: 0.145,
+      sourceDamping: 0.055,
+      formantMotion: 0.0018,
+      lowerFormantGain: 1.13,
+      upperFormantGain: 1.04,
+    },
+  };
+  const selected = base[character] ?? base.natural;
+  const toneAmount = clamp(tone, -1, 1);
+  const expressionAmount = clamp(expression.intensity, 0, 1.35);
+  const airyExpression = expression.preset === 'whisper'
+    ? 1
+    : expression.preset === 'calm'
+      ? 0.35
+      : 0;
+  const firmExpression = expression.preset === 'serious'
+    ? 0.55
+    : expression.preset === 'excited'
+      ? 0.35
+      : 0;
+
+  return {
+    closureAsymmetry: clamp(
+      selected.closureAsymmetry
+        + toneAmount * 0.035
+        + firmExpression * expressionAmount * 0.025
+        - airyExpression * expressionAmount * 0.045,
+      0.34,
+      0.8,
+    ),
+    closureStrength: clamp(
+      selected.closureStrength
+        * (1 + toneAmount * 0.05)
+        * (1 + firmExpression * expressionAmount * 0.045)
+        * (1 - airyExpression * expressionAmount * 0.08),
+      0.72,
+      1.28,
+    ),
+    bodyMix: clamp(
+      selected.bodyMix
+        * (1 - toneAmount * 0.13)
+        * (1 - airyExpression * expressionAmount * 0.18)
+        * (1 + firmExpression * expressionAmount * 0.08),
+      0.035,
+      0.19,
+    ),
+    sourceDamping: clamp(
+      selected.sourceDamping
+        * (1 - toneAmount * 0.18)
+        * (1 + airyExpression * expressionAmount * 0.28)
+        * (1 - firmExpression * expressionAmount * 0.12),
+      0.035,
+      0.34,
+    ),
+    formantMotion: clamp(
+      selected.formantMotion
+        * (expression.preset === 'calm' ? 1.08 : expression.preset === 'excited' ? 0.92 : 1),
+      0.0012,
+      0.0036,
+    ),
+    lowerFormantGain: clamp(
+      selected.lowerFormantGain * (1 - toneAmount * 0.035),
+      0.92,
+      1.18,
+    ),
+    upperFormantGain: clamp(
+      selected.upperFormantGain * (1 + toneAmount * 0.07),
+      0.88,
+      1.16,
+    ),
+  };
+}
+
 export interface SpeechPresenceProfile {
   upperFormantGain: readonly [number, number, number, number, number];
   presenceGainScale: number;
@@ -1158,6 +1286,11 @@ export class VoiceSynth {
       const expressionControl = voiceExpressionControl(timed.expression);
       const speechSource = speechSourceProfileFor(timed.expression);
       const speechPresence = speechPresenceProfileFor(unit, timed.expression);
+      const speechTimbre = speechTimbreProfileFor(
+        settings.character,
+        settings.tone,
+        timed.expression,
+      );
       const precedingSpeechEvents = script.events.filter((event) => event.afterUnit === index - 1);
       const followsSigh = precedingSpeechEvents.some((event) => event.kind === 'sigh');
       const followsLaugh = precedingSpeechEvents.some((event) => event.kind === 'laugh');
@@ -1259,6 +1392,11 @@ export class VoiceSynth {
         speechGlottalDriftCents: speechSource.glottalDriftCents,
         speechGlottalJitterCents: speechSource.glottalJitterCents,
         speechOpenQuotientMotion: speechSource.openQuotientMotion,
+        speechClosureAsymmetry: speechTimbre.closureAsymmetry,
+        speechClosureStrength: speechTimbre.closureStrength,
+        speechBodyMix: speechTimbre.bodyMix,
+        speechSourceDamping: speechTimbre.sourceDamping,
+        speechFormantMotion: speechTimbre.formantMotion,
         speechPitchTransitionScale: pitchTransitionScale,
         speechFinalCreak: unit.phraseEnd ? finality.creak : 0,
         speechFinalBreath: unit.phraseEnd
@@ -1270,10 +1408,17 @@ export class VoiceSynth {
               : 0,
       };
 
-      workletEvent.formants = workletEvent.formants.map((band, bandIndex) => ({
-        ...band,
-        gain: band.gain * (speechPresence.upperFormantGain[bandIndex] ?? 1),
-      }));
+      workletEvent.formants = workletEvent.formants.map((band, bandIndex) => {
+        const bodyScale = bandIndex <= 1
+          ? speechTimbre.lowerFormantGain
+          : speechTimbre.upperFormantGain;
+        return {
+          ...band,
+          gain: band.gain
+            * (speechPresence.upperFormantGain[bandIndex] ?? 1)
+            * bodyScale,
+        };
+      });
       workletEvent.style = {
         ...workletEvent.style,
         presenceFrequency: clamp(
