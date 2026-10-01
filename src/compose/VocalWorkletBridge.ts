@@ -132,6 +132,14 @@ export interface VocalWorkletEvent {
     speechNoiseGain?: number;
     /** Enable a cheap 2x glottal-source evaluation for speech-only anti-aliasing. */
     speechSourceOversample?: number;
+    /** Master amount for the HQ speech-only post-tract residual refiner. */
+    speechResidualAmount?: number;
+    /** Low-band body residual amount. */
+    speechResidualBody?: number;
+    /** Mid-band/presence residual amount. */
+    speechResidualPresence?: number;
+    /** High-band/air residual amount. May be slightly negative for vowels. */
+    speechResidualAir?: number;
     /** Speech-only multiplier for inter-mora F0 transition time. */
     speechPitchTransitionScale?: number;
     /** Sentence-final irregular phonation amount for spoken Japanese. */
