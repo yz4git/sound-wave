@@ -46,6 +46,27 @@ describe('VOICE LAB speech source', () => {
     expect(fricative.fricativeGain).toBeGreaterThan(vowel.fricativeGain);
   });
 
+  it('uses speech-only tract carry, CV overlap, and glottal microvariation', () => {
+    const neutral = speechSourceProfileFor({ preset: 'neutral', intensity: 1 });
+    const calm = speechSourceProfileFor({ preset: 'calm', intensity: 1 });
+    const excited = speechSourceProfileFor({ preset: 'excited', intensity: 1 });
+
+    expect(neutral.formantCarry).toBeGreaterThanOrEqual(0.9);
+    expect(neutral.vowelTransitionScale).toBeGreaterThan(1.1);
+    expect(neutral.cvOverlap).toBeGreaterThan(0.6);
+    expect(neutral.glottalDriftCents).toBeGreaterThan(0.5);
+    expect(neutral.glottalDriftCents).toBeLessThan(1);
+    expect(neutral.glottalJitterCents).toBeGreaterThan(0.6);
+    expect(neutral.glottalJitterCents).toBeLessThan(1);
+    expect(neutral.openQuotientMotion).toBeGreaterThan(0.008);
+    expect(neutral.openQuotientMotion).toBeLessThan(0.02);
+
+    expect(calm.formantCarry).toBeGreaterThan(neutral.formantCarry);
+    expect(calm.vowelTransitionScale).toBeGreaterThan(neutral.vowelTransitionScale);
+    expect(excited.cvOverlap).toBeLessThan(neutral.cvOverlap);
+    expect(excited.glottalJitterCents).toBeGreaterThan(neutral.glottalJitterCents);
+  });
+
   it('moves whisper toward more tilt and aspiration', () => {
     const neutral = speechSourceProfileFor({ preset: 'neutral', intensity: 1 });
     const whisper = speechSourceProfileFor({ preset: 'whisper', intensity: 1 });
