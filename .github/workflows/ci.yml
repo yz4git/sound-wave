@@ -20,6 +20,8 @@ jobs:
           cache: npm
       - run: npm ci --no-audit --no-fund
       - run: npm test
+      - name: Check vocal AudioWorklet syntax
+        run: node --check public/vocal-worklet.js
       - run: npm run build
       - name: Verify Vite production artifact
         run: npm run validate:prod
