@@ -425,6 +425,39 @@ export function speechArticulatoryFilterFor(
   };
 }
 
+export interface SpeechHarmonicNoiseProfile {
+  harmonicGain: number;
+  noiseGain: number;
+}
+
+export function speechHarmonicNoiseProfileFor(unit: VoiceUnit): SpeechHarmonicNoiseProfile {
+  const consonant = consonantForSyllable(unit.syllable);
+
+  if (consonant === 'vowel' || unit.longVowel) {
+    return { harmonicGain: 1.035, noiseGain: 0.92 };
+  }
+  if (
+    consonant === 's'
+    || consonant === 'sh'
+    || consonant === 'ts'
+    || consonant === 'ch'
+    || consonant === 'h'
+    || consonant === 'f'
+  ) {
+    return { harmonicGain: 0.965, noiseGain: 1.11 };
+  }
+  if (consonant === 'z' || consonant === 'j' || consonant === 'v') {
+    return { harmonicGain: 0.985, noiseGain: 1.065 };
+  }
+  if (consonant === 'k' || consonant === 't' || consonant === 'p') {
+    return { harmonicGain: 0.99, noiseGain: 1.045 };
+  }
+  if (consonant === 'n' || consonant === 'm' || consonant === 'N') {
+    return { harmonicGain: 1.025, noiseGain: 0.9 };
+  }
+  return { harmonicGain: 1, noiseGain: 1 };
+}
+
 export interface SpeechTimbreProfile {
   closureAsymmetry: number;
   closureStrength: number;
@@ -1408,6 +1441,7 @@ export class VoiceSynth {
       );
       const articulatoryState = speechArticulatoryStateFor(unit);
       const articulatoryFilter = speechArticulatoryFilterFor(articulatoryState);
+      const harmonicNoise = speechHarmonicNoiseProfileFor(unit);
       const precedingSpeechEvents = script.events.filter((event) => event.afterUnit === index - 1);
       const followsSigh = precedingSpeechEvents.some((event) => event.kind === 'sigh');
       const followsLaugh = precedingSpeechEvents.some((event) => event.kind === 'laugh');
@@ -1514,6 +1548,8 @@ export class VoiceSynth {
         speechBodyMix: speechTimbre.bodyMix,
         speechSourceDamping: speechTimbre.sourceDamping,
         speechFormantMotion: speechTimbre.formantMotion,
+        speechHarmonicGain: harmonicNoise.harmonicGain,
+        speechNoiseGain: harmonicNoise.noiseGain,
         speechPitchTransitionScale: pitchTransitionScale,
         speechFinalCreak: unit.phraseEnd ? finality.creak : 0,
         speechFinalBreath: unit.phraseEnd
