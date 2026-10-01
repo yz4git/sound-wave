@@ -126,6 +126,10 @@ export interface VocalWorkletEvent {
     speechSourceDamping?: number;
     /** Tiny speech-only vowel-tract motion applied to formant targets. */
     speechFormantMotion?: number;
+    /** Speech-only gain for periodic/harmonic energy after the vocal tract. */
+    speechHarmonicGain?: number;
+    /** Speech-only gain for aperiodic/noise energy after the vocal tract. */
+    speechNoiseGain?: number;
     /** Speech-only multiplier for inter-mora F0 transition time. */
     speechPitchTransitionScale?: number;
     /** Sentence-final irregular phonation amount for spoken Japanese. */
