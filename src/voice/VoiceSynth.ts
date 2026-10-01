@@ -280,24 +280,24 @@ export function speechPresenceProfileFor(
   return {
     upperFormantGain: [
       1,
-      1.08,
-      1.31 * brightPreset,
+      1.1,
       1.42 * brightPreset,
-      1.3 * brightPreset,
+      1.6 * brightPreset,
+      1.48 * brightPreset,
     ],
-    presenceGainScale: 1.34 * brightPreset,
+    presenceGainScale: 1.48 * brightPreset,
     presenceGainAdd: expression.preset === 'whisper'
-      ? 0.034
+      ? 0.046
       : expression.preset === 'calm'
-        ? 0.042
-        : 0.058 * brightPreset,
-    presenceFrequencyScale: expression.preset === 'calm' ? 1.01 : 1.055,
-    radiationGainDbAdd: expression.preset === 'whisper' ? 1.1 : 1.8 * brightPreset,
-    consonantNoiseScale: fricative ? 1.42 * brightPreset : 1.12,
-    fricationScale: fricative ? 1.14 : 1.035,
-    harmonicPresence: clamp(0.13 * brightPreset, 0.08, 0.18),
-    airPresence: clamp((fricative ? 0.082 : 0.026) * airy * brightPreset, 0.018, 0.13),
-    fricativeGain: clamp((fricative ? 1.5 : 1.08) * brightPreset, 1, 1.85),
+        ? 0.052
+        : 0.074 * brightPreset,
+    presenceFrequencyScale: expression.preset === 'calm' ? 1.015 : 1.07,
+    radiationGainDbAdd: expression.preset === 'whisper' ? 1.35 : 2.25 * brightPreset,
+    consonantNoiseScale: fricative ? 1.58 * brightPreset : 1.16,
+    fricationScale: fricative ? 1.2 : 1.045,
+    harmonicPresence: clamp(0.17 * brightPreset, 0.1, 0.23),
+    airPresence: clamp((fricative ? 0.12 : 0.034) * airy * brightPreset, 0.024, 0.155),
+    fricativeGain: clamp((fricative ? 1.78 : 1.12) * brightPreset, 1, 1.96),
   };
 }
 
