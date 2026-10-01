@@ -29,7 +29,12 @@ import {
   loadVoicePhraseEdits,
   saveVoicePhraseEdits,
 } from './VoicePhraseStore';
-import { VoiceSynth, type VoiceProsodyEdits, type VoiceSynthSettings } from './VoiceSynth';
+import {
+  VoiceSynth,
+  type VoiceProsodyEdits,
+  type VoiceRenderQuality,
+  type VoiceSynthSettings,
+} from './VoiceSynth';
 import {
   mapLocalExpressionsToRanges,
   parseVoiceMarkup,
@@ -64,6 +69,7 @@ type ProsodyLane = 'pitch' | 'energy' | 'duration';
 
 interface VoiceLabSettings extends VoiceSynthSettings {
   engine: VoiceEngine;
+  quality: VoiceRenderQuality;
   expression: VoiceExpressionSettings;
 }
 
@@ -85,6 +91,10 @@ function validIntonation(value: unknown): value is VoiceIntonation {
 
 function validEngine(value: unknown): value is VoiceEngine {
   return value === 'local' || value === 'system';
+}
+
+function validQuality(value: unknown): value is VoiceRenderQuality {
+  return value === 'fast' || value === 'hq';
 }
 
 function safeFilename(text: string): string {
@@ -168,6 +178,7 @@ export class VoiceMode {
   private loadSettings(): VoiceLabSettings {
     const fallback: VoiceLabSettings = {
       engine: 'local',
+      quality: 'hq',
       style: 'warm',
       character: 'natural',
       tone: 0,
@@ -186,6 +197,7 @@ export class VoiceMode {
       const parsed = JSON.parse(raw) as Partial<VoiceLabSettings>;
       return {
         engine: validEngine(parsed.engine) ? parsed.engine : fallback.engine,
+        quality: validQuality(parsed.quality) ? parsed.quality : fallback.quality,
         style: validStyle(parsed.style) ? parsed.style : fallback.style,
         character: validVoiceCharacterPreset(parsed.character) ? parsed.character : fallback.character,
         tone: clamp(Number(parsed.tone) || 0, -1, 1),
@@ -244,6 +256,11 @@ export class VoiceMode {
             <button type="button" data-voice-engine="local">SOUND WAVE DSP</button>
             <button type="button" data-voice-engine="system">SYSTEM TTS</button>
           </div>
+          <div class="voice-engine" role="group" aria-label="Local render quality">
+            <button type="button" data-voice-quality="fast">FAST DSP</button>
+            <button type="button" data-voice-quality="hq">HQ REFINE</button>
+          </div>
+          <p class="voice-engine-note">HQ · 2× glottal source + mora-aware body / presence / air residual · no model download</p>
           <div class="voice-japanese-tools">
             <button type="button" id="voice-analyze-japanese">JAPANESE G2P</button>
             <span id="voice-japanese-status">Open JTalk reading + pitch accent · kanji / おう / えい · first use ~24MB dictionary</span>
@@ -653,6 +670,24 @@ export class VoiceMode {
       }, { passive: false });
     }
 
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-voice-quality]')) {
+      button.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        const quality = button.dataset.voiceQuality;
+        if (!validQuality(quality)) return;
+        this.settings.quality = quality;
+        this.saveSettings();
+        this.stop();
+        this.syncControls();
+        this.refreshPlan();
+        this.setStatus(
+          quality === 'hq'
+            ? 'READY · HQ REFINE · 2× SOURCE + RESIDUAL'
+            : 'READY · FAST DSP',
+        );
+      }, { passive: false });
+    }
+
     for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-voice-expression]')) {
       button.addEventListener('pointerdown', (event) => {
         event.preventDefault();
@@ -729,6 +764,10 @@ export class VoiceMode {
 
     for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-voice-engine]')) {
       button.classList.toggle('active', button.dataset.voiceEngine === this.settings.engine);
+    }
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-voice-quality]')) {
+      button.classList.toggle('active', button.dataset.voiceQuality === this.settings.quality);
+      button.disabled = this.settings.engine !== 'local';
     }
     this.required<HTMLButtonElement>('#voice-analyze-japanese').disabled =
       this.settings.engine !== 'local' || this.japaneseAnalyzing;
@@ -1700,7 +1739,15 @@ export class VoiceMode {
     this.systemSpeechGeneration += 1;
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
-    if (this.active) this.setStatus(this.settings.engine === 'local' ? 'READY · LOCAL DSP' : 'READY · SYSTEM TTS');
+    if (this.active) {
+      this.setStatus(
+        this.settings.engine === 'local'
+          ? this.settings.quality === 'hq'
+            ? 'READY · HQ REFINE'
+            : 'READY · FAST DSP'
+          : 'READY · SYSTEM TTS',
+      );
+    }
   }
 
   private async play(): Promise<void> {
@@ -1745,13 +1792,17 @@ export class VoiceMode {
     }
 
     try {
-      this.setStatus('SCHEDULING · LOW-LATENCY STREAM');
+      this.setStatus(
+        this.settings.quality === 'hq'
+          ? 'SCHEDULING · HQ REFINE'
+          : 'SCHEDULING · FAST DSP',
+      );
       const plan = await this.synth.play(script, this.settings, this.getProsodyEdits(script, localExpressions));
       this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
       this.setStatus(
         quickKanaWhileLoading
           ? `SPEAKING · QUICK KANA · ${script.units.length} UNITS · G2P PREPARING`
-          : `SPEAKING · ${script.units.length} UNITS · ${plan.duration.toFixed(1)}s`,
+          : `SPEAKING · ${this.settings.quality === 'hq' ? 'HQ' : 'FAST'} · ${script.units.length} UNITS · ${plan.duration.toFixed(1)}s`,
       );
       for (const timed of plan.units.slice(0, 72)) {
         const timer = window.setTimeout(() => {
@@ -1765,7 +1816,7 @@ export class VoiceMode {
       this.playbackTimer = window.setTimeout(() => {
         this.clearPlaybackTimers();
         this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
-        this.setStatus('READY · LOCAL DSP');
+        this.setStatus(this.settings.quality === 'hq' ? 'READY · HQ REFINE' : 'READY · FAST DSP');
       }, Math.ceil((plan.duration + 0.1) * 1000));
     } catch (error) {
       console.warn('VOICE LAB local synthesis failed.', error);
@@ -1870,7 +1921,11 @@ export class VoiceMode {
     this.stop();
     button.disabled = true;
     button.textContent = 'RENDERING…';
-    this.setStatus('RENDERING WAV · REAL-TIME LOCAL CAPTURE');
+    this.setStatus(
+      this.settings.quality === 'hq'
+        ? 'RENDERING WAV · HQ REFINE'
+        : 'RENDERING WAV · FAST DSP',
+    );
     try {
       const blob = await this.synth.renderWav(script, this.settings, this.getProsodyEdits(script, localExpressions));
       downloadBlob(blob, `${safeFilename(markup.plainText)}.wav`);
