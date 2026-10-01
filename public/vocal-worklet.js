@@ -106,6 +106,7 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     this.jitterState = 0;
     this.shimmerState = 0;
     this.fricationLowState = 0;
+    this.sibilanceLowState = 0;
     this.nasalState = 0;
     this.envelopeState = 0;
 
@@ -525,12 +526,14 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
 
   noiseForConsonant(consonant, noise) {
     this.fricationLowState += (noise - this.fricationLowState) * 0.075;
+    this.sibilanceLowState += (noise - this.sibilanceLowState) * 0.3;
     const low = this.fricationLowState;
     const high = noise - low;
+    const sibilantHigh = noise - this.sibilanceLowState;
 
-    if (consonant === 's' || consonant === 'ts') return high;
-    if (consonant === 'sh') return high * 0.82 + noise * 0.18;
-    if (consonant === 'ch') return high * 0.76 + noise * 0.24;
+    if (consonant === 's' || consonant === 'ts') return sibilantHigh * 0.84 + high * 0.16;
+    if (consonant === 'sh') return sibilantHigh * 0.58 + high * 0.42;
+    if (consonant === 'ch') return sibilantHigh * 0.48 + high * 0.52;
     if (consonant === 'z' || consonant === 'j') return high * 0.58 + low * 0.42;
     if (consonant === 't') return high * 0.86 + noise * 0.14;
     if (consonant === 'f') return high * 0.68 + low * 0.32;
@@ -626,6 +629,7 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       this.outputState *= 0.998;
       this.nasalState *= 0.996;
       this.fricationLowState *= 0.996;
+      this.sibilanceLowState *= 0.994;
 
       for (let index = 0; index < 5; index += 1) {
         this.formantY1[index] *= 0.9935;
