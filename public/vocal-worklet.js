@@ -112,6 +112,7 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
 
     this.vibratoPhase = 0;
     this.driftPhase = 0;
+    this.speechMicroPhase = 0;
     this.lastVibratoRate = 5.1;
 
     this.delayBuffer = new Float32Array(4096);
@@ -195,7 +196,13 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
 
   prepareActive(event) {
     const speechCoarticulation = clamp01(event.style?.speechCoarticulation || 0);
-    const carry = event.articulate ? 0.78 + speechCoarticulation * 0.1 : 0.975;
+    const requestedSpeechCarry = clamp01(event.style?.speechFormantCarry || 0);
+    const speechCarry = requestedSpeechCarry > 0
+      ? 0.84 + requestedSpeechCarry * 0.13
+      : 0;
+    const carry = event.articulate
+      ? Math.max(0.78 + speechCoarticulation * 0.1, speechCarry)
+      : 0.975;
     for (let index = 0; index < 5; index += 1) {
       this.formantY1[index] *= carry;
       this.formantY2[index] *= carry;
@@ -347,9 +354,16 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
         + Math.min(0.055, phoneme.fricationSeconds),
       phoneme.voicingDelaySeconds,
     );
+    const speechTransitionScale = Math.max(
+      0.8,
+      Math.min(1.5, event.style?.speechVowelTransitionScale || 1),
+    );
     const transitionDuration = Math.min(
-      Math.max(event.articulate ? onsetSpan + 0.045 : 0.075, 0.06),
-      noteDuration * 0.46,
+      Math.max(
+        (event.articulate ? onsetSpan + 0.045 : 0.075) * speechTransitionScale,
+        0.06,
+      ),
+      noteDuration * 0.58,
     );
     const onsetMix = smootherstep(elapsed / Math.max(0.001, transitionDuration));
     const noteProgress = smoothstep(elapsed / Math.max(0.001, noteDuration));
@@ -566,8 +580,13 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     const closureEnd = Math.min(noteDuration * 0.3, p.closureSeconds);
     const burstEnd = closureEnd + Math.min(0.025, p.burstSeconds);
     const fricationEnd = burstEnd + Math.min(0.075, p.fricationSeconds);
-    const voiceStart = Math.min(noteDuration * 0.42, p.voicingDelaySeconds);
-    const voiceRamp = smoothstep((elapsed - voiceStart) / 0.028);
+    const cvOverlap = clamp01(event.style?.speechCVOverlap || 0);
+    const voiceStart = Math.min(
+      noteDuration * 0.42,
+      p.voicingDelaySeconds * (1 - cvOverlap * 0.16),
+    );
+    const voiceRampSeconds = 0.028 + cvOverlap * 0.018;
+    const voiceRamp = smoothstep((elapsed - voiceStart) / voiceRampSeconds);
     let sourceGain = p.voicedMix + (1 - p.voicedMix) * voiceRamp;
 
     let consonantNoise = 0;
@@ -586,7 +605,12 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       const span = Math.max(0.001, fricationEnd - start);
       const position = clamp01((elapsed - start) / span);
       const frictionEnvelope = Math.sin(Math.PI * position) ** 0.7;
-      consonantNoise += shapedNoise * p.noiseMix * frictionEnvelope * 0.52;
+      const consonantFade = 1 - voiceRamp * cvOverlap * 0.42;
+      consonantNoise += shapedNoise
+        * p.noiseMix
+        * frictionEnvelope
+        * 0.52
+        * Math.max(0.5, consonantFade);
     }
 
     if (p.nasalMix > 0 && elapsed < Math.max(0.045, fricationEnd)) {
@@ -607,6 +631,8 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     this.vibratoPhase -= Math.floor(this.vibratoPhase);
     this.driftPhase += 0.55 / sampleRate;
     this.driftPhase -= Math.floor(this.driftPhase);
+    this.speechMicroPhase += 1.73 / sampleRate;
+    this.speechMicroPhase -= Math.floor(this.speechMicroPhase);
   }
 
   processSample(frame) {
@@ -746,11 +772,31 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     const jitterCents = this.jitterState
       * style.jitterCents
       * (0.18 + instability * 0.82);
+    const speechDriftDepth = Math.max(
+      0,
+      Math.min(1.4, style.speechGlottalDriftCents || 0),
+    );
+    const speechJitterDepth = Math.max(
+      0,
+      Math.min(1.5, style.speechGlottalJitterCents || 0),
+    );
+    const speechDriftCents = (
+      Math.sin(2 * Math.PI * this.driftPhase) * 0.72
+      + Math.sin(2 * Math.PI * this.speechMicroPhase + 0.73) * 0.28
+    ) * speechDriftDepth;
+    const speechJitterCents = this.jitterState * speechJitterDepth;
     const finalCreakCents = finalityProgress * finalCreak
       * (-18 + this.jitterState * 34);
 
     const desiredHz = targetHz
-      * 2 ** ((vibratoCents + driftCents + jitterCents + finalCreakCents) / 1200);
+      * 2 ** ((
+        vibratoCents
+        + driftCents
+        + jitterCents
+        + speechDriftCents
+        + speechJitterCents
+        + finalCreakCents
+      ) / 1200);
     const safeDesiredHz = Number.isFinite(desiredHz)
       ? Math.max(20, Math.min(2200, desiredHz))
       : active.targetHz;
@@ -765,6 +811,14 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     const releaseProgress = smoothstep((phraseProgress - 0.7) / 0.3);
     const highPitchAmount = clamp01((this.currentHz - 420) / 520);
     const energyAmount = Math.max(-1, Math.min(1, (phraseEnergy - 0.95) / 0.14));
+    const speechOpenMotion = Math.max(
+      0,
+      Math.min(0.025, style.speechOpenQuotientMotion || 0),
+    );
+    const speechOpenOffset = (
+      Math.sin(2 * Math.PI * this.speechMicroPhase) * 0.7
+      + this.shimmerState * 0.3
+    ) * speechOpenMotion;
     const dynamicOpenQuotient = Math.max(
       0.46,
       Math.min(
@@ -773,7 +827,8 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
           - energyAmount * Math.max(0, resonance.energyClosureDepth)
           + releaseProgress * Math.max(0, resonance.releaseOpenBoost)
           + highPitchAmount * Math.max(0, resonance.highPitchOpenBoost)
-          - finalityProgress * finalCreak * 0.055,
+          - finalityProgress * finalCreak * 0.055
+          + speechOpenOffset,
       ),
     );
     const dynamicSpeedQuotient = Math.max(
