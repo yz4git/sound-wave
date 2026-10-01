@@ -1585,6 +1585,7 @@ export class VoiceSynth {
         speechFormantMotion: speechTimbre.formantMotion,
         speechHarmonicGain: harmonicNoise.harmonicGain,
         speechNoiseGain: harmonicNoise.noiseGain,
+        speechSourceOversample: 2,
         speechPitchTransitionScale: pitchTransitionScale,
         speechFinalCreak: unit.phraseEnd ? finality.creak : 0,
         speechFinalBreath: unit.phraseEnd
