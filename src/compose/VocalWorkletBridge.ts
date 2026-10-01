@@ -116,6 +116,16 @@ export interface VocalWorkletEvent {
     speechGlottalJitterCents?: number;
     /** Tiny speech-only open-quotient motion for a less static glottal source. */
     speechOpenQuotientMotion?: number;
+    /** Speech-only asymmetry between the glottal opening and closure pulse. */
+    speechClosureAsymmetry?: number;
+    /** Speech-only strength of the closure excitation. */
+    speechClosureStrength?: number;
+    /** Speech-only low/mid body mixed back from the smoothed glottal source. */
+    speechBodyMix?: number;
+    /** Speech-only damping of differentiated high-harmonic excitation. */
+    speechSourceDamping?: number;
+    /** Tiny speech-only vowel-tract motion applied to formant targets. */
+    speechFormantMotion?: number;
     /** Speech-only multiplier for inter-mora F0 transition time. */
     speechPitchTransitionScale?: number;
     /** Sentence-final irregular phonation amount for spoken Japanese. */
