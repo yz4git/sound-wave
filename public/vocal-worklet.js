@@ -825,8 +825,10 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       : 0.044 + clamp01(karaoke.pitchStability) * 0.008;
     this.currentHz += (safeDesiredHz - this.currentHz) * pitchFollow;
 
-    this.phase += this.currentHz / sampleRate;
-    this.phase -= Math.floor(this.phase);
+    const phaseStep = this.currentHz / sampleRate;
+    const previousPhase = this.phase;
+    const nextPhase = previousPhase + phaseStep;
+    this.phase = nextPhase - Math.floor(nextPhase);
 
     const releaseProgress = smoothstep((phraseProgress - 0.7) / 0.3);
     const highPitchAmount = clamp01((this.currentHz - 420) / 520);
@@ -862,11 +864,32 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       ),
     );
 
-    const flow = this.glottalFlow(
-      this.phase,
-      dynamicOpenQuotient,
-      dynamicSpeedQuotient,
+    const sourceOversample = Math.max(
+      1,
+      Math.min(2, Math.round(style.speechSourceOversample || 1)),
     );
+    let flow;
+    if (sourceOversample > 1) {
+      const midpointPhase = previousPhase + phaseStep * 0.5;
+      const wrappedMidpoint = midpointPhase - Math.floor(midpointPhase);
+      const midpointFlow = this.glottalFlow(
+        wrappedMidpoint,
+        dynamicOpenQuotient,
+        dynamicSpeedQuotient,
+      );
+      const endpointFlow = this.glottalFlow(
+        this.phase,
+        dynamicOpenQuotient,
+        dynamicSpeedQuotient,
+      );
+      flow = (midpointFlow + endpointFlow) * 0.5;
+    } else {
+      flow = this.glottalFlow(
+        this.phase,
+        dynamicOpenQuotient,
+        dynamicSpeedQuotient,
+      );
+    }
     const derivative = flow - this.previousFlow;
     this.previousFlow = flow;
 
