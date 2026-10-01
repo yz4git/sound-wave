@@ -104,6 +104,18 @@ export interface VocalWorkletEvent {
     speechAirPresence?: number;
     /** Speech-only gain for direct consonant/frication noise. */
     speechFricativeGain?: number;
+    /** Preserve resonator state across connected spoken morae. */
+    speechFormantCarry?: number;
+    /** Lengthen/shorten the consonant-to-vowel formant transition. */
+    speechVowelTransitionScale?: number;
+    /** Crossfade consonant noise and voicing around the CV boundary. */
+    speechCVOverlap?: number;
+    /** Slow speech-only F0 drift that does not alter the planned pitch curve. */
+    speechGlottalDriftCents?: number;
+    /** Fine cycle-to-cycle speech-only F0 irregularity. */
+    speechGlottalJitterCents?: number;
+    /** Tiny speech-only open-quotient motion for a less static glottal source. */
+    speechOpenQuotientMotion?: number;
     /** Speech-only multiplier for inter-mora F0 transition time. */
     speechPitchTransitionScale?: number;
     /** Sentence-final irregular phonation amount for spoken Japanese. */
