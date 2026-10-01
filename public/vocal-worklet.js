@@ -62,6 +62,8 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     this.speechTiltState = 0;
     this.speechAirLowState = 0;
     this.speechBrightnessLowState = 0;
+    this.speechResidualLowState = 0;
+    this.speechResidualMidState = 0;
     this.outputState = 0;
 
     this.formantY1 = new Float64Array(5);
@@ -672,6 +674,8 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       this.speechTiltState *= 0.997;
       this.speechAirLowState *= 0.994;
       this.speechBrightnessLowState *= 0.994;
+      this.speechResidualLowState *= 0.995;
+      this.speechResidualMidState *= 0.994;
       this.outputState *= 0.998;
       this.nasalState *= 0.996;
       this.fricationLowState *= 0.996;
@@ -1095,6 +1099,38 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       sample += upper * speechBrightnessGain;
     } else {
       this.speechBrightnessLowState += (sample - this.speechBrightnessLowState) * 0.19;
+    }
+
+    const residualAmount = Math.max(
+      0,
+      Math.min(0.24, style.speechResidualAmount || 0),
+    );
+    if (residualAmount > 0) {
+      this.speechResidualLowState += (sample - this.speechResidualLowState) * 0.055;
+      this.speechResidualMidState += (sample - this.speechResidualMidState) * 0.23;
+      const lowBand = this.speechResidualLowState;
+      const midBand = this.speechResidualMidState - lowBand;
+      const highBand = sample - this.speechResidualMidState;
+      const body = Math.max(
+        -0.12,
+        Math.min(0.12, style.speechResidualBody || 0),
+      );
+      const presence = Math.max(
+        -0.12,
+        Math.min(0.12, style.speechResidualPresence || 0),
+      );
+      const air = Math.max(
+        -0.08,
+        Math.min(0.08, style.speechResidualAir || 0),
+      );
+      sample += residualAmount * (
+        lowBand * body
+        + midBand * presence
+        + highBand * air
+      );
+    } else {
+      this.speechResidualLowState += (sample - this.speechResidualLowState) * 0.055;
+      this.speechResidualMidState += (sample - this.speechResidualMidState) * 0.23;
     }
 
     const readIndex = (
