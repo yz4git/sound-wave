@@ -62,6 +62,10 @@ describe('continuous vocal AudioWorklet bridge', () => {
     expect(mapped.style.speechHarmonicGain).toBeUndefined();
     expect(mapped.style.speechNoiseGain).toBeUndefined();
     expect(mapped.style.speechSourceOversample).toBeUndefined();
+    expect(mapped.style.speechResidualAmount).toBeUndefined();
+    expect(mapped.style.speechResidualBody).toBeUndefined();
+    expect(mapped.style.speechResidualPresence).toBeUndefined();
+    expect(mapped.style.speechResidualAir).toBeUndefined();
   });
 
   it('pre-rolls an articulated consonant but not a vowel-only onset', () => {
