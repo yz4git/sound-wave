@@ -1,5 +1,6 @@
 import type { PitchClass } from '../core/music';
 import type { VocalEvent, VocalStyle } from '../compose/VocalGenerator';
+import { consonantForSyllable } from '../compose/JapanesePhoneme';
 import type { VocalPhraseControl } from '../compose/VocalPhraseModel';
 import { VocalWorkletBridge, vocalEventToWorklet, type VocalWorkletStatus } from '../compose/VocalWorkletBridge';
 import type { VoiceCharacterPreset } from '../compose/VoiceCharacter';
@@ -307,6 +308,120 @@ export function speechSourceProfileFor(expression: VoiceExpressionSettings): Spe
       0.006,
       0.02,
     ),
+  };
+}
+
+export interface SpeechArticulatoryState {
+  jawOpen: number;
+  tongueFront: number;
+  tongueHeight: number;
+  lipRound: number;
+  velumOpen: number;
+  larynxHeight: number;
+}
+
+export interface SpeechArticulatoryFilter {
+  formantScale: readonly [number, number, number, number, number];
+  bandwidthScale: number;
+  nasalMixAdd: number;
+  noiseScale: number;
+  bodyScale: number;
+  dampingScale: number;
+}
+
+export function speechArticulatoryStateFor(unit: VoiceUnit): SpeechArticulatoryState {
+  const vowelBase: Record<VoiceUnit['vowel'], SpeechArticulatoryState> = {
+    a: {
+      jawOpen: 0.9,
+      tongueFront: 0.48,
+      tongueHeight: 0.18,
+      lipRound: 0.06,
+      velumOpen: 0,
+      larynxHeight: 0.5,
+    },
+    e: {
+      jawOpen: 0.5,
+      tongueFront: 0.82,
+      tongueHeight: 0.6,
+      lipRound: 0.04,
+      velumOpen: 0,
+      larynxHeight: 0.52,
+    },
+    i: {
+      jawOpen: 0.26,
+      tongueFront: 0.94,
+      tongueHeight: 0.92,
+      lipRound: 0.02,
+      velumOpen: 0,
+      larynxHeight: 0.54,
+    },
+    o: {
+      jawOpen: 0.56,
+      tongueFront: 0.28,
+      tongueHeight: 0.5,
+      lipRound: 0.68,
+      velumOpen: 0,
+      larynxHeight: 0.47,
+    },
+    u: {
+      jawOpen: 0.32,
+      tongueFront: 0.36,
+      tongueHeight: 0.84,
+      lipRound: 0.22,
+      velumOpen: 0,
+      larynxHeight: 0.48,
+    },
+  };
+  const base = { ...vowelBase[unit.vowel] };
+  const consonant = consonantForSyllable(unit.syllable);
+
+  if (consonant === 'n' || consonant === 'm' || consonant === 'N') {
+    base.velumOpen = consonant === 'N' ? 0.88 : consonant === 'm' ? 0.72 : 0.66;
+    base.larynxHeight -= 0.035;
+  } else if (
+    consonant === 's'
+    || consonant === 'sh'
+    || consonant === 'z'
+    || consonant === 'j'
+    || consonant === 'ts'
+    || consonant === 'ch'
+  ) {
+    base.tongueFront = clamp(base.tongueFront + 0.06, 0, 1);
+    base.tongueHeight = clamp(base.tongueHeight + 0.04, 0, 1);
+    base.larynxHeight = clamp(base.larynxHeight + 0.025, 0, 1);
+  } else if (consonant === 'w') {
+    base.lipRound = clamp(base.lipRound + 0.18, 0, 1);
+  } else if (consonant === 'r') {
+    base.tongueFront = clamp(base.tongueFront + 0.035, 0, 1);
+    base.tongueHeight = clamp(base.tongueHeight + 0.025, 0, 1);
+  }
+
+  return base;
+}
+
+export function speechArticulatoryFilterFor(
+  state: SpeechArticulatoryState,
+): SpeechArticulatoryFilter {
+  const jaw = clamp(state.jawOpen, 0, 1);
+  const front = clamp(state.tongueFront, 0, 1);
+  const high = clamp(state.tongueHeight, 0, 1);
+  const round = clamp(state.lipRound, 0, 1);
+  const velum = clamp(state.velumOpen, 0, 1);
+  const larynx = clamp(state.larynxHeight, 0, 1);
+
+  return {
+    formantScale: [
+      clamp(1 + (jaw - 0.5) * 0.09 - (high - 0.5) * 0.085, 0.88, 1.13),
+      clamp(1 + (front - 0.5) * 0.16 - round * 0.085, 0.83, 1.17),
+      clamp(1 + (front - 0.5) * 0.045 - round * 0.05 + (larynx - 0.5) * 0.03, 0.9, 1.1),
+      clamp(1 + (larynx - 0.5) * 0.045 - round * 0.025, 0.93, 1.08),
+      clamp(1 + (larynx - 0.5) * 0.055, 0.94, 1.08),
+    ],
+    bandwidthScale: clamp(1 + velum * 0.18 + jaw * 0.025, 0.98, 1.2),
+    nasalMixAdd: velum * 0.34,
+    noiseScale: clamp(1 + (1 - high) * 0.035 + velum * 0.025, 0.96, 1.08),
+    bodyScale: clamp(1 + jaw * 0.05 - round * 0.025, 0.96, 1.06),
+    dampingScale: clamp(1 + round * 0.09 - jaw * 0.035, 0.94, 1.1),
   };
 }
 
@@ -1291,6 +1406,8 @@ export class VoiceSynth {
         settings.tone,
         timed.expression,
       );
+      const articulatoryState = speechArticulatoryStateFor(unit);
+      const articulatoryFilter = speechArticulatoryFilterFor(articulatoryState);
       const precedingSpeechEvents = script.events.filter((event) => event.afterUnit === index - 1);
       const followsSigh = precedingSpeechEvents.some((event) => event.kind === 'sigh');
       const followsLaugh = precedingSpeechEvents.some((event) => event.kind === 'laugh');
@@ -1412,8 +1529,13 @@ export class VoiceSynth {
         const bodyScale = bandIndex <= 1
           ? speechTimbre.lowerFormantGain
           : speechTimbre.upperFormantGain;
+        const tractScale = articulatoryFilter.formantScale[bandIndex] ?? 1;
         return {
           ...band,
+          startHz: band.startHz * tractScale,
+          targetHz: band.targetHz * tractScale,
+          nextHz: band.nextHz === null ? null : band.nextHz * tractScale,
+          bandwidth: band.bandwidth * articulatoryFilter.bandwidthScale,
           gain: band.gain
             * (speechPresence.upperFormantGain[bandIndex] ?? 1)
             * bodyScale,
@@ -1438,9 +1560,37 @@ export class VoiceSynth {
         ...workletEvent.phoneme,
         fricationSeconds: workletEvent.phoneme.fricationSeconds * speechPresence.fricationScale,
         noiseMix: clamp(
-          workletEvent.phoneme.noiseMix * speechPresence.consonantNoiseScale,
+          workletEvent.phoneme.noiseMix
+            * speechPresence.consonantNoiseScale
+            * articulatoryFilter.noiseScale,
           0,
           1,
+        ),
+        nasalMix: clamp(
+          workletEvent.phoneme.nasalMix + articulatoryFilter.nasalMixAdd,
+          0,
+          0.92,
+        ),
+      };
+      workletEvent.resonance = {
+        ...workletEvent.resonance,
+        nasalZeroMix: clamp(
+          workletEvent.resonance.nasalZeroMix + articulatoryFilter.nasalMixAdd * 0.42,
+          0,
+          0.5,
+        ),
+      };
+      workletEvent.style = {
+        ...workletEvent.style,
+        speechBodyMix: clamp(
+          (workletEvent.style.speechBodyMix ?? 0) * articulatoryFilter.bodyScale,
+          0,
+          0.2,
+        ),
+        speechSourceDamping: clamp(
+          (workletEvent.style.speechSourceDamping ?? 0) * articulatoryFilter.dampingScale,
+          0,
+          0.4,
         ),
       };
 
