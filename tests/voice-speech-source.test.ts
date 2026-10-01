@@ -7,6 +7,7 @@ import {
   speechAttitudeProfileFor,
   speechContextDeliveryFor,
   speechFinalityProfileFor,
+  speechHarmonicNoiseProfileFor,
   speechPresenceProfileFor,
   speechSourceProfileFor,
   speechTakeVariationFor,
@@ -102,6 +103,19 @@ describe('VOICE LAB speech source', () => {
     expect(oFilter.formantScale[2]).toBeLessThan(iFilter.formantScale[2]);
     expect(nFilter.nasalMixAdd).toBeGreaterThan(0.2);
     expect(nFilter.bandwidthScale).toBeGreaterThan(aFilter.bandwidthScale);
+  });
+
+  it('uses an explicit harmonic-noise balance per phoneme class', () => {
+    const vowel = speechHarmonicNoiseProfileFor(parseVoiceScript('あ。').units[0]!);
+    const fricative = speechHarmonicNoiseProfileFor(parseVoiceScript('さ。').units[0]!);
+    const nasal = speechHarmonicNoiseProfileFor(parseVoiceScript('な。').units[0]!);
+
+    expect(vowel.harmonicGain).toBeGreaterThan(1);
+    expect(vowel.noiseGain).toBeLessThan(1);
+    expect(fricative.noiseGain).toBeGreaterThan(1.08);
+    expect(fricative.harmonicGain).toBeLessThan(vowel.harmonicGain);
+    expect(nasal.harmonicGain).toBeGreaterThan(1);
+    expect(nasal.noiseGain).toBeLessThan(vowel.noiseGain);
   });
 
   it('gives voice characters distinct spoken timbre mechanics', () => {
