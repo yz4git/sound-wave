@@ -40,6 +40,22 @@ describe('continuous vocal AudioWorklet bridge', () => {
     expect(mapped.phrase.sourceTractCoupling).toBeGreaterThan(0);
   });
 
+  it('keeps Voice Lab naturalness controls opt-in for normal singing', () => {
+    const composition = generateComposition({ ...defaultComposeSettings(8080), seed: 8080, density: 1 });
+    const line = generateVocalLine(composition, 9090);
+    const event = line[0];
+    expect(event).toBeDefined();
+
+    const mapped = vocalEventToWorklet(event!, 'warm', 0.5, 0.4);
+
+    expect(mapped.style.speechFormantCarry).toBeUndefined();
+    expect(mapped.style.speechVowelTransitionScale).toBeUndefined();
+    expect(mapped.style.speechCVOverlap).toBeUndefined();
+    expect(mapped.style.speechGlottalDriftCents).toBeUndefined();
+    expect(mapped.style.speechGlottalJitterCents).toBeUndefined();
+    expect(mapped.style.speechOpenQuotientMotion).toBeUndefined();
+  });
+
   it('pre-rolls an articulated consonant but not a vowel-only onset', () => {
     const composition = generateComposition({ ...defaultComposeSettings(1010), seed: 1010, density: 1 });
     const line = generateVocalLine(composition, 2020);
