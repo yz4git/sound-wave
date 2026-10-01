@@ -295,8 +295,8 @@ export function speechPresenceProfileFor(
     radiationGainDbAdd: expression.preset === 'whisper' ? 1.35 : 2.25 * brightPreset,
     consonantNoiseScale: fricative ? 1.58 * brightPreset : 1.16,
     fricationScale: fricative ? 1.2 : 1.045,
-    harmonicPresence: clamp(0.17 * brightPreset, 0.1, 0.23),
-    airPresence: clamp((fricative ? 0.12 : 0.034) * airy * brightPreset, 0.024, 0.155),
+    harmonicPresence: clamp(0.15 * brightPreset, 0.09, 0.21),
+    airPresence: clamp((fricative ? 0.12 : 0.012) * airy * brightPreset, 0.008, 0.155),
     fricativeGain: clamp((fricative ? 1.78 : 1.12) * brightPreset, 1, 1.96),
   };
 }
