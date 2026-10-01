@@ -178,6 +178,12 @@ export interface SpeechSourceProfile {
   coarticulation: number;
   pulseNoise: number;
   geminateClosureSeconds: number;
+  formantCarry: number;
+  vowelTransitionScale: number;
+  cvOverlap: number;
+  glottalDriftCents: number;
+  glottalJitterCents: number;
+  openQuotientMotion: number;
 }
 
 export function speechSourceProfileFor(expression: VoiceExpressionSettings): SpeechSourceProfile {
@@ -187,6 +193,12 @@ export function speechSourceProfileFor(expression: VoiceExpressionSettings): Spe
     coarticulation: 0.82,
     pulseNoise: 0.055,
     geminateClosureSeconds: 0.052,
+    formantCarry: 0.9,
+    vowelTransitionScale: 1.16,
+    cvOverlap: 0.66,
+    glottalDriftCents: 0.72,
+    glottalJitterCents: 0.82,
+    openQuotientMotion: 0.012,
   };
   const target: SpeechSourceProfile = expression.preset === 'whisper'
     ? {
@@ -195,6 +207,12 @@ export function speechSourceProfileFor(expression: VoiceExpressionSettings): Spe
         coarticulation: 0.82,
         pulseNoise: 0.18,
         geminateClosureSeconds: 0.052,
+        formantCarry: 0.92,
+        vowelTransitionScale: 1.2,
+        cvOverlap: 0.72,
+        glottalDriftCents: 0.58,
+        glottalJitterCents: 0.72,
+        openQuotientMotion: 0.014,
       }
     : expression.preset === 'excited'
       ? {
@@ -203,6 +221,12 @@ export function speechSourceProfileFor(expression: VoiceExpressionSettings): Spe
           coarticulation: 0.72,
           pulseNoise: 0.045,
           geminateClosureSeconds: 0.05,
+          formantCarry: 0.86,
+          vowelTransitionScale: 1.08,
+          cvOverlap: 0.58,
+          glottalDriftCents: 0.82,
+          glottalJitterCents: 0.92,
+          openQuotientMotion: 0.01,
         }
       : expression.preset === 'calm'
         ? {
@@ -211,6 +235,12 @@ export function speechSourceProfileFor(expression: VoiceExpressionSettings): Spe
             coarticulation: 0.88,
             pulseNoise: 0.07,
             geminateClosureSeconds: 0.054,
+            formantCarry: 0.94,
+            vowelTransitionScale: 1.25,
+            cvOverlap: 0.74,
+            glottalDriftCents: 0.52,
+            glottalJitterCents: 0.64,
+            openQuotientMotion: 0.015,
           }
         : expression.preset === 'serious'
           ? {
@@ -219,6 +249,12 @@ export function speechSourceProfileFor(expression: VoiceExpressionSettings): Spe
               coarticulation: 0.78,
               pulseNoise: 0.04,
               geminateClosureSeconds: 0.052,
+              formantCarry: 0.88,
+              vowelTransitionScale: 1.12,
+              cvOverlap: 0.62,
+              glottalDriftCents: 0.64,
+              glottalJitterCents: 0.76,
+              openQuotientMotion: 0.01,
             }
           : expression.preset === 'narration'
             ? {
@@ -227,6 +263,12 @@ export function speechSourceProfileFor(expression: VoiceExpressionSettings): Spe
                 coarticulation: 0.84,
                 pulseNoise: 0.055,
                 geminateClosureSeconds: 0.053,
+                formantCarry: 0.92,
+                vowelTransitionScale: 1.2,
+                cvOverlap: 0.7,
+                glottalDriftCents: 0.56,
+                glottalJitterCents: 0.68,
+                openQuotientMotion: 0.013,
               }
             : neutral;
 
@@ -242,6 +284,28 @@ export function speechSourceProfileFor(expression: VoiceExpressionSettings): Spe
       lerp(neutral.geminateClosureSeconds, target.geminateClosureSeconds),
       0.048,
       0.058,
+    ),
+    formantCarry: clamp(lerp(neutral.formantCarry, target.formantCarry), 0.82, 0.96),
+    vowelTransitionScale: clamp(
+      lerp(neutral.vowelTransitionScale, target.vowelTransitionScale),
+      0.9,
+      1.35,
+    ),
+    cvOverlap: clamp(lerp(neutral.cvOverlap, target.cvOverlap), 0.45, 0.82),
+    glottalDriftCents: clamp(
+      lerp(neutral.glottalDriftCents, target.glottalDriftCents),
+      0.4,
+      1.1,
+    ),
+    glottalJitterCents: clamp(
+      lerp(neutral.glottalJitterCents, target.glottalJitterCents),
+      0.45,
+      1.15,
+    ),
+    openQuotientMotion: clamp(
+      lerp(neutral.openQuotientMotion, target.openQuotientMotion),
+      0.006,
+      0.02,
     ),
   };
 }
@@ -1189,6 +1253,12 @@ export class VoiceSynth {
         speechPresenceBoost: speechPresence.harmonicPresence,
         speechAirPresence: speechPresence.airPresence,
         speechFricativeGain: speechPresence.fricativeGain,
+        speechFormantCarry: speechSource.formantCarry,
+        speechVowelTransitionScale: speechSource.vowelTransitionScale,
+        speechCVOverlap: speechSource.cvOverlap,
+        speechGlottalDriftCents: speechSource.glottalDriftCents,
+        speechGlottalJitterCents: speechSource.glottalJitterCents,
+        speechOpenQuotientMotion: speechSource.openQuotientMotion,
         speechPitchTransitionScale: pitchTransitionScale,
         speechFinalCreak: unit.phraseEnd ? finality.creak : 0,
         speechFinalBreath: unit.phraseEnd
