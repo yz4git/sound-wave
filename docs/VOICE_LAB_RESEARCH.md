@@ -615,3 +615,46 @@ VOICE LAB now adds a speech-only continuity layer below the existing mora/prosod
 - These parameters are injected only by VoiceSynth. AUTO COMPOSE singing events keep all speech-naturalness fields undefined, so the singing model remains unchanged.
 
 Static AudioWorklet regression coverage now checks syntax and the presence of the speech-only DSP paths in addition to TypeScript-level profile tests.
+
+### 31. Research-driven hybrid speech architecture (2024–2026 literature pass)
+
+This pass reviewed recent controllable speech, neural source-filter, articulatory DDSP, time-varying timbre, and fast flow-matching work and mapped only the parts that fit VOICE LAB's browser-local, editable architecture.
+
+#### Verified research references
+
+- **HiFi-Glot: High-Fidelity Neural Formant Synthesis with Differentiable Resonant Filters** — arXiv:2409.14823, revised 2026-02-16. The model keeps a source-filter architecture but replaces the impoverished analytic excitation with a neural glottal source while retaining directly controllable resonant formants. This strongly supports keeping VOICE LAB's explicit tract controls instead of replacing the whole engine with an opaque waveform model.
+- **Fast, High-Quality and Parameter-Efficient Articulatory Synthesis using Differentiable DSP** — arXiv:2409.02451. This system synthesizes speech from low-dimensional articulatory trajectories, F0 and loudness using a Harmonic-plus-Noise DDSP generator. It reports MOS 3.74, 4.9x faster CPU inference than its HiFi-CAR baseline, and shows that a 0.4M-parameter model can remain competitive with a much larger 9M baseline.
+- **TVTSyn: Content-Synchronous Time-Varying Timbre for Streaming Voice Conversion and Anonymization** — arXiv:2602.09389. The central idea is that timbre should vary with content rather than remain one static global speaker vector. This motivates content-synchronous timbre changes in VOICE LAB at mora granularity.
+- **CtrlSpeech: Coarse-to-Fine Control for Expressive Speech Synthesis** — arXiv:2608.08362. Phone-aligned pitch, loudness and duration controls validate the usefulness of VOICE LAB's existing mora-level PITCH / ENERGY / TIMING editing model.
+- **Fast F5-TTS / Empirically Pruned Step Sampling** — arXiv:2505.19931. Seven-step flow-matching inference can retain comparable quality while substantially reducing sampling cost on a desktop GPU. This is a future HQ-refiner candidate, not part of the default browser DSP path yet.
+- **Ultra-lightweight Neural Differential DSP Vocoder For High Quality Speech Synthesis** — arXiv:2401.10460. It demonstrates that a jointly optimized DDSP vocoder can approach neural-vocoder quality with extremely low compute, reinforcing a future small-control-network path rather than a full large neural decoder.
+
+#### Implemented from this research pass
+
+1. **Six-dimensional articulatory state**
+   - Each mora now carries an implicit state for jaw opening, tongue frontness, tongue height, lip rounding, velum opening, and larynx height.
+   - Japanese vowel identity supplies the main state; consonant place/manner modifies it.
+   - The state is converted into physically coherent F1–F5 scaling, bandwidth change, nasal coupling, source body and source damping.
+   - This replaces a purely independent-formant view with a compact vocal-tract control layer.
+
+2. **Explicit Harmonic-plus-Noise balance**
+   - Periodic and aperiodic energy now have separate speech-only gains in the AudioWorklet.
+   - Vowels favor harmonic energy, fricatives increase noise energy, nasals reduce noise, and stops use only a small aperiodic increase.
+   - This mirrors the H+N separation used by articulatory DDSP systems while preserving the current source-filter engine.
+
+3. **Content-synchronous timbre**
+   - The articulatory state changes every mora and now modulates formant placement, nasal coupling, body resonance and source damping.
+   - Therefore the same global NATURAL / SOFT / CLEAR / AIRY / POWER character no longer has a perfectly static timbre across different phonetic content.
+   - This is a deterministic, interpretable approximation of the time-varying-timbre principle rather than a learned memory/attention model.
+
+4. **Neural-source-ready separation**
+   - Glottal-source controls, vocal-tract controls, harmonic/noise balance, prosody and manual editing remain separate.
+   - That separation is intentional so a future small neural glottal-source or control-residual model can replace only the weak analytic component without removing PITCH / ENERGY / TIMING / accent / phrase editing.
+
+#### Deliberately not implemented yet
+
+- A trained neural glottal source like HiFi-Glot requires model weights and training/inference infrastructure; adding it blindly would increase download size and remove the current instant/offline path.
+- A flow-matching waveform refiner is promising for an optional HQ mode, but the published Fast F5-TTS speed results are GPU-oriented and do not by themselves establish that a 7-step refiner is suitable for iPhone Safari/WebGPU.
+- A learned TVT memory is deferred until there is an on-device model small enough to justify its cost. The current deterministic mora-synchronous timbre layer provides the architectural hook.
+
+The practical target remains a hybrid system: Open JTalk / editable prosody -> compact articulatory+timbre control frame -> explicit glottal/H+N source -> controllable resonant tract -> optional future neural residual/refiner.
