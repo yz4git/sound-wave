@@ -673,3 +673,16 @@ The intended future model boundary is deliberately narrow:
 `Open JTalk / editable prosody -> mora control frame -> optional small neural residual or neural glottal source -> existing H+N / resonant tract AudioWorklet`
 
 This keeps CtrlSpeech-like fine-grained pitch/loudness/duration control, HiFi-Glot-style source/tract separation, and DDSP-style efficient waveform generation in one architecture.
+
+### 33. A/B HQ residual path
+
+VOICE LAB now exposes two local rendering qualities while preserving exactly the same text, prosody, accent, phrase, and mora editing layers.
+
+- **FAST DSP** keeps the analytic source-filter path, uses 1x glottal-source evaluation, and disables the post-tract residual refiner.
+- **HQ REFINE** uses 2x glottal-source evaluation and a mora-aware three-band residual stage after the tract. Low-band BODY, mid-band PRESENCE, and high-band AIR residuals are derived from the same mora control frame used by the main synthesizer.
+- Vowel-like frames receive more body and restrained air; noisy/fricative frames receive more presence/air. The residual stage is intentionally small so it cannot override manual PITCH / ENERGY / TIMING or the explicit tract model.
+- HQ is still deterministic DSP, not a trained neural model. The label deliberately avoids claiming neural inference.
+
+The residual stage is the intended replacement boundary for a future compact ONNX model. A learned model can consume `VoiceSpeechControlFrame` values and predict only residual corrections, while FAST DSP remains an offline/no-download fallback.
+
+Both modes use the same WAV export path, so A/B comparisons can be made from exported files as well as live playback. AUTO COMPOSE singing remains isolated: all speech residual and oversampling fields stay undefined outside VoiceSynth.
