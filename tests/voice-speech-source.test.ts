@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { parseVoiceScript } from '../src/voice/VoiceScript';
 import {
   geminatePreclosureSeconds,
+  speechArticulatoryFilterFor,
+  speechArticulatoryStateFor,
   speechAttitudeProfileFor,
   speechContextDeliveryFor,
   speechFinalityProfileFor,
@@ -66,6 +68,40 @@ describe('VOICE LAB speech source', () => {
     expect(calm.vowelTransitionScale).toBeGreaterThan(neutral.vowelTransitionScale);
     expect(excited.cvOverlap).toBeLessThan(neutral.cvOverlap);
     expect(excited.glottalJitterCents).toBeGreaterThan(neutral.glottalJitterCents);
+  });
+
+  it('maps Japanese vowels into physically consistent articulatory states', () => {
+    const a = speechArticulatoryStateFor(parseVoiceScript('あ。').units[0]!);
+    const i = speechArticulatoryStateFor(parseVoiceScript('い。').units[0]!);
+    const o = speechArticulatoryStateFor(parseVoiceScript('お。').units[0]!);
+    const n = speechArticulatoryStateFor(parseVoiceScript('な。').units[0]!);
+
+    expect(a.jawOpen).toBeGreaterThan(i.jawOpen);
+    expect(i.tongueFront).toBeGreaterThan(o.tongueFront);
+    expect(i.tongueHeight).toBeGreaterThan(a.tongueHeight);
+    expect(o.lipRound).toBeGreaterThan(a.lipRound);
+    expect(n.velumOpen).toBeGreaterThan(0.5);
+  });
+
+  it('derives vocal-tract and harmonic-noise controls from articulation', () => {
+    const aFilter = speechArticulatoryFilterFor(
+      speechArticulatoryStateFor(parseVoiceScript('あ。').units[0]!),
+    );
+    const iFilter = speechArticulatoryFilterFor(
+      speechArticulatoryStateFor(parseVoiceScript('い。').units[0]!),
+    );
+    const oFilter = speechArticulatoryFilterFor(
+      speechArticulatoryStateFor(parseVoiceScript('お。').units[0]!),
+    );
+    const nFilter = speechArticulatoryFilterFor(
+      speechArticulatoryStateFor(parseVoiceScript('な。').units[0]!),
+    );
+
+    expect(aFilter.formantScale[0]).toBeGreaterThan(iFilter.formantScale[0]);
+    expect(iFilter.formantScale[1]).toBeGreaterThan(oFilter.formantScale[1]);
+    expect(oFilter.formantScale[2]).toBeLessThan(iFilter.formantScale[2]);
+    expect(nFilter.nasalMixAdd).toBeGreaterThan(0.2);
+    expect(nFilter.bandwidthScale).toBeGreaterThan(aFilter.bandwidthScale);
   });
 
   it('gives voice characters distinct spoken timbre mechanics', () => {
