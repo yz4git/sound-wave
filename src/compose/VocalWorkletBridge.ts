@@ -130,6 +130,8 @@ export interface VocalWorkletEvent {
     speechHarmonicGain?: number;
     /** Speech-only gain for aperiodic/noise energy after the vocal tract. */
     speechNoiseGain?: number;
+    /** Enable a cheap 2x glottal-source evaluation for speech-only anti-aliasing. */
+    speechSourceOversample?: number;
     /** Speech-only multiplier for inter-mora F0 transition time. */
     speechPitchTransitionScale?: number;
     /** Sentence-final irregular phonation amount for spoken Japanese. */
