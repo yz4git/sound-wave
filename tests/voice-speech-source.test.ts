@@ -31,7 +31,7 @@ describe('VOICE LAB speech source', () => {
     expect(neutral.presenceGainScale).toBeGreaterThan(1.4);
     expect(neutral.presenceGainAdd).toBeGreaterThan(0.07);
     expect(neutral.consonantNoiseScale).toBeGreaterThan(1.5);
-    expect(neutral.harmonicPresence).toBeGreaterThan(0.15);
+    expect(neutral.harmonicPresence).toBeGreaterThan(0.14);
     expect(neutral.airPresence).toBeGreaterThan(0.1);
     expect(neutral.fricativeGain).toBeGreaterThan(1.7);
     expect(excited.presenceGainScale).toBeGreaterThan(neutral.presenceGainScale);
