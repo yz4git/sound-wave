@@ -1039,14 +1039,24 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       : 0.0023;
     this.envelopeState += (targetEnvelope - this.envelopeState) * envelopeRate;
 
+    const speechHarmonicGain = Math.max(
+      0.85,
+      Math.min(1.15, style.speechHarmonicGain || 1),
+    );
+    const speechNoiseGain = Math.max(
+      0.82,
+      Math.min(1.2, style.speechNoiseGain || 1),
+    );
     let sample = (
-      vocal * amplitudeVibrato * shimmer
-      + breath
-      + aspiration
-      + pulseAspiration
-      + releaseBreath
-      + speechAir
-      + articulation.noise * speechFricativeGain
+      vocal * amplitudeVibrato * shimmer * speechHarmonicGain
+      + (
+        breath
+        + aspiration
+        + pulseAspiration
+        + releaseBreath
+        + speechAir
+        + articulation.noise * speechFricativeGain
+      ) * speechNoiseGain
     ) * this.envelopeState * 0.405;
 
     // Speech-only post-tract high shelf. The previous presence controls act
