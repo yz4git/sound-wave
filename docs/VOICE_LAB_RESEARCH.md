@@ -602,3 +602,16 @@ An intentionally stronger formant/radiation experiment was rejected after re-rec
 
 The same playcheck reconfirmed the repair timing fix: punctuation + repair markers no longer stack into ~0.5 s dead gaps. Restart and rethink remain distinct, with restart around the low-0.2 s range and rethink around the low-0.3 s range in the tested default delivery.
 
+### 30. Speech tract continuity and glottal-source humanization
+
+VOICE LAB now adds a speech-only continuity layer below the existing mora/prosody plan.
+
+- Connected spoken morae preserve more resonator state across boundaries through a dedicated formant-carry control. Singing leaves this control unset.
+- Consonant-to-vowel formant motion can be stretched independently from note duration, reducing the impression that one vowel shape is abruptly replaced by the next.
+- The consonant/noise path and voiced source now overlap briefly at the CV boundary. As voicing ramps in, frication/noise fades instead of ending as a separate block.
+- Speech-only microvariation adds two deterministic slow F0 components plus a very small jitter term. The planned pitch curve is unchanged; this only prevents perfectly periodic phonation.
+- A tiny open-quotient modulation changes the glottal pulse shape over time without introducing audible vibrato.
+- CALM/WHISPER favor more tract carry and longer transitions. EXCITED keeps faster articulation and slightly more source irregularity.
+- These parameters are injected only by VoiceSynth. AUTO COMPOSE singing events keep all speech-naturalness fields undefined, so the singing model remains unchanged.
+
+Static AudioWorklet regression coverage now checks syntax and the presence of the speech-only DSP paths in addition to TypeScript-level profile tests.
