@@ -1035,6 +1035,7 @@ export function prosodyOffsetForUnit(
     ? 0
     : unit.phraseIndex / Math.max(1, unit.phraseCount - 1);
   const lexicalAccent = unit.pitchAccent !== 'auto';
+  // Conversational declaratives keep enough contour to avoid a flat synthetic read.
   const phraseArcBase = Math.sin(phraseProgress * Math.PI) * 0.36 - phraseProgress * 0.5;
   const phraseArc = phraseArcBase * (lexicalAccent ? 0.25 : 1);
   const accent = accentPhraseOffset(unit);
