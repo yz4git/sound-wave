@@ -12,6 +12,7 @@ import {
   speechSourceProfileFor,
   speechTakeVariationFor,
   speechTimbreProfileFor,
+  voiceSpeechControlFrameFor,
 } from '../src/voice/VoiceSynth';
 
 describe('VOICE LAB speech source', () => {
@@ -116,6 +117,38 @@ describe('VOICE LAB speech source', () => {
     expect(fricative.harmonicGain).toBeLessThan(vowel.harmonicGain);
     expect(nasal.harmonicGain).toBeGreaterThan(1);
     expect(nasal.noiseGain).toBeLessThan(vowel.noiseGain);
+  });
+
+  it('builds one neural-ready control frame per spoken mora', () => {
+    const unit = parseVoiceScript('な。').units[0]!;
+    const settings = {
+      style: 'warm' as const,
+      character: 'natural' as const,
+      tone: 0,
+      rate: 1,
+      pitch: 60,
+      energy: 0.92,
+      intonation: 'auto' as const,
+      expression: { preset: 'neutral' as const, intensity: 1 },
+    };
+    const frame = voiceSpeechControlFrameFor(
+      unit,
+      0,
+      61.25,
+      0.88,
+      0.14,
+      settings,
+      settings.expression,
+    );
+
+    expect(frame.unitIndex).toBe(0);
+    expect(frame.f0Midi).toBeCloseTo(61.25);
+    expect(frame.energy).toBeCloseTo(0.88);
+    expect(frame.duration).toBeCloseTo(0.14);
+    expect(frame.articulation.velumOpen).toBeGreaterThan(0.5);
+    expect(frame.timbre.closureStrength).toBeGreaterThan(0.9);
+    expect(frame.harmonicNoise.harmonicGain).toBeGreaterThan(1);
+    expect(frame.harmonicNoise.noiseGain).toBeLessThan(1);
   });
 
   it('gives voice characters distinct spoken timbre mechanics', () => {
