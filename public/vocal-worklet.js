@@ -406,6 +406,26 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       }
       currentTarget += (neutral - currentTarget) * centering;
 
+      const speechFormantMotion = Math.max(
+        0,
+        Math.min(0.004, event.style?.speechFormantMotion || 0),
+      );
+      if (speechFormantMotion > 0) {
+        const motionWeight = index === 0
+          ? 0.42
+          : index === 1
+            ? 1
+            : index === 2
+              ? 0.72
+              : index === 3
+                ? 0.48
+                : 0.32;
+        const motion = Math.sin(
+          2 * Math.PI * this.speechMicroPhase + index * 1.17,
+        ) * speechFormantMotion * motionWeight;
+        currentTarget *= 1 + motion;
+      }
+
       const articulationWidth = (1 - onsetMix) * (event.articulate ? 0.72 : 0.18);
       const transitionWidth = anticipation * 0.55;
       const energyWidth = Math.abs(phraseEnergy - 0.96) * 0.6 * trajectoryDepth;
@@ -862,19 +882,50 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     // the buzzy, organ-like quality of a pulse-heavy singing source.
     const speechSourceMix = clamp01(style.speechSourceMix || 0);
     const speechTilt = clamp01(style.speechSourceTilt || 0);
+    const closureAsymmetry = Math.max(
+      0,
+      Math.min(0.85, style.speechClosureAsymmetry || 0),
+    );
+    const closureStrength = Math.max(
+      0.7,
+      Math.min(1.3, style.speechClosureStrength || 1),
+    );
+    const sourceDamping = Math.max(
+      0,
+      Math.min(0.4, style.speechSourceDamping || 0),
+    );
+    const openingDerivative = Math.max(0, derivative)
+      * (1 - closureAsymmetry * 0.28);
+    const closingDerivative = Math.min(0, derivative)
+      * (1 + closureAsymmetry * 0.58)
+      * closureStrength;
+    const asymmetricDerivative = openingDerivative + closingDerivative;
+    const derivativeGain = (
+      4.15
+      - highPitchSoftening * 0.72
+      - releaseSoftening * 0.45
+    ) * (1 - sourceDamping * 0.32);
     const speechRaw = flow * (0.7 + highPitchSoftening * 0.025)
-      + derivative * (4.15 - highPitchSoftening * 0.72 - releaseSoftening * 0.45);
+      + asymmetricDerivative * derivativeGain;
     const tiltFollow = 0.12 + (1 - speechTilt) * 0.28;
     this.speechTiltState += (speechRaw - this.speechTiltState) * tiltFollow;
     const tiltedSpeechSource = speechRaw * (1 - speechTilt * 0.7)
       + this.speechTiltState * (speechTilt * 0.7);
+    const speechBodyMix = Math.max(
+      0,
+      Math.min(0.2, style.speechBodyMix || 0),
+    );
+    const bodySource = tiltedSpeechSource * (1 - speechBodyMix * 0.22)
+      + this.speechTiltState * speechBodyMix;
     const speechPresenceBoost = Math.max(
       0,
       Math.min(0.28, style.speechPresenceBoost || 0),
     );
-    const harmonicPresence = (speechRaw - this.speechTiltState) * speechPresenceBoost;
+    const harmonicPresence = (speechRaw - this.speechTiltState)
+      * speechPresenceBoost
+      * (1 - sourceDamping * 0.45);
     const rawSource = singingSource * (1 - speechSourceMix)
-      + (tiltedSpeechSource + harmonicPresence) * speechSourceMix;
+      + (bodySource + harmonicPresence) * speechSourceMix;
     this.sourceState += (rawSource - this.sourceState) * (0.54 + speechSourceMix * 0.08);
 
     const coupling = Math.max(
