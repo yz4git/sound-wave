@@ -1539,6 +1539,10 @@ export class VoiceSynth {
       const speechTimbre = controlFrame.timbre;
       const articulatoryState = controlFrame.articulation;
       const articulatoryFilter = speechArticulatoryFilterFor(articulatoryState);
+      const nextUnit = plan.units[index + 1]?.unit ?? null;
+      const nextArticulatoryFilter = nextUnit
+        ? speechArticulatoryFilterFor(speechArticulatoryStateFor(nextUnit))
+        : null;
       const harmonicNoise = controlFrame.harmonicNoise;
       const precedingSpeechEvents = script.events.filter((event) => event.afterUnit === index - 1);
       const followsSigh = precedingSpeechEvents.some((event) => event.kind === 'sigh');
@@ -1675,7 +1679,10 @@ export class VoiceSynth {
           ...band,
           startHz: band.startHz * tractScale,
           targetHz: band.targetHz * tractScale,
-          nextHz: band.nextHz === null ? null : band.nextHz * tractScale,
+          nextHz: band.nextHz === null
+            ? null
+            : band.nextHz
+              * (nextArticulatoryFilter?.formantScale[bandIndex] ?? tractScale),
           bandwidth: band.bandwidth * articulatoryFilter.bandwidthScale,
           gain: band.gain
             * (speechPresence.upperFormantGain[bandIndex] ?? 1)
