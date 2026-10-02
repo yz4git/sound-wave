@@ -4,6 +4,7 @@ import {
   geminatePreclosureSeconds,
   speechArticulatoryFilterFor,
   speechArticulatoryStateFor,
+  speechArticulatoryTransitionScalesFor,
   speechAttitudeProfileFor,
   speechContextDeliveryFor,
   speechFinalityProfileFor,
@@ -151,6 +152,21 @@ describe('VOICE LAB speech source', () => {
     expect(i.tongueHeight).toBeGreaterThan(a.tongueHeight);
     expect(o.lipRound).toBeGreaterThan(a.lipRound);
     expect(n.velumOpen).toBeGreaterThan(0.5);
+  });
+
+  it('aims anticipatory formants at the next mora articulatory state', () => {
+    const script = parseVoiceScript('あい。');
+    const first = script.units[0]!;
+    const second = script.units[1]!;
+
+    const f1 = speechArticulatoryTransitionScalesFor(first, second, 0);
+    const f2 = speechArticulatoryTransitionScalesFor(first, second, 1);
+    const terminal = speechArticulatoryTransitionScalesFor(second, null, 1);
+
+    expect(f1.current).not.toBeCloseTo(f1.next, 4);
+    expect(f2.current).not.toBeCloseTo(f2.next, 4);
+    expect(f2.next).toBeGreaterThan(f2.current);
+    expect(terminal.next).toBeCloseTo(terminal.current, 8);
   });
 
   it('derives vocal-tract and harmonic-noise controls from articulation', () => {
