@@ -686,3 +686,16 @@ VOICE LAB now exposes two local rendering qualities while preserving exactly the
 The residual stage is the intended replacement boundary for a future compact ONNX model. A learned model can consume `VoiceSpeechControlFrame` values and predict only residual corrections, while FAST DSP remains an offline/no-download fallback.
 
 Both modes use the same WAV export path, so A/B comparisons can be made from exported files as well as live playback. AUTO COMPOSE singing remains isolated: all speech residual and oversampling fields stay undefined outside VoiceSynth.
+
+### 34. HQ continuity pass: smoothed residuals, closure shaping, and articulatory anticipation
+
+The HQ path now treats speech quality as a continuous trajectory rather than a sequence of independent mora-local EQ states.
+
+- **Cross-mora residual smoothing:** HQ BODY / PRESENCE / AIR targets now move with a ~14 ms smoothing time. This prevents audible timbre steps when adjacent morae have different articulatory/noise profiles. FAST keeps zero residual processing.
+- **HQ closure smoothing:** the asymmetric glottal derivative is smoothed by about 0.42 ms only in HQ. This preserves closure definition while reducing brittle, overly sharp excitation before the tract model.
+- **Articulatory residual targeting:** HQ residual values now depend on jaw opening, tongue frontness/height, lip rounding, phoneme noise balance, and the selected timbre profile rather than only a simple vowel/noise split.
+- **Next-mora tract anticipation:** anticipatory `nextHz` formant targets use the next mora's own six-dimensional articulatory state. For example, /a/→/i/ now moves toward the /i/ tongue/frontness-derived tract target instead of scaling the next vowel with the current /a/ tract state.
+
+These changes keep manual mora controls authoritative and remain deterministic. AUTO COMPOSE singing still leaves all HQ residual/closure-smoothing fields undefined.
+
+Regression coverage now checks FAST/HQ smoothing separation, articulatory residual adaptation, singing isolation, and next-mora articulatory formant anticipation.
