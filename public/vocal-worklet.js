@@ -64,6 +64,10 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     this.speechBrightnessLowState = 0;
     this.speechResidualLowState = 0;
     this.speechResidualMidState = 0;
+    this.speechResidualBodyGainState = 0;
+    this.speechResidualPresenceGainState = 0;
+    this.speechResidualAirGainState = 0;
+    this.speechClosureDerivativeState = 0;
     this.outputState = 0;
 
     this.formantY1 = new Float64Array(5);
@@ -134,6 +138,10 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       this.active = null;
       this.envelopeState = 0;
       this.outputState = 0;
+      this.speechResidualBodyGainState = 0;
+      this.speechResidualPresenceGainState = 0;
+      this.speechResidualAirGainState = 0;
+      this.speechClosureDerivativeState = 0;
       this.lastEventEndFrame = -1;
       this.spectralInitialized.fill(0);
       return;
@@ -676,6 +684,10 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       this.speechBrightnessLowState *= 0.994;
       this.speechResidualLowState *= 0.995;
       this.speechResidualMidState *= 0.994;
+      this.speechResidualBodyGainState *= 0.996;
+      this.speechResidualPresenceGainState *= 0.996;
+      this.speechResidualAirGainState *= 0.996;
+      this.speechClosureDerivativeState *= 0.992;
       this.outputState *= 0.998;
       this.nasalState *= 0.996;
       this.fricationLowState *= 0.996;
@@ -927,13 +939,29 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       * (1 + closureAsymmetry * 0.58)
       * closureStrength;
     const asymmetricDerivative = openingDerivative + closingDerivative;
+    const closureSmoothingMs = Math.max(
+      0,
+      Math.min(1.4, style.speechClosureSmoothingMs || 0),
+    );
+    let shapedDerivative = asymmetricDerivative;
+    if (closureSmoothingMs > 0) {
+      const closureFollow = 1 - Math.exp(
+        -1 / Math.max(1, sampleRate * closureSmoothingMs * 0.001),
+      );
+      this.speechClosureDerivativeState += (
+        asymmetricDerivative - this.speechClosureDerivativeState
+      ) * closureFollow;
+      shapedDerivative = this.speechClosureDerivativeState;
+    } else {
+      this.speechClosureDerivativeState = asymmetricDerivative;
+    }
     const derivativeGain = (
       4.15
       - highPitchSoftening * 0.72
       - releaseSoftening * 0.45
     ) * (1 - sourceDamping * 0.32);
     const speechRaw = flow * (0.7 + highPitchSoftening * 0.025)
-      + asymmetricDerivative * derivativeGain;
+      + shapedDerivative * derivativeGain;
     const tiltFollow = 0.12 + (1 - speechTilt) * 0.28;
     this.speechTiltState += (speechRaw - this.speechTiltState) * tiltFollow;
     const tiltedSpeechSource = speechRaw * (1 - speechTilt * 0.7)
@@ -1111,22 +1139,44 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       const lowBand = this.speechResidualLowState;
       const midBand = this.speechResidualMidState - lowBand;
       const highBand = sample - this.speechResidualMidState;
-      const body = Math.max(
+      const bodyTarget = Math.max(
         -0.12,
         Math.min(0.12, style.speechResidualBody || 0),
       );
-      const presence = Math.max(
+      const presenceTarget = Math.max(
         -0.12,
         Math.min(0.12, style.speechResidualPresence || 0),
       );
-      const air = Math.max(
+      const airTarget = Math.max(
         -0.08,
         Math.min(0.08, style.speechResidualAir || 0),
       );
+      const residualSmoothingMs = Math.max(
+        0,
+        Math.min(40, style.speechResidualSmoothingMs || 0),
+      );
+      if (residualSmoothingMs > 0) {
+        const residualFollow = 1 - Math.exp(
+          -1 / Math.max(1, sampleRate * residualSmoothingMs * 0.001),
+        );
+        this.speechResidualBodyGainState += (
+          bodyTarget - this.speechResidualBodyGainState
+        ) * residualFollow;
+        this.speechResidualPresenceGainState += (
+          presenceTarget - this.speechResidualPresenceGainState
+        ) * residualFollow;
+        this.speechResidualAirGainState += (
+          airTarget - this.speechResidualAirGainState
+        ) * residualFollow;
+      } else {
+        this.speechResidualBodyGainState = bodyTarget;
+        this.speechResidualPresenceGainState = presenceTarget;
+        this.speechResidualAirGainState = airTarget;
+      }
       sample += residualAmount * (
-        lowBand * body
-        + midBand * presence
-        + highBand * air
+        lowBand * this.speechResidualBodyGainState
+        + midBand * this.speechResidualPresenceGainState
+        + highBand * this.speechResidualAirGainState
       );
     } else {
       this.speechResidualLowState += (sample - this.speechResidualLowState) * 0.055;
