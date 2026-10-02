@@ -140,6 +140,10 @@ export interface VocalWorkletEvent {
     speechResidualPresence?: number;
     /** High-band/air residual amount. May be slightly negative for vowels. */
     speechResidualAir?: number;
+    /** Cross-mora smoothing time for HQ residual targets. */
+    speechResidualSmoothingMs?: number;
+    /** Smoothing time for HQ glottal closure excitation. */
+    speechClosureSmoothingMs?: number;
     /** Speech-only multiplier for inter-mora F0 transition time. */
     speechPitchTransitionScale?: number;
     /** Sentence-final irregular phonation amount for spoken Japanese. */
