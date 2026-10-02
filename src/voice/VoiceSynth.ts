@@ -432,6 +432,22 @@ export function speechArticulatoryStateFor(unit: VoiceUnit): SpeechArticulatoryS
   return base;
 }
 
+export function speechArticulatoryTransitionScalesFor(
+  unit: VoiceUnit,
+  nextUnit: VoiceUnit | null,
+  bandIndex: number,
+): { current: number; next: number } {
+  const currentFilter = speechArticulatoryFilterFor(speechArticulatoryStateFor(unit));
+  const current = currentFilter.formantScale[bandIndex] ?? 1;
+  if (!nextUnit) return { current, next: current };
+
+  const nextFilter = speechArticulatoryFilterFor(speechArticulatoryStateFor(nextUnit));
+  return {
+    current,
+    next: nextFilter.formantScale[bandIndex] ?? current,
+  };
+}
+
 export function speechArticulatoryFilterFor(
   state: SpeechArticulatoryState,
 ): SpeechArticulatoryFilter {
@@ -1540,9 +1556,6 @@ export class VoiceSynth {
       const articulatoryState = controlFrame.articulation;
       const articulatoryFilter = speechArticulatoryFilterFor(articulatoryState);
       const nextUnit = plan.units[index + 1]?.unit ?? null;
-      const nextArticulatoryFilter = nextUnit
-        ? speechArticulatoryFilterFor(speechArticulatoryStateFor(nextUnit))
-        : null;
       const harmonicNoise = controlFrame.harmonicNoise;
       const precedingSpeechEvents = script.events.filter((event) => event.afterUnit === index - 1);
       const followsSigh = precedingSpeechEvents.some((event) => event.kind === 'sigh');
@@ -1674,15 +1687,19 @@ export class VoiceSynth {
         const bodyScale = bandIndex <= 1
           ? speechTimbre.lowerFormantGain
           : speechTimbre.upperFormantGain;
-        const tractScale = articulatoryFilter.formantScale[bandIndex] ?? 1;
+        const transitionScale = speechArticulatoryTransitionScalesFor(
+          unit,
+          nextUnit,
+          bandIndex,
+        );
+        const tractScale = transitionScale.current;
         return {
           ...band,
           startHz: band.startHz * tractScale,
           targetHz: band.targetHz * tractScale,
           nextHz: band.nextHz === null
             ? null
-            : band.nextHz
-              * (nextArticulatoryFilter?.formantScale[bandIndex] ?? tractScale),
+            : band.nextHz * transitionScale.next,
           bandwidth: band.bandwidth * articulatoryFilter.bandwidthScale,
           gain: band.gain
             * (speechPresence.upperFormantGain[bandIndex] ?? 1)
