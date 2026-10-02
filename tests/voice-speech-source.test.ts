@@ -46,11 +46,42 @@ describe('VOICE LAB speech source', () => {
     expect(fast.residualBody).toBe(0);
     expect(fast.residualPresence).toBe(0);
     expect(fast.residualAir).toBe(0);
+    expect(fast.residualSmoothingMs).toBe(0);
+    expect(fast.closureSmoothingMs).toBe(0);
 
     expect(hq.sourceOversample).toBe(2);
-    expect(hq.residualAmount).toBeGreaterThan(0.1);
+    expect(hq.residualAmount).toBeGreaterThan(0.13);
     expect(hq.residualPresence).toBeGreaterThan(0.04);
     expect(hq.residualAir).toBeGreaterThanOrEqual(0);
+    expect(hq.residualSmoothingMs).toBeGreaterThanOrEqual(12);
+    expect(hq.closureSmoothingMs).toBeGreaterThan(0.3);
+  });
+
+  it('adapts HQ residual tone to articulatory and phoneme content', () => {
+    const settings = {
+      style: 'warm' as const,
+      character: 'natural' as const,
+      tone: 0,
+      rate: 1,
+      pitch: 60,
+      energy: 0.92,
+      intonation: 'auto' as const,
+      expression: { preset: 'neutral' as const, intensity: 1 },
+    };
+    const vowelUnit = parseVoiceScript('お。').units[0]!;
+    const fricativeUnit = parseVoiceScript('し。').units[0]!;
+    const vowelFrame = voiceSpeechControlFrameFor(
+      vowelUnit, 0, 60, 0.9, 0.14, settings, settings.expression,
+    );
+    const fricativeFrame = voiceSpeechControlFrameFor(
+      fricativeUnit, 0, 60, 0.9, 0.14, settings, settings.expression,
+    );
+    const vowel = speechQualityProfileFor('hq', vowelFrame);
+    const fricative = speechQualityProfileFor('hq', fricativeFrame);
+
+    expect(vowel.residualBody).toBeGreaterThan(fricative.residualBody);
+    expect(fricative.residualPresence).toBeGreaterThanOrEqual(vowel.residualPresence);
+    expect(fricative.residualAir).toBeGreaterThan(vowel.residualAir);
   });
 
   it('uses a strongly speech-weighted source for neutral delivery', () => {
