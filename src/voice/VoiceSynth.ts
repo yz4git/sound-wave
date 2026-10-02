@@ -464,6 +464,8 @@ export interface SpeechQualityProfile {
   residualBody: number;
   residualPresence: number;
   residualAir: number;
+  residualSmoothingMs: number;
+  closureSmoothingMs: number;
 }
 
 export function speechQualityProfileFor(
@@ -477,6 +479,8 @@ export function speechQualityProfileFor(
       residualBody: 0,
       residualPresence: 0,
       residualAir: 0,
+      residualSmoothingMs: 0,
+      closureSmoothingMs: 0,
     };
   }
 
@@ -484,14 +488,32 @@ export function speechQualityProfileFor(
   const harmonicNoise = frame.harmonicNoise;
   const openJaw = clamp(articulatory.jawOpen, 0, 1);
   const front = clamp(articulatory.tongueFront, 0, 1);
+  const high = clamp(articulatory.tongueHeight, 0, 1);
+  const round = clamp(articulatory.lipRound, 0, 1);
   const noisy = clamp(harmonicNoise.noiseGain - 0.9, 0, 0.3);
+  const timbreBody = clamp(frame.timbre.bodyMix, 0.035, 0.19);
+  const timbreBrightness = clamp(frame.timbre.upperFormantGain - 0.9, 0, 0.3);
 
   return {
     sourceOversample: 2,
-    residualAmount: 0.13,
-    residualBody: clamp(0.05 + openJaw * 0.035 - noisy * 0.08, 0.025, 0.085),
-    residualPresence: clamp(0.045 + front * 0.025 + noisy * 0.05, 0.04, 0.085),
-    residualAir: clamp(-0.018 + noisy * 0.18, -0.02, 0.04),
+    residualAmount: 0.145,
+    residualBody: clamp(
+      0.038 + openJaw * 0.026 + round * 0.02 + timbreBody * 0.12 - noisy * 0.055,
+      0.025,
+      0.09,
+    ),
+    residualPresence: clamp(
+      0.038 + front * 0.02 + high * 0.012 + noisy * 0.045 + timbreBrightness * 0.045,
+      0.038,
+      0.09,
+    ),
+    residualAir: clamp(
+      -0.014 + noisy * 0.16 - round * 0.012 + timbreBrightness * 0.018,
+      -0.022,
+      0.042,
+    ),
+    residualSmoothingMs: 14,
+    closureSmoothingMs: 0.42,
   };
 }
 
@@ -1631,6 +1653,8 @@ export class VoiceSynth {
         speechResidualBody: speechQuality.residualBody,
         speechResidualPresence: speechQuality.residualPresence,
         speechResidualAir: speechQuality.residualAir,
+        speechResidualSmoothingMs: speechQuality.residualSmoothingMs,
+        speechClosureSmoothingMs: speechQuality.closureSmoothingMs,
         speechPitchTransitionScale: pitchTransitionScale,
         speechFinalCreak: unit.phraseEnd ? finality.creak : 0,
         speechFinalBreath: unit.phraseEnd
