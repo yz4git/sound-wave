@@ -182,6 +182,7 @@ export class VoiceMode {
       style: 'warm',
       character: 'natural',
       tone: 0,
+      tractLength: 0,
       rate: 1,
       pitch: 60,
       energy: 0.92,
@@ -201,6 +202,7 @@ export class VoiceMode {
         style: validStyle(parsed.style) ? parsed.style : fallback.style,
         character: validVoiceCharacterPreset(parsed.character) ? parsed.character : fallback.character,
         tone: clamp(Number(parsed.tone) || 0, -1, 1),
+        tractLength: clamp(Number(parsed.tractLength) || 0, -1, 1),
         rate: clamp(Number(parsed.rate) || 1, 0.6, 1.65),
         pitch: clamp(Number(parsed.pitch) || 60, 45, 76),
         energy: clamp(Number(parsed.energy) || 0.92, 0.55, 1.15),
@@ -308,6 +310,7 @@ export class VoiceMode {
               ${STYLES.map((style) => `<option value="${style}">${style.toUpperCase()}</option>`).join('')}
             </select></label>
             <label><span id="voice-tone-label">TONE 0</span><input id="voice-tone" type="range" min="-100" max="100" step="1" /></label>
+            <label><span id="voice-vtl-label">VTL 0</span><input id="voice-vtl" type="range" min="-100" max="100" step="1" /></label>
           </div>
 
           <div class="voice-control-group">
@@ -725,6 +728,10 @@ export class VoiceMode {
       this.settings.tone = Number((event.target as HTMLInputElement).value) / 100;
       this.changed(false);
     });
+    this.required<HTMLInputElement>('#voice-vtl').addEventListener('input', (event) => {
+      this.settings.tractLength = Number((event.target as HTMLInputElement).value) / 100;
+      this.changed(false);
+    });
     this.required<HTMLInputElement>('#voice-rate').addEventListener('input', (event) => {
       this.settings.rate = Number((event.target as HTMLInputElement).value) / 100;
       this.changed(false);
@@ -758,6 +765,7 @@ export class VoiceMode {
     this.required<HTMLSelectElement>('#voice-style').value = this.settings.style;
     this.required<HTMLSelectElement>('#voice-intonation').value = this.settings.intonation;
     this.required<HTMLInputElement>('#voice-tone').value = String(Math.round(this.settings.tone * 100));
+    this.required<HTMLInputElement>('#voice-vtl').value = String(Math.round((this.settings.tractLength ?? 0) * 100));
     this.required<HTMLInputElement>('#voice-rate').value = String(Math.round(this.settings.rate * 100));
     this.required<HTMLInputElement>('#voice-pitch').value = String(Math.round(this.settings.pitch));
     this.required<HTMLInputElement>('#voice-energy').value = String(Math.round(this.settings.energy * 100));
@@ -785,6 +793,9 @@ export class VoiceMode {
     this.required<HTMLElement>('#voice-expression-label').textContent =
       `STYLE INTENSITY ${Math.round(this.settings.expression.intensity * 100)}%`;
     this.required<HTMLElement>('#voice-tone-label').textContent = `TONE ${this.settings.tone >= 0 ? '+' : ''}${Math.round(this.settings.tone * 100)}`;
+    const tractLength = this.settings.tractLength ?? 0;
+    this.required<HTMLElement>('#voice-vtl-label').textContent =
+      `VTL ${tractLength >= 0 ? '+' : ''}${Math.round(tractLength * 100)}`;
     this.required<HTMLElement>('#voice-rate-label').textContent = `RATE ${this.settings.rate.toFixed(2)}×`;
     this.required<HTMLElement>('#voice-pitch-label').textContent = `PITCH ${Math.round(this.settings.pitch)}`;
     this.required<HTMLElement>('#voice-energy-label').textContent = `ENERGY ${Math.round(this.settings.energy * 100)}%`;
