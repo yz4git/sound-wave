@@ -68,6 +68,11 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     this.speechResidualPresenceGainState = 0;
     this.speechResidualAirGainState = 0;
     this.speechClosureDerivativeState = 0;
+    this.speechCycleGainState = 0;
+    this.speechCycleGainTarget = 0;
+    this.speechCycleIndex = 0;
+    this.speechSubharmonicPhase = 0;
+    this.previousSubharmonicFlow = 0;
     this.outputState = 0;
 
     this.formantY1 = new Float64Array(5);
@@ -142,6 +147,11 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       this.speechResidualPresenceGainState = 0;
       this.speechResidualAirGainState = 0;
       this.speechClosureDerivativeState = 0;
+      this.speechCycleGainState = 0;
+      this.speechCycleGainTarget = 0;
+      this.speechCycleIndex = 0;
+      this.speechSubharmonicPhase = 0;
+      this.previousSubharmonicFlow = 0;
       this.lastEventEndFrame = -1;
       this.spectralInitialized.fill(0);
       return;
@@ -743,6 +753,9 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       this.speechResidualPresenceGainState *= 0.996;
       this.speechResidualAirGainState *= 0.996;
       this.speechClosureDerivativeState *= 0.992;
+      this.speechCycleGainState *= 0.998;
+      this.speechCycleGainTarget *= 0.998;
+      this.previousSubharmonicFlow *= 0.996;
       this.outputState *= 0.998;
       this.nasalState *= 0.996;
       this.fricationLowState *= 0.996;
@@ -899,7 +912,18 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     const phaseStep = this.currentHz / sampleRate;
     const previousPhase = this.phase;
     const nextPhase = previousPhase + phaseStep;
+    const phaseWrapped = nextPhase >= 1;
     this.phase = nextPhase - Math.floor(nextPhase);
+    if (phaseWrapped) {
+      this.speechCycleIndex += 1;
+      const pseudo = Math.sin(this.speechCycleIndex * 12.9898 + 78.233) * 43758.5453;
+      this.speechCycleGainTarget = ((pseudo - Math.floor(pseudo)) * 2 - 1);
+    }
+    this.speechCycleGainState += (
+      this.speechCycleGainTarget - this.speechCycleGainState
+    ) * 0.012;
+    this.speechSubharmonicPhase += phaseStep * 0.5;
+    this.speechSubharmonicPhase -= Math.floor(this.speechSubharmonicPhase);
 
     const releaseProgress = smoothstep((phraseProgress - 0.7) / 0.3);
     const highPitchAmount = clamp01((this.currentHz - 420) / 520);
@@ -1015,8 +1039,33 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       - highPitchSoftening * 0.72
       - releaseSoftening * 0.45
     ) * (1 - sourceDamping * 0.32);
-    const speechRaw = flow * (0.7 + highPitchSoftening * 0.025)
-      + shapedDerivative * derivativeGain;
+    const cycleVariation = Math.max(
+      0,
+      Math.min(0.025, style.speechCycleVariation || 0),
+    );
+    const cycleGain = 1 + this.speechCycleGainState * cycleVariation;
+
+    const requestedSubharmonic = Math.max(
+      0,
+      Math.min(0.02, style.speechSubharmonicMix || 0),
+    );
+    const lowPitchEligibility = 1 - clamp01((this.currentHz - 260) / 320);
+    const subharmonicAmount = requestedSubharmonic
+      * lowPitchEligibility
+      * (0.42 + finalityProgress * 0.58);
+    const subharmonicFlow = this.glottalFlow(
+      this.speechSubharmonicPhase,
+      Math.min(0.84, dynamicOpenQuotient + 0.025),
+      Math.max(0.46, dynamicSpeedQuotient - 0.02),
+    );
+    const subharmonicDerivative = subharmonicFlow - this.previousSubharmonicFlow;
+    this.previousSubharmonicFlow = subharmonicFlow;
+
+    const speechRaw = (
+      flow * (0.7 + highPitchSoftening * 0.025)
+      + shapedDerivative * derivativeGain
+      + subharmonicDerivative * derivativeGain * subharmonicAmount
+    ) * cycleGain;
     const tiltFollow = 0.12 + (1 - speechTilt) * 0.28;
     this.speechTiltState += (speechRaw - this.speechTiltState) * tiltFollow;
     const tiltedSpeechSource = speechRaw * (1 - speechTilt * 0.7)
@@ -1038,10 +1087,15 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       + (bodySource + harmonicPresence) * speechSourceMix;
     this.sourceState += (rawSource - this.sourceState) * (0.54 + speechSourceMix * 0.08);
 
-    const coupling = Math.max(
+    const phraseCoupling = Math.max(
       0,
       Math.min(0.015, active.phrase.sourceTractCoupling),
     );
+    const speechCoupling = Math.max(
+      0,
+      Math.min(0.07, style.speechSourceTractCoupling || 0),
+    );
+    const coupling = Math.min(0.08, phraseCoupling + speechCoupling);
     const safeF1 = Math.max(-0.22, Math.min(0.22, this.formantY1[0]));
     const coupledSource = this.sourceState + safeF1 * coupling;
 
