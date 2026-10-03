@@ -476,6 +476,53 @@ export function speechArticulatoryFilterFor(
   };
 }
 
+export interface SpeechConsonantTransientProfile {
+  burstGain: number;
+  burstSharpness: number;
+  closureVoicingRise: number;
+  nasalOnsetBoost: number;
+  nasalReleaseScale: number;
+}
+
+export function speechConsonantTransientProfileFor(
+  unit: VoiceUnit,
+): SpeechConsonantTransientProfile {
+  const consonant = consonantForSyllable(unit.syllable);
+  const base: SpeechConsonantTransientProfile = {
+    burstGain: 1,
+    burstSharpness: 1,
+    closureVoicingRise: 0,
+    nasalOnsetBoost: 0,
+    nasalReleaseScale: 1,
+  };
+
+  if (consonant === 'k') return { ...base, burstGain: 1.12, burstSharpness: 1.32 };
+  if (consonant === 't') return { ...base, burstGain: 1.2, burstSharpness: 1.5 };
+  if (consonant === 'p') return { ...base, burstGain: 1.06, burstSharpness: 1.18 };
+  if (consonant === 'g') {
+    return { ...base, burstGain: 1.02, burstSharpness: 1.2, closureVoicingRise: 0.52 };
+  }
+  if (consonant === 'd') {
+    return { ...base, burstGain: 1.08, burstSharpness: 1.38, closureVoicingRise: 0.62 };
+  }
+  if (consonant === 'b') {
+    return { ...base, burstGain: 0.96, burstSharpness: 1.08, closureVoicingRise: 0.68 };
+  }
+  if (consonant === 'ch' || consonant === 'ts') {
+    return { ...base, burstGain: 1.08, burstSharpness: 1.26 };
+  }
+  if (consonant === 'n') {
+    return { ...base, nasalOnsetBoost: 0.2, nasalReleaseScale: 1.18 };
+  }
+  if (consonant === 'm') {
+    return { ...base, nasalOnsetBoost: 0.24, nasalReleaseScale: 1.24 };
+  }
+  if (consonant === 'N') {
+    return { ...base, nasalOnsetBoost: 0.3, nasalReleaseScale: 1.45 };
+  }
+  return base;
+}
+
 export interface SpeechVocalTractProfile {
   lengthScale: number;
   frequencyScale: number;
@@ -1583,6 +1630,7 @@ export class VoiceSynth {
       const expressionControl = voiceExpressionControl(timed.expression);
       const speechSource = speechSourceProfileFor(timed.expression);
       const speechPresence = speechPresenceProfileFor(unit, timed.expression);
+      const consonantTransient = speechConsonantTransientProfileFor(unit);
       const controlFrame = voiceSpeechControlFrameFor(
         unit,
         index,
@@ -1783,6 +1831,11 @@ export class VoiceSynth {
       };
       workletEvent.phoneme = {
         ...workletEvent.phoneme,
+        speechBurstGain: consonantTransient.burstGain,
+        speechBurstSharpness: consonantTransient.burstSharpness,
+        speechClosureVoicingRise: consonantTransient.closureVoicingRise,
+        speechNasalOnsetBoost: consonantTransient.nasalOnsetBoost,
+        speechNasalReleaseScale: consonantTransient.nasalReleaseScale,
         fricationSeconds: workletEvent.phoneme.fricationSeconds * speechPresence.fricationScale,
         noiseMix: clamp(
           workletEvent.phoneme.noiseMix
