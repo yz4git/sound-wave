@@ -37,6 +37,16 @@ export interface JapanesePhonemeTiming {
   aspirationMix: number;
   coarticulationLead: number;
   moraicN: boolean;
+  /** Voice-Lab-only burst strength. Singing leaves this undefined. */
+  speechBurstGain?: number;
+  /** Voice-Lab-only burst front-loading / decay shape. */
+  speechBurstSharpness?: number;
+  /** Voice-Lab-only closure voicing buildup for voiced stops. */
+  speechClosureVoicingRise?: number;
+  /** Voice-Lab-only nasal onset boost. */
+  speechNasalOnsetBoost?: number;
+  /** Voice-Lab-only nasal release-time multiplier. */
+  speechNasalReleaseScale?: number;
 }
 
 const VOWELS = new Set<VocalVowel>(['a', 'e', 'i', 'o', 'u']);
