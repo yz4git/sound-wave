@@ -699,3 +699,21 @@ The HQ path now treats speech quality as a continuous trajectory rather than a s
 These changes keep manual mora controls authoritative and remain deterministic. AUTO COMPOSE singing still leaves all HQ residual/closure-smoothing fields undefined.
 
 Regression coverage now checks FAST/HQ smoothing separation, articulatory residual adaptation, singing isolation, and next-mora articulatory formant anticipation.
+
+### 35. Vocal-tract length and consonant transient pass
+
+This pass adds two speech-quality controls that are largely independent from F0/prosody.
+
+- **Continuous VTL control:** Voice Lab exposes a `VTL` slider from shorter/brighter to longer/deeper tract. It scales the speech formant trajectory and presence center without changing the planned F0. Character preset, TONE, manual VTL, and articulatory larynx height all contribute to one bounded vocal-tract-length profile.
+- Nasal anti-formant frequency follows the same VTL scaling, so long/short tract settings do not leave the nasal cavity resonance fixed at an inconsistent spectral position.
+- Next-mora formant anticipation keeps each mora's own articulatory correction while also applying the current/next VTL profile, preserving continuous tract motion across vowel transitions.
+
+Stop and nasal consonants now use Voice-Lab-only transient controls:
+
+- `/k t p/` have place-sensitive burst gain and burst sharpness rather than one identical sine-shaped noise pulse.
+- `/b d g/` add gradual closure prevoicing near the end of the closure interval before release, with different strengths by consonant.
+- Burst excitation is front-loaded and decays rapidly, combining the consonant-shaped noise with a smaller broadband component instead of using one symmetric burst envelope.
+- `/n m N/` get a stronger nasal onset and slower nasal release. Moraic `ん` keeps the longest release; `/m/` is slightly stronger/longer than `/n/`.
+- The nasal smoothing path now follows nasal strength, helping the nasal pole/anti-formant transition connect into the following vowel instead of behaving like an on/off effect.
+
+All transient fields remain undefined in AUTO COMPOSE singing events. The speech-only path therefore gains more realistic Japanese consonant onsets without changing the singing model.
