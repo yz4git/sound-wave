@@ -144,6 +144,12 @@ export interface VocalWorkletEvent {
     speechResidualSmoothingMs?: number;
     /** Smoothing time for HQ glottal closure excitation. */
     speechClosureSmoothingMs?: number;
+    /** HQ speech-only cycle-to-cycle amplitude variation. */
+    speechCycleVariation?: number;
+    /** HQ speech-only subharmonic / period-doubling amount. */
+    speechSubharmonicMix?: number;
+    /** HQ speech-only source-to-tract feedback amount. */
+    speechSourceTractCoupling?: number;
     /** Speech-only multiplier for inter-mora F0 transition time. */
     speechPitchTransitionScale?: number;
     /** Sentence-final irregular phonation amount for spoken Japanese. */
