@@ -717,3 +717,14 @@ Stop and nasal consonants now use Voice-Lab-only transient controls:
 - The nasal smoothing path now follows nasal strength, helping the nasal pole/anti-formant transition connect into the following vowel instead of behaving like an on/off effect.
 
 All transient fields remain undefined in AUTO COMPOSE singing events. The speech-only path therefore gains more realistic Japanese consonant onsets without changing the singing model.
+
+### 36. HQ glottal microstructure and vowel-dependent source–tract coupling
+
+This pass reduces the remaining perfectly periodic / synthetic quality without turning normal speech into obvious vocal fry.
+
+- **Cycle-to-cycle amplitude microvariation:** HQ updates a deterministic target once per glottal cycle, then follows it smoothly sample-by-sample. The modulation depth stays below roughly two percent, so it breaks exact periodicity without audible tremolo. FAST keeps it disabled.
+- **Very light subharmonic component:** HQ adds a tiny half-rate glottal derivative component. It is pitch-gated so the effect fades away at higher F0, and phrase-finality raises it only modestly. Serious delivery can carry slightly more; excited delivery slightly less. This is intended as microstructure, not a constant creaky-voice effect.
+- **Vowel-dependent source–tract coupling:** the speech source receives a small feedback contribution from the F1 resonator. Open/back vowels such as /a/ and /o/ use more coupling than /i/ and /e/, adding body without changing the planned F0 or explicit formant targets.
+- These controls are HQ-only and remain undefined in AUTO COMPOSE singing events.
+
+The design deliberately keeps subharmonic depth very low. Strong period doubling sounds stylistic and should remain part of explicit delivery/finality controls rather than the neutral voice baseline.
