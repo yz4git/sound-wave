@@ -6,6 +6,7 @@ import {
   speechArticulatoryStateFor,
   speechArticulatoryTransitionScalesFor,
   speechAttitudeProfileFor,
+  speechConsonantTransientProfileFor,
   speechContextDeliveryFor,
   speechFinalityProfileFor,
   speechHarmonicNoiseProfileFor,
@@ -14,6 +15,7 @@ import {
   speechSourceProfileFor,
   speechTakeVariationFor,
   speechTimbreProfileFor,
+  speechVocalTractProfileFor,
   voiceSpeechControlFrameFor,
 } from '../src/voice/VoiceSynth';
 
@@ -188,6 +190,36 @@ describe('VOICE LAB speech source', () => {
     expect(oFilter.formantScale[2]).toBeLessThan(iFilter.formantScale[2]);
     expect(nFilter.nasalMixAdd).toBeGreaterThan(0.2);
     expect(nFilter.bandwidthScale).toBeGreaterThan(aFilter.bandwidthScale);
+  });
+
+  it('controls vocal tract length independently from F0', () => {
+    const unit = parseVoiceScript('あ。').units[0]!;
+    const articulation = speechArticulatoryStateFor(unit);
+    const short = speechVocalTractProfileFor('natural', 0, -1, articulation);
+    const neutral = speechVocalTractProfileFor('natural', 0, 0, articulation);
+    const long = speechVocalTractProfileFor('natural', 0, 1, articulation);
+
+    expect(short.lengthScale).toBeLessThan(neutral.lengthScale);
+    expect(long.lengthScale).toBeGreaterThan(neutral.lengthScale);
+    expect(short.frequencyScale).toBeGreaterThan(neutral.frequencyScale);
+    expect(long.frequencyScale).toBeLessThan(neutral.frequencyScale);
+    expect(short.frequencyScale / long.frequencyScale).toBeGreaterThan(1.09);
+  });
+
+  it('gives stops and nasals distinct speech transients', () => {
+    const k = speechConsonantTransientProfileFor(parseVoiceScript('か。').units[0]!);
+    const t = speechConsonantTransientProfileFor(parseVoiceScript('た。').units[0]!);
+    const b = speechConsonantTransientProfileFor(parseVoiceScript('ば。').units[0]!);
+    const n = speechConsonantTransientProfileFor(parseVoiceScript('な。').units[0]!);
+    const m = speechConsonantTransientProfileFor(parseVoiceScript('ま。').units[0]!);
+    const moraic = speechConsonantTransientProfileFor(parseVoiceScript('ん。').units[0]!);
+
+    expect(t.burstGain).toBeGreaterThan(k.burstGain);
+    expect(t.burstSharpness).toBeGreaterThan(k.burstSharpness);
+    expect(b.closureVoicingRise).toBeGreaterThan(0.6);
+    expect(n.nasalOnsetBoost).toBeGreaterThan(0.15);
+    expect(m.nasalOnsetBoost).toBeGreaterThan(n.nasalOnsetBoost);
+    expect(moraic.nasalReleaseScale).toBeGreaterThan(m.nasalReleaseScale);
   });
 
   it('uses an explicit harmonic-noise balance per phoneme class', () => {
