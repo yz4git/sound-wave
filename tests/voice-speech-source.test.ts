@@ -10,6 +10,7 @@ import {
   speechContextDeliveryFor,
   speechFinalityProfileFor,
   speechHarmonicNoiseProfileFor,
+  speechPhonationMicrostructureFor,
   speechPresenceProfileFor,
   speechQualityProfileFor,
   speechSourceProfileFor,
@@ -85,6 +86,43 @@ describe('VOICE LAB speech source', () => {
     expect(vowel.residualBody).toBeGreaterThan(fricative.residualBody);
     expect(fricative.residualPresence).toBeGreaterThanOrEqual(vowel.residualPresence);
     expect(fricative.residualAir).toBeGreaterThan(vowel.residualAir);
+  });
+
+  it('adds subtle HQ-only phonation microstructure and vowel coupling', () => {
+    const neutral = { preset: 'neutral' as const, intensity: 1 };
+    const aUnit = parseVoiceScript('あ。').units[0]!;
+    const iUnit = parseVoiceScript('い。').units[0]!;
+
+    const fast = speechPhonationMicrostructureFor(aUnit, 'fast', neutral);
+    const hqA = speechPhonationMicrostructureFor(aUnit, 'hq', neutral);
+    const hqI = speechPhonationMicrostructureFor(iUnit, 'hq', neutral);
+
+    expect(fast.cycleVariation).toBe(0);
+    expect(fast.subharmonicMix).toBe(0);
+    expect(fast.sourceTractCoupling).toBe(0);
+
+    expect(hqA.cycleVariation).toBeGreaterThan(0.006);
+    expect(hqA.cycleVariation).toBeLessThan(0.02);
+    expect(hqA.subharmonicMix).toBeGreaterThan(0);
+    expect(hqA.subharmonicMix).toBeLessThan(0.015);
+    expect(hqA.sourceTractCoupling).toBeGreaterThan(hqI.sourceTractCoupling);
+  });
+
+  it('lets serious finals carry a little more subharmonic structure than excited speech', () => {
+    const unit = parseVoiceScript('あ。').units[0]!;
+    const serious = speechPhonationMicrostructureFor(
+      unit,
+      'hq',
+      { preset: 'serious', intensity: 1 },
+    );
+    const excited = speechPhonationMicrostructureFor(
+      unit,
+      'hq',
+      { preset: 'excited', intensity: 1 },
+    );
+
+    expect(serious.subharmonicMix).toBeGreaterThan(excited.subharmonicMix);
+    expect(serious.sourceTractCoupling).toBeGreaterThan(excited.sourceTractCoupling);
   });
 
   it('uses a strongly speech-weighted source for neutral delivery', () => {
