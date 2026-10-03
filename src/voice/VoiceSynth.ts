@@ -523,6 +523,72 @@ export function speechConsonantTransientProfileFor(
   return base;
 }
 
+export interface SpeechPhonationMicrostructureProfile {
+  cycleVariation: number;
+  subharmonicMix: number;
+  sourceTractCoupling: number;
+}
+
+export function speechPhonationMicrostructureFor(
+  unit: VoiceUnit,
+  quality: VoiceRenderQuality | undefined,
+  expression: VoiceExpressionSettings,
+): SpeechPhonationMicrostructureProfile {
+  if (quality === 'fast') {
+    return {
+      cycleVariation: 0,
+      subharmonicMix: 0,
+      sourceTractCoupling: 0,
+    };
+  }
+
+  const vowel = unit.vowel;
+  const intensity = clamp(expression.intensity, 0, 1.35);
+  const baseCoupling = vowel === 'a'
+    ? 0.055
+    : vowel === 'o'
+      ? 0.05
+      : vowel === 'u'
+        ? 0.044
+        : vowel === 'e'
+          ? 0.036
+          : 0.03;
+
+  const breathy = expression.preset === 'whisper'
+    ? 0.4
+    : expression.preset === 'calm'
+      ? 0.12
+      : 0;
+  const firm = expression.preset === 'serious'
+    ? 0.18
+    : expression.preset === 'excited'
+      ? 0.1
+      : 0;
+
+  return {
+    cycleVariation: clamp(
+      0.0085 + breathy * 0.006 + firm * 0.0025 * intensity,
+      0.006,
+      0.018,
+    ),
+    subharmonicMix: clamp(
+      0.0035
+        + (unit.phraseEnd ? 0.004 : 0)
+        + (expression.preset === 'serious' ? 0.0025 * intensity : 0)
+        - (expression.preset === 'excited' ? 0.0015 * intensity : 0),
+      0,
+      0.012,
+    ),
+    sourceTractCoupling: clamp(
+      baseCoupling
+        * (1 + firm * 0.28 * intensity)
+        * (1 - breathy * 0.22 * intensity),
+      0.02,
+      0.07,
+    ),
+  };
+}
+
 export interface SpeechVocalTractProfile {
   lengthScale: number;
   frequencyScale: number;
@@ -1631,6 +1697,11 @@ export class VoiceSynth {
       const speechSource = speechSourceProfileFor(timed.expression);
       const speechPresence = speechPresenceProfileFor(unit, timed.expression);
       const consonantTransient = speechConsonantTransientProfileFor(unit);
+      const phonationMicrostructure = speechPhonationMicrostructureFor(
+        unit,
+        settings.quality,
+        timed.expression,
+      );
       const controlFrame = voiceSpeechControlFrameFor(
         unit,
         index,
@@ -1775,6 +1846,9 @@ export class VoiceSynth {
         speechResidualAir: speechQuality.residualAir,
         speechResidualSmoothingMs: speechQuality.residualSmoothingMs,
         speechClosureSmoothingMs: speechQuality.closureSmoothingMs,
+        speechCycleVariation: phonationMicrostructure.cycleVariation,
+        speechSubharmonicMix: phonationMicrostructure.subharmonicMix,
+        speechSourceTractCoupling: phonationMicrostructure.sourceTractCoupling,
         speechPitchTransitionScale: pitchTransitionScale,
         speechFinalCreak: unit.phraseEnd ? finality.creak : 0,
         speechFinalBreath: unit.phraseEnd
