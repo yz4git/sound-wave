@@ -28,6 +28,8 @@ export interface VoiceSynthSettings {
   style: VocalStyle;
   character: VoiceCharacterPreset;
   tone: number;
+  /** -1 = shorter/brighter tract, +1 = longer/deeper tract. */
+  tractLength?: number;
   rate: number;
   pitch: number;
   energy: number;
@@ -471,6 +473,45 @@ export function speechArticulatoryFilterFor(
     noiseScale: clamp(1 + (1 - high) * 0.035 + velum * 0.025, 0.96, 1.08),
     bodyScale: clamp(1 + jaw * 0.05 - round * 0.025, 0.96, 1.06),
     dampingScale: clamp(1 + round * 0.09 - jaw * 0.035, 0.94, 1.1),
+  };
+}
+
+export interface SpeechVocalTractProfile {
+  lengthScale: number;
+  frequencyScale: number;
+  bandwidthScale: number;
+}
+
+export function speechVocalTractProfileFor(
+  character: VoiceCharacterPreset,
+  tone: number,
+  tractLength: number | undefined,
+  articulation: SpeechArticulatoryState,
+): SpeechVocalTractProfile {
+  const baseLength: Record<VoiceCharacterPreset, number> = {
+    soft: 1.014,
+    natural: 1,
+    clear: 0.986,
+    airy: 0.994,
+    power: 1.026,
+  };
+  const manual = clamp(tractLength ?? 0, -1, 1);
+  const toneAmount = clamp(tone, -1, 1);
+  const larynx = clamp(articulation.larynxHeight, 0, 1);
+  const lengthScale = clamp(
+    (baseLength[character] ?? 1)
+      + manual * 0.055
+      - toneAmount * 0.014
+      + (0.5 - larynx) * 0.026,
+    0.92,
+    1.08,
+  );
+  const frequencyScale = clamp(1 / lengthScale, 0.925, 1.087);
+
+  return {
+    lengthScale,
+    frequencyScale,
+    bandwidthScale: clamp(1 + (frequencyScale - 1) * 0.22, 0.975, 1.025),
   };
 }
 
@@ -1555,7 +1596,21 @@ export class VoiceSynth {
       const speechTimbre = controlFrame.timbre;
       const articulatoryState = controlFrame.articulation;
       const articulatoryFilter = speechArticulatoryFilterFor(articulatoryState);
+      const tract = speechVocalTractProfileFor(
+        settings.character,
+        settings.tone,
+        settings.tractLength,
+        articulatoryState,
+      );
       const nextUnit = plan.units[index + 1]?.unit ?? null;
+      const nextTract = nextUnit
+        ? speechVocalTractProfileFor(
+            settings.character,
+            settings.tone,
+            settings.tractLength,
+            speechArticulatoryStateFor(nextUnit),
+          )
+        : tract;
       const harmonicNoise = controlFrame.harmonicNoise;
       const precedingSpeechEvents = script.events.filter((event) => event.afterUnit === index - 1);
       const followsSigh = precedingSpeechEvents.some((event) => event.kind === 'sigh');
@@ -1692,15 +1747,18 @@ export class VoiceSynth {
           nextUnit,
           bandIndex,
         );
-        const tractScale = transitionScale.current;
+        const tractScale = transitionScale.current * tract.frequencyScale;
+        const nextScale = transitionScale.next * nextTract.frequencyScale;
         return {
           ...band,
           startHz: band.startHz * tractScale,
           targetHz: band.targetHz * tractScale,
           nextHz: band.nextHz === null
             ? null
-            : band.nextHz * transitionScale.next,
-          bandwidth: band.bandwidth * articulatoryFilter.bandwidthScale,
+            : band.nextHz * nextScale,
+          bandwidth: band.bandwidth
+            * articulatoryFilter.bandwidthScale
+            * tract.bandwidthScale,
           gain: band.gain
             * (speechPresence.upperFormantGain[bandIndex] ?? 1)
             * bodyScale,
@@ -1709,9 +1767,11 @@ export class VoiceSynth {
       workletEvent.style = {
         ...workletEvent.style,
         presenceFrequency: clamp(
-          workletEvent.style.presenceFrequency * speechPresence.presenceFrequencyScale,
-          1800,
-          4600,
+          workletEvent.style.presenceFrequency
+            * speechPresence.presenceFrequencyScale
+            * tract.frequencyScale,
+          1700,
+          4700,
         ),
         presenceGain: clamp(
           workletEvent.style.presenceGain * speechPresence.presenceGainScale
