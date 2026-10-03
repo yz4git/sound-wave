@@ -596,13 +596,26 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
 
     const p = event.phoneme;
     if (p.moraicN) {
-      const release = smoothstep(
-        (elapsed - noteDuration * 0.56) / Math.max(0.001, noteDuration * 0.38),
+      const releaseScale = Math.max(
+        0.8,
+        Math.min(1.8, p.speechNasalReleaseScale || 1),
       );
+      const onsetBoost = Math.max(
+        0,
+        Math.min(0.4, p.speechNasalOnsetBoost || 0),
+      );
+      const release = smoothstep(
+        (elapsed - noteDuration * 0.56)
+          / Math.max(0.001, noteDuration * 0.38 * releaseScale),
+      );
+      const onset = 1 - smoothstep(elapsed / Math.max(0.03, noteDuration * 0.2));
       return {
         sourceGain: 0.76 + release * 0.16,
-        noise: this.noiseForConsonant('n', noise) * p.noiseMix * 0.12,
-        nasalMix: p.nasalMix * (1 - release * 0.42),
+        noise: this.noiseForConsonant('n', noise) * p.noiseMix * 0.1,
+        nasalMix: Math.min(
+          0.96,
+          p.nasalMix * (1 + onsetBoost * onset) * (1 - release * 0.38),
+        ),
         aspirationMix: 0,
       };
     }
@@ -623,11 +636,37 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     const shapedNoise = this.noiseForConsonant(p.consonant, noise);
 
     if (closureEnd > 0 && elapsed < closureEnd) {
-      sourceGain *= p.voicedMix > 0.2 ? 0.42 : 0.08;
+      const closureProgress = clamp01(elapsed / Math.max(0.001, closureEnd));
+      const closureVoicingRise = Math.max(
+        0,
+        Math.min(0.85, p.speechClosureVoicingRise || 0),
+      );
+      if (p.voicedMix > 0.2 && closureVoicingRise > 0) {
+        const prevoice = smoothstep((closureProgress - 0.38) / 0.62);
+        sourceGain *= 0.34 + prevoice * closureVoicingRise * 0.34;
+      } else {
+        sourceGain *= p.voicedMix > 0.2 ? 0.42 : 0.07;
+      }
     } else if (p.burstSeconds > 0 && elapsed < burstEnd) {
-      const burstPosition = (elapsed - closureEnd) / Math.max(0.001, burstEnd - closureEnd);
-      const burstEnvelope = Math.sin(Math.PI * clamp01(burstPosition));
-      consonantNoise += shapedNoise * p.noiseMix * burstEnvelope * 0.8;
+      const burstPosition = clamp01(
+        (elapsed - closureEnd) / Math.max(0.001, burstEnd - closureEnd),
+      );
+      const burstGain = Math.max(
+        0.72,
+        Math.min(1.35, p.speechBurstGain || 1),
+      );
+      const burstSharpness = Math.max(
+        0.7,
+        Math.min(1.8, p.speechBurstSharpness || 1),
+      );
+      const burstAttack = Math.sin(Math.PI * clamp01(burstPosition * 1.45));
+      const burstDecay = Math.exp(-burstPosition * (2.4 + burstSharpness * 1.75));
+      const burstEnvelope = burstAttack * burstDecay * (1.2 + burstSharpness * 0.28);
+      const broadband = noise * (0.2 + (1.6 - burstSharpness) * 0.08);
+      consonantNoise += (
+        shapedNoise * (0.84 + burstSharpness * 0.06)
+        + broadband
+      ) * p.noiseMix * burstEnvelope * 0.78 * burstGain;
     }
 
     if (p.fricationSeconds > 0 && elapsed < fricationEnd) {
@@ -647,10 +686,26 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       sourceGain = Math.max(sourceGain, p.voicedMix * 0.78);
     }
 
+    const nasalOnsetBoost = Math.max(
+      0,
+      Math.min(0.4, p.speechNasalOnsetBoost || 0),
+    );
+    const nasalReleaseScale = Math.max(
+      0.8,
+      Math.min(1.8, p.speechNasalReleaseScale || 1),
+    );
+    const nasalOnset = 1 - smoothstep(elapsed / 0.032);
+    const nasalRelease = 1 - smoothstep(
+      elapsed / Math.max(0.04, (fricationEnd + 0.035) * nasalReleaseScale),
+    );
+
     return {
       sourceGain: Math.max(0, Math.min(1, sourceGain)),
       noise: consonantNoise,
-      nasalMix: p.nasalMix * (1 - smoothstep(elapsed / Math.max(0.04, fricationEnd + 0.035))),
+      nasalMix: Math.min(
+        0.96,
+        p.nasalMix * (1 + nasalOnsetBoost * nasalOnset) * nasalRelease,
+      ),
       aspirationMix: p.aspirationMix * (1 - smoothstep(elapsed / Math.max(0.045, voiceStart + 0.055))),
     };
   }
@@ -1006,7 +1061,8 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     }
     vocal += this.presence(tractSource, style.presenceGain);
 
-    this.nasalState += (tractSource - this.nasalState) * 0.055;
+    const nasalFollow = 0.05 + articulation.nasalMix * 0.022;
+    this.nasalState += (tractSource - this.nasalState) * nasalFollow;
     if (articulation.nasalMix > 0) {
       const antiMix = articulation.nasalMix * Math.max(0, Math.min(0.5, resonance.nasalZeroMix));
       vocal = this.nasalAntiFormant(vocal, antiMix);
