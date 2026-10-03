@@ -1852,6 +1852,7 @@ export class VoiceSynth {
       };
       workletEvent.resonance = {
         ...workletEvent.resonance,
+        nasalZeroHz: workletEvent.resonance.nasalZeroHz * tract.frequencyScale,
         nasalZeroMix: clamp(
           workletEvent.resonance.nasalZeroMix + articulatoryFilter.nasalMixAdd * 0.42,
           0,
