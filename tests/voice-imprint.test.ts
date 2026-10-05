@@ -43,7 +43,7 @@ describe('voice imprint', () => {
 
   it('rejects severely clipped reference recordings', () => {
     const clipped = sine(48000, 3.2, 180);
-    for (let i = 0; i < clipped.length; i += 1) clipped[i] = clipped[i] >= 0 ? 1 : -1;
+    for (let i = 0; i < clipped.length; i += 1) clipped[i] = (clipped[i] ?? 0) >= 0 ? 1 : -1;
     expect(() => analyzeVoiceImprint(clipped, 48000)).toThrow(/clipped/i);
   });
 

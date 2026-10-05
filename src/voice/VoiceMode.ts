@@ -884,9 +884,9 @@ export class VoiceMode {
   private async normalizedReferenceDigest(samples: Float32Array): Promise<string | null> {
     try {
       if (!globalThis.crypto?.subtle) return null;
-      const bytes = samples.buffer.slice(
-        samples.byteOffset,
-        samples.byteOffset + samples.byteLength,
+      const bytes = new ArrayBuffer(samples.byteLength);
+      new Uint8Array(bytes).set(
+        new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength),
       );
       const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
       return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
