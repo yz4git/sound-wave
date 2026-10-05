@@ -785,3 +785,18 @@ VOICE LAB can now analyze an authorized reference recording locally and derive a
 - Delivery/expression remains separate. CALM / EXCITED / SERIOUS / WHISPER / NARRATION therefore operate on top of the same imported identity tendency instead of rewriting it.
 
 This is intentionally not neural voice cloning, speaker embedding inference, or impersonation. It is a low-dimensional DSP matching aid designed for privacy, offline use, predictable mobile cost, and editable synthesis.
+
+
+### 40. Irodori-style reference normalization, cache reuse, and quality gating
+
+A second pass over `irodori-tts-coreml` focused on the reference-registration path rather than the neural model itself. Irodori decodes reference audio to 48 kHz mono Float32 before hashing/conditioning, reuses prepared reference features by content digest, and recommends clear 3–10 second single-speaker clips without long silence or clipping. VOICE LAB now mirrors those operational ideas in the lightweight DSP path.
+
+- **48 kHz mono normalization.** Imported audio is first downmixed and resampled to 48 kHz before any Voice Imprint statistics are computed. This makes the extracted F0/spectral controls less dependent on whether an iPhone recording arrived at 44.1, 48, or another supported rate.
+- **Normalized-content SHA-256 cache.** The normalized Float32 reference is hashed with Web Crypto. Up to six recent numeric Imprints are cached by digest, so selecting the same acoustic content can skip repeated Goertzel/F0 feature extraction. As in Irodori, normalization still happens before the cache decision.
+- **No source-audio persistence.** The cache stores only the compact numeric `VoiceIdentityImprint`; it does not retain the selected recording bytes.
+- **Reference quality report.** Analysis now measures active-speech ratio, clipping rate, RMS level, and median F0 dispersion. Severe clipping is rejected, while silence-heavy or unstable references reduce the confidence used to blend the Imprint into the procedural character.
+- **3–10 second preference.** Duration contributes to the quality score: 3–10 seconds gets full duration credit, very short clips are trusted less, and long clips receive a modest penalty rather than being treated as automatically better.
+- **Observable quality.** The UI reports EXCELLENT / GOOD / FAIR / POOR with F0 and confidence, and explicitly states that the reference is normalized to 48 kHz mono.
+- **Legacy compatibility.** Existing version-1 Imprints remain valid; the new quality block is optional when loading older saved settings.
+
+This preserves the same privacy boundary as the earlier Voice Imprint feature: there is no neural speaker embedding, no model fine-tuning, and no network upload. Irodori's registration design is used as an engineering pattern for normalization, caching, and input-quality control rather than as a claim of equivalent voice cloning.

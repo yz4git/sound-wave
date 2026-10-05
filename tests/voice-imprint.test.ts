@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { voiceIdentityConditioningFor } from '../src/voice/VoiceConditioning';
 import {
   analyzeVoiceImprint,
+  resampleVoiceReference,
   validVoiceIdentityImprint,
   type VoiceIdentityImprint,
 } from '../src/voice/VoiceImprint';
@@ -28,8 +29,31 @@ describe('voice imprint', () => {
     expect(analysis.voicedFrameCount).toBeGreaterThan(1);
   });
 
+  it('normalizes 44.1 kHz references to 48 kHz without shifting the voice anchor', () => {
+    const normalized = resampleVoiceReference(sine(44100, 3.2, 180), 44100);
+    expect(normalized.length).toBe(48000 * 3.2);
+    const analysis = analyzeVoiceImprint(normalized, 48000);
+    expect(analysis.imprint.medianF0Hz).toBeGreaterThan(165);
+    expect(analysis.imprint.medianF0Hz).toBeLessThan(195);
+  });
+
   it('rejects silence instead of inventing a speaker fingerprint', () => {
     expect(() => analyzeVoiceImprint(new Float32Array(48000 * 2), 48000)).toThrow();
+  });
+
+  it('rejects severely clipped reference recordings', () => {
+    const clipped = sine(48000, 3.2, 180);
+    for (let i = 0; i < clipped.length; i += 1) clipped[i] = clipped[i] >= 0 ? 1 : -1;
+    expect(() => analyzeVoiceImprint(clipped, 48000)).toThrow(/clipped/i);
+  });
+
+  it('down-rates silence-heavy references instead of applying them at full strength', () => {
+    const clean = analyzeVoiceImprint(sine(48000, 6, 180), 48000);
+    const sparse = new Float32Array(48000 * 6);
+    sparse.set(sine(48000, 2, 180), 48000 * 2);
+    const sparseAnalysis = analyzeVoiceImprint(sparse, 48000);
+    expect(sparseAnalysis.quality.activeSpeechRatio).toBeLessThan(clean.quality.activeSpeechRatio);
+    expect(sparseAnalysis.imprint.confidence).toBeLessThan(clean.imprint.confidence);
   });
 
   it('blends imprint gently on top of the selected procedural character', () => {

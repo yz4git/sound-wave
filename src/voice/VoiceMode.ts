@@ -65,7 +65,9 @@ import {
 } from './VoiceExpression';
 import {
   analyzeVoiceImprint,
+  resampleVoiceReference,
   validVoiceIdentityImprint,
+  type VoiceIdentityImprint,
 } from './VoiceImprint';
 
 type VoiceEngine = 'local' | 'system';
@@ -77,7 +79,15 @@ interface VoiceLabSettings extends VoiceSynthSettings {
   expression: VoiceExpressionSettings;
 }
 
+interface VoiceImprintCacheEntry {
+  digest: string;
+  savedAt: number;
+  imprint: VoiceIdentityImprint;
+}
+
 const STORAGE_KEY = 'sound-wave-voice-lab-settings-v1';
+const VOICE_IMPRINT_CACHE_KEY = 'sound-wave-voice-imprint-cache-v1';
+const VOICE_IMPRINT_CACHE_LIMIT = 6;
 const DEFAULT_TEXT = 'こんにちは。おんせい ごうせいの じっけんです。ことばの たかさと いきおいを かえてみましょう。';
 const STYLES: readonly VocalStyle[] = ['warm', 'bright', 'airy'];
 const INTONATIONS: readonly VoiceIntonation[] = ['auto', 'natural', 'flat', 'rise', 'fall', 'question'];
@@ -828,8 +838,8 @@ export class VoiceMode {
     const imprintStatus = this.required<HTMLElement>('#voice-imprint-status');
     const imprint = this.settings.identityImprint;
     imprintStatus.textContent = imprint
-      ? `IMPRINT · ${imprint.medianF0Hz.toFixed(0)} Hz · CONF ${Math.round(imprint.confidence * 100)}% · ${imprint.analyzedSeconds.toFixed(1)} s`
-      : 'NO IMPRINT · 3–10 s clear single voice recommended';
+      ? `IMPRINT · ${imprint.quality?.label.toUpperCase() ?? 'LEGACY'} · ${imprint.medianF0Hz.toFixed(0)} Hz · CONF ${Math.round(imprint.confidence * 100)}% · ${imprint.analyzedSeconds.toFixed(1)} s`
+      : 'NO IMPRINT · 3–10 s clear single voice · normalized to 48 kHz mono';
     this.required<HTMLButtonElement>('#voice-reset-prosody').disabled = this.settings.engine !== 'local';
     for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-prosody-lane]')) {
       button.disabled = this.settings.engine !== 'local';
@@ -837,6 +847,63 @@ export class VoiceMode {
     this.required<HTMLElement>('#voice-contour').classList.toggle('disabled', this.settings.engine !== 'local');
     this.syncProsodyLaneUi();
     this.syncLabels();
+  }
+
+  private loadVoiceImprintCache(): VoiceImprintCacheEntry[] {
+    try {
+      const raw = localStorage.getItem(VOICE_IMPRINT_CACHE_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((entry): entry is VoiceImprintCacheEntry => {
+        if (!entry || typeof entry !== 'object') return false;
+        const candidate = entry as Partial<VoiceImprintCacheEntry>;
+        return typeof candidate.digest === 'string'
+          && /^[0-9a-f]{64}$/.test(candidate.digest)
+          && typeof candidate.savedAt === 'number'
+          && Number.isFinite(candidate.savedAt)
+          && validVoiceIdentityImprint(candidate.imprint);
+      });
+    } catch {
+      return [];
+    }
+  }
+
+  private saveVoiceImprintCache(digest: string, imprint: VoiceIdentityImprint): void {
+    try {
+      const next = [
+        { digest, savedAt: Date.now(), imprint },
+        ...this.loadVoiceImprintCache().filter((entry) => entry.digest !== digest),
+      ].slice(0, VOICE_IMPRINT_CACHE_LIMIT);
+      localStorage.setItem(VOICE_IMPRINT_CACHE_KEY, JSON.stringify(next));
+    } catch {
+      // Restricted storage should never block local analysis.
+    }
+  }
+
+  private async normalizedReferenceDigest(samples: Float32Array): Promise<string | null> {
+    try {
+      if (!globalThis.crypto?.subtle) return null;
+      const bytes = samples.buffer.slice(
+        samples.byteOffset,
+        samples.byteOffset + samples.byteLength,
+      );
+      const digest = await globalThis.crypto.subtle.digest('SHA-256', bytes);
+      return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+    } catch {
+      return null;
+    }
+  }
+
+  private applyVoiceImprint(imprint: VoiceIdentityImprint): void {
+    this.settings.identityImprint = imprint;
+    if (imprint.confidence >= 0.5) {
+      this.settings.pitch = clamp(imprint.suggestedPitchMidi, 45, 76);
+    }
+    this.saveSettings();
+    this.stop();
+    this.syncControls();
+    this.refreshPlan();
   }
 
   private async loadVoiceImprint(file: File): Promise<void> {
@@ -869,17 +936,26 @@ export class VoiceMode {
         }
       }
 
-      const analysis = analyzeVoiceImprint(mono, audio.sampleRate);
-      this.settings.identityImprint = analysis.imprint;
-      if (analysis.imprint.confidence >= 0.5) {
-        this.settings.pitch = clamp(analysis.imprint.suggestedPitchMidi, 45, 76);
+      // Irodori normalizes reference audio to 48 kHz mono before speaker
+      // conditioning. Do the same for deterministic browser-side statistics.
+      const normalized = resampleVoiceReference(mono, audio.sampleRate, 48_000);
+      const digest = await this.normalizedReferenceDigest(normalized);
+      if (digest) {
+        const cached = this.loadVoiceImprintCache().find((entry) => entry.digest === digest);
+        if (cached) {
+          this.applyVoiceImprint(cached.imprint);
+          this.setStatus(
+            `VOICE IMPRINT READY · CACHE HIT · ${cached.imprint.quality?.label.toUpperCase() ?? 'OK'} · ${cached.imprint.medianF0Hz.toFixed(0)} Hz`,
+          );
+          return;
+        }
       }
-      this.saveSettings();
-      this.stop();
-      this.syncControls();
-      this.refreshPlan();
+
+      const analysis = analyzeVoiceImprint(normalized, 48_000);
+      this.applyVoiceImprint(analysis.imprint);
+      if (digest) this.saveVoiceImprintCache(digest, analysis.imprint);
       this.setStatus(
-        `VOICE IMPRINT READY · F0 ${analysis.imprint.medianF0Hz.toFixed(0)} Hz · ${Math.round(analysis.imprint.confidence * 100)}%`,
+        `VOICE IMPRINT READY · ${analysis.quality.label.toUpperCase()} · 48 kHz · F0 ${analysis.imprint.medianF0Hz.toFixed(0)} Hz · ${Math.round(analysis.imprint.confidence * 100)}%`,
       );
     } catch (error) {
       console.warn('VOICE LAB imprint analysis failed.', error);

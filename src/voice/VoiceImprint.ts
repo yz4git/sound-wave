@@ -1,3 +1,14 @@
+export type VoiceImprintQualityLabel = 'excellent' | 'good' | 'fair' | 'poor';
+
+export interface VoiceImprintQuality {
+  score: number;
+  label: VoiceImprintQualityLabel;
+  activeSpeechRatio: number;
+  clippingRate: number;
+  pitchSpreadSemitones: number;
+  rmsDb: number;
+}
+
 export interface VoiceIdentityImprint {
   version: 1;
   formantGain: readonly [number, number, number, number, number];
@@ -10,12 +21,15 @@ export interface VoiceIdentityImprint {
   suggestedPitchMidi: number;
   confidence: number;
   analyzedSeconds: number;
+  /** Added after v1 launch; omitted legacy profiles remain valid. */
+  quality?: VoiceImprintQuality;
 }
 
 export interface VoiceImprintAnalysis {
   imprint: VoiceIdentityImprint;
   voicedFrameCount: number;
   spectralFrameCount: number;
+  quality: VoiceImprintQuality;
 }
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
@@ -39,6 +53,50 @@ function frameRms(samples: Float32Array, start: number, size: number): number {
     sum += sample * sample;
   }
   return Math.sqrt(sum / count);
+}
+
+function qualityLabel(score: number): VoiceImprintQualityLabel {
+  if (score >= 0.86) return 'excellent';
+  if (score >= 0.7) return 'good';
+  if (score >= 0.5) return 'fair';
+  return 'poor';
+}
+
+function levelScore(rmsDb: number): number {
+  if (rmsDb < -48 || rmsDb > -1) return 0.2;
+  if (rmsDb < -32) return clamp((rmsDb + 48) / 16, 0.2, 1);
+  if (rmsDb > -6) return clamp((-1 - rmsDb) / 5, 0.2, 1);
+  return 1;
+}
+
+/**
+ * Mirrors Irodori's reference preprocessing boundary: analyze a stable
+ * 48 kHz mono representation regardless of the original recording rate.
+ * Linear interpolation is sufficient here because this data feeds coarse
+ * conditioning statistics, not the audible output path.
+ */
+export function resampleVoiceReference(
+  samples: Float32Array,
+  sourceRate: number,
+  targetRate: number = 48_000,
+): Float32Array {
+  if (!Number.isFinite(sourceRate) || sourceRate <= 0 || !Number.isFinite(targetRate) || targetRate <= 0) {
+    throw new Error('Invalid reference sample rate');
+  }
+  if (samples.length === 0) return new Float32Array();
+  if (Math.abs(sourceRate - targetRate) < 0.5) return samples.slice();
+
+  const targetLength = Math.max(1, Math.round(samples.length * targetRate / sourceRate));
+  const output = new Float32Array(targetLength);
+  const scale = sourceRate / targetRate;
+  for (let i = 0; i < targetLength; i += 1) {
+    const sourcePosition = i * scale;
+    const left = Math.min(samples.length - 1, Math.floor(sourcePosition));
+    const right = Math.min(samples.length - 1, left + 1);
+    const mix = sourcePosition - left;
+    output[i] = (samples[left] ?? 0) * (1 - mix) + (samples[right] ?? 0) * mix;
+  }
+  return output;
 }
 
 function estimateF0(
@@ -98,8 +156,8 @@ function estimateF0(
   if (bestLag <= 0 || best < 0.28) return { hz: 0, confidence: Math.max(0, best) };
 
   // Periodic signals also peak at 2×, 3× ... the true period. Picking only the
-  // absolute maximum therefore causes common octave-down errors. Prefer the
-  // earliest strong local maximum that is close to the best correlation.
+  // absolute maximum causes common octave-down errors, so prefer the earliest
+  // strong local maximum close to the best correlation.
   const strongThreshold = Math.max(0.42, best * 0.86);
   for (let lag = minLag + 1; lag < maxLag; lag += 1) {
     const value = correlations[lag] ?? -1;
@@ -144,6 +202,20 @@ function goertzelPower(
   return Math.max(0, q1 * q1 + q2 * q2 - coefficient * q1 * q2);
 }
 
+function validVoiceImprintQuality(value: unknown): value is VoiceImprintQuality {
+  if (!value || typeof value !== 'object') return false;
+  const candidate = value as Partial<VoiceImprintQuality>;
+  const finite = (number: unknown): number is number => typeof number === 'number' && Number.isFinite(number);
+  return (
+    finite(candidate.score) && candidate.score >= 0 && candidate.score <= 1
+    && (candidate.label === 'excellent' || candidate.label === 'good' || candidate.label === 'fair' || candidate.label === 'poor')
+    && finite(candidate.activeSpeechRatio) && candidate.activeSpeechRatio >= 0 && candidate.activeSpeechRatio <= 1
+    && finite(candidate.clippingRate) && candidate.clippingRate >= 0 && candidate.clippingRate <= 1
+    && finite(candidate.pitchSpreadSemitones) && candidate.pitchSpreadSemitones >= 0 && candidate.pitchSpreadSemitones <= 24
+    && finite(candidate.rmsDb) && candidate.rmsDb >= -120 && candidate.rmsDb <= 6
+  );
+}
+
 export function validVoiceIdentityImprint(value: unknown): value is VoiceIdentityImprint {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<VoiceIdentityImprint>;
@@ -160,7 +232,8 @@ export function validVoiceIdentityImprint(value: unknown): value is VoiceIdentit
     && finite(candidate.medianF0Hz) && candidate.medianF0Hz >= 65 && candidate.medianF0Hz <= 360
     && finite(candidate.suggestedPitchMidi) && candidate.suggestedPitchMidi >= 40 && candidate.suggestedPitchMidi <= 82
     && finite(candidate.confidence) && candidate.confidence >= 0 && candidate.confidence <= 1
-    && finite(candidate.analyzedSeconds) && candidate.analyzedSeconds >= 0.5 && candidate.analyzedSeconds <= 30;
+    && finite(candidate.analyzedSeconds) && candidate.analyzedSeconds >= 0.5 && candidate.analyzedSeconds <= 30
+    && (candidate.quality === undefined || validVoiceImprintQuality(candidate.quality));
 }
 
 export function analyzeVoiceImprint(
@@ -178,6 +251,14 @@ export function analyzeVoiceImprint(
   const usableLength = Math.min(samples.length, Math.floor(sampleRate * 20));
   const globalRms = frameRms(samples, 0, usableLength);
   if (globalRms < 0.0025) throw new Error('Reference audio is too quiet');
+  const rmsDb = 20 * Math.log10(Math.max(globalRms, 1e-12));
+
+  let clippedSamples = 0;
+  for (let i = 0; i < usableLength; i += 1) {
+    if (Math.abs(samples[i] ?? 0) >= 0.985) clippedSamples += 1;
+  }
+  const clippingRate = clippedSamples / Math.max(1, usableLength);
+  if (clippingRate > 0.03) throw new Error('Reference audio is heavily clipped');
 
   const candidateCount = Math.min(36, Math.max(8, Math.floor(usableLength / frameSize)));
   const starts: number[] = [];
@@ -189,6 +270,7 @@ export function analyzeVoiceImprint(
     }
   }
   if (starts.length < 3) throw new Error('Reference audio needs more clear speech');
+  const activeSpeechRatio = starts.length / candidateCount;
 
   const selected = starts.length <= 18
     ? starts
@@ -204,6 +286,11 @@ export function analyzeVoiceImprint(
     }
   }
   if (f0Values.length < 2) throw new Error('Could not find stable voiced speech');
+
+  const medianF0Hz = median(f0Values);
+  const pitchSpreadSemitones = median(
+    f0Values.map((hz) => Math.abs(12 * Math.log2(hz / medianF0Hz))),
+  );
 
   const nyquistLimit = sampleRate * 0.45;
   const frequencies: number[] = [];
@@ -270,32 +357,62 @@ export function analyzeVoiceImprint(
   const brightnessDb = highDb - lowDb;
   const radiationGainDb = clamp(brightnessDb * 0.055, -0.65, 0.65);
 
-  const medianF0Hz = median(f0Values);
   const suggestedPitchMidi = clamp(69 + 12 * Math.log2(medianF0Hz / 440), 40, 82);
   const voicedRatio = f0Values.length / selected.length;
   const pitchConfidence = median(f0Confidence);
   const durationConfidence = clamp(seconds / 3, 0, 1);
-  const confidence = clamp(
+  const baseConfidence = clamp(
     voicedRatio * 0.42 + pitchConfidence * 0.4 + durationConfidence * 0.18,
     0,
     1,
   );
 
+  const durationScore = seconds < 3
+    ? clamp(seconds / 3, 0.28, 1)
+    : seconds <= 10
+      ? 1
+      : clamp(1 - (seconds - 10) / 40, 0.72, 1);
+  const activityScore = clamp((activeSpeechRatio - 0.18) / 0.57, 0, 1);
+  const clippingScore = clamp(1 - clippingRate / 0.012, 0, 1);
+  const pitchStabilityScore = clamp(1 - Math.max(0, pitchSpreadSemitones - 1.6) / 8, 0.45, 1);
+  const qualityScore = clamp(
+    durationScore * 0.2
+      + activityScore * 0.28
+      + clippingScore * 0.23
+      + pitchStabilityScore * 0.18
+      + levelScore(rmsDb) * 0.11,
+    0,
+    1,
+  );
+  const quality: VoiceImprintQuality = {
+    score: qualityScore,
+    label: qualityLabel(qualityScore),
+    activeSpeechRatio,
+    clippingRate,
+    pitchSpreadSemitones,
+    rmsDb,
+  };
+  const confidence = clamp(baseConfidence * (0.58 + qualityScore * 0.42), 0, 1);
+
+  const imprint: VoiceIdentityImprint = {
+    version: 1,
+    formantGain,
+    sourceTiltScale,
+    presenceFrequencyScale,
+    presenceGainScale,
+    breathScale,
+    radiationGainDb,
+    medianF0Hz,
+    suggestedPitchMidi,
+    confidence,
+    analyzedSeconds: Math.min(seconds, 20),
+    quality,
+  };
+
   return {
-    imprint: {
-      version: 1,
-      formantGain,
-      sourceTiltScale,
-      presenceFrequencyScale,
-      presenceGainScale,
-      breathScale,
-      radiationGainDb,
-      medianF0Hz,
-      suggestedPitchMidi,
-      confidence,
-      analyzedSeconds: Math.min(seconds, 20),
-    },
+    imprint,
     voicedFrameCount: f0Values.length,
     spectralFrameCount: selected.length,
+    quality,
   };
 }
