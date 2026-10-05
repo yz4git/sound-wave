@@ -73,6 +73,7 @@ function estimateF0(
   const maxLag = Math.min(count - 8, Math.ceil(effectiveRate / 70));
   let bestLag = 0;
   let best = -1;
+  const correlations = new Float32Array(maxLag + 1);
 
   for (let lag = minLag; lag <= maxLag; lag += 1) {
     let corr = 0;
@@ -87,6 +88,7 @@ function estimateF0(
       right += b * b;
     }
     const normalized = corr / Math.sqrt(Math.max(1e-12, left * right));
+    correlations[lag] = normalized;
     if (normalized > best) {
       best = normalized;
       bestLag = lag;
@@ -94,9 +96,27 @@ function estimateF0(
   }
 
   if (bestLag <= 0 || best < 0.28) return { hz: 0, confidence: Math.max(0, best) };
+
+  // Periodic signals also peak at 2×, 3× ... the true period. Picking only the
+  // absolute maximum therefore causes common octave-down errors. Prefer the
+  // earliest strong local maximum that is close to the best correlation.
+  const strongThreshold = Math.max(0.42, best * 0.86);
+  for (let lag = minLag + 1; lag < maxLag; lag += 1) {
+    const value = correlations[lag] ?? -1;
+    if (
+      value >= strongThreshold
+      && value >= (correlations[lag - 1] ?? -1)
+      && value >= (correlations[lag + 1] ?? -1)
+    ) {
+      bestLag = lag;
+      break;
+    }
+  }
+
+  const chosen = correlations[bestLag] ?? best;
   return {
     hz: effectiveRate / bestLag,
-    confidence: clamp((best - 0.28) / 0.62, 0, 1),
+    confidence: clamp((chosen - 0.28) / 0.62, 0, 1),
   };
 }
 
