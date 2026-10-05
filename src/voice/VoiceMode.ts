@@ -165,6 +165,8 @@ export class VoiceMode {
 
   async activate(): Promise<void> {
     this.active = true;
+    document.documentElement.classList.add('voice-lab-open');
+    document.body.classList.add('voice-lab-open');
     this.root.classList.add('active');
     this.root.setAttribute('aria-hidden', 'false');
     if (this.settings.engine === 'local') await this.synth.unlock();
@@ -177,6 +179,8 @@ export class VoiceMode {
     this.synth.suspend();
     this.root.classList.remove('active');
     this.root.setAttribute('aria-hidden', 'true');
+    document.documentElement.classList.remove('voice-lab-open');
+    document.body.classList.remove('voice-lab-open');
   }
 
   private loadSettings(): VoiceLabSettings {

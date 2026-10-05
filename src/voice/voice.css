@@ -15,9 +15,12 @@
 .title-mode-card.voice { --card-rgb: 118, 200, 255; }
 
 #voice-lab {
-  position: absolute;
+  position: fixed;
   z-index: 9;
   inset: 0;
+  width: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
   display: none;
   grid-template-rows: auto minmax(0, 1fr);
   gap: clamp(10px, 1.4vh, 16px);
@@ -925,14 +928,25 @@
 @media (max-height: 520px) and (orientation: landscape) {
   #voice-lab {
     gap: 7px;
+    grid-template-rows: auto auto;
+    align-content: start;
     /* A little extra scroll runway keeps the last control above the
        iPhone home indicator/browser chrome. */
-    padding-bottom: max(18px, calc(env(safe-area-inset-bottom) + 10px));
+    padding-bottom: max(28px, calc(env(safe-area-inset-bottom) + 18px));
   }
   .voice-header { padding-bottom: 6px; }
   .voice-header h1 { font-size: 29px; }
+  .voice-layout {
+    min-height: auto;
+    align-items: start;
+  }
   .voice-content-panel,
-  .voice-controls-panel { padding: 9px; }
+  .voice-controls-panel {
+    padding: 9px;
+    overflow: visible;
+    max-height: none;
+    touch-action: auto;
+  }
   .voice-content-panel { gap: 6px; }
   .voice-prosody-preview { min-height: 96px; }
   .voice-tech > div { min-height: 22px; }
