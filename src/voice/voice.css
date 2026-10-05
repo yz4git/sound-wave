@@ -34,7 +34,13 @@
     radial-gradient(circle at 90% 80%, rgba(192, 120, 255, .09), transparent 32%),
     linear-gradient(145deg, #07101a, #0b0d15 56%, #110b17);
   background-size: 26px 26px, 26px 26px, auto, auto, auto;
-  overflow: hidden;
+  /* VOICE LAB can grow taller than compact iPhone landscape viewports.
+     Keep the game shell fixed, but make this mode its own touch scroller. */
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }
 
 #voice-lab.active { display: grid; }
@@ -103,6 +109,7 @@
 .voice-content-panel,
 .voice-controls-panel {
   min-height: 0;
+  min-width: 0;
   border: 1px solid rgba(131, 196, 255, .13);
   background: rgba(5, 10, 18, .68);
   box-shadow: inset 0 1px rgba(255,255,255,.025);
@@ -114,6 +121,11 @@
   grid-template-rows: auto minmax(96px, .8fr) auto auto auto auto auto minmax(120px, 1.2fr);
   gap: 10px;
   padding: 14px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }
 
 .voice-controls-panel {
@@ -121,8 +133,11 @@
   flex-direction: column;
   gap: 11px;
   padding: 13px;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
 }
 
 .voice-section-label {
@@ -895,9 +910,12 @@
   }
   .voice-content-panel {
     grid-template-rows: auto 130px auto auto auto auto auto 170px;
+    overflow: visible;
+    touch-action: auto;
   }
   .voice-controls-panel {
     overflow: visible;
+    touch-action: auto;
   }
   .voice-tech {
     margin-top: 0;
@@ -905,7 +923,12 @@
 }
 
 @media (max-height: 520px) and (orientation: landscape) {
-  #voice-lab { gap: 7px; }
+  #voice-lab {
+    gap: 7px;
+    /* A little extra scroll runway keeps the last control above the
+       iPhone home indicator/browser chrome. */
+    padding-bottom: max(18px, calc(env(safe-area-inset-bottom) + 10px));
+  }
   .voice-header { padding-bottom: 6px; }
   .voice-header h1 { font-size: 29px; }
   .voice-content-panel,
