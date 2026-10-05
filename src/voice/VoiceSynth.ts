@@ -108,6 +108,7 @@ export interface VoicePlaybackPlan {
   duration: number;
   units: VoiceTimedUnit[];
   events: VoiceTimedSpeechEvent[];
+  strategy: SpeechUtteranceStrategy;
 }
 
 export interface SpeechEventProfile {
@@ -1757,7 +1758,13 @@ export class VoiceSynth {
       appendEvents(index);
     });
 
-    return { duration: cursor + 0.08, units, events };
+    const duration = cursor + 0.08;
+    return {
+      duration,
+      units,
+      events,
+      strategy: speechUtteranceStrategyFor(script, duration),
+    };
   }
 
   async play(
@@ -1771,7 +1778,7 @@ export class VoiceSynth {
 
     this.worklet.clear();
     const plan = this.plan(script, settings, prosodyInput);
-    const utteranceStrategy = speechUtteranceStrategyFor(script, plan.duration);
+    const utteranceStrategy = plan.strategy;
     const startAt = this.context.currentTime + 0.055;
     const takeIndex = this.takeIndex++;
     let previousPitchMidi: number | null = null;
