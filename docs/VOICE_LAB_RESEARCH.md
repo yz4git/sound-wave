@@ -728,3 +728,33 @@ This pass reduces the remaining perfectly periodic / synthetic quality without t
 - These controls are HQ-only and remain undefined in AUTO COMPOSE singing events.
 
 The design deliberately keeps subharmonic depth very low. Strong period doubling sounds stylistic and should remain part of explicit delivery/finality controls rather than the neutral voice baseline.
+
+### 37. Lessons from `Corvelis/irodori-tts-coreml` (reviewed at commit `948f17d`)
+
+`irodori-tts-coreml` is an Apache-2.0 community Core ML runtime for Irodori-TTS v4.1 Small MF. The most useful ideas for VOICE LAB are not its multi-gigabyte model files, but the productization strategy around few-step inference, model staging, input-length routing, and repeatable quality validation.
+
+#### What was adopted
+
+- **Length-aware inference strategy.** Irodori preserves a short-utterance path and switches long single Japanese sentences to a different four-step MeanFlow schedule. VOICE LAB now classifies each plan as `SHORT`, `NORMAL`, `LONG·4STEP`, or `MULTI`.
+- **Four-step schedule metadata.** Normal/short/multi plans use four equal refinement intervals; long single sentences use `[0.125, 0.125, 0.25, 0.5]`, matching the front-loaded four-step interval allocation used by the Core ML runtime. In VOICE LAB this metadata controls deterministic DSP stability/coarticulation rather than pretending to run MeanFlow.
+- **Long single-sentence stability.** Long one-sentence HQ rendering slightly increases residual smoothing, closure smoothing, and tract carry while reducing cycle-to-cycle phonation variation. This avoids accumulated timbre jitter without flattening prosody.
+- **Short-utterance protection.** Irodori removes a terminal full stop from model conditioning only for very short Japanese inputs to avoid excess allocation. VOICE LAB keeps punctuation for intonation, but shortens only the final silence for short utterances, preserving the linguistic cue while avoiding a sluggish tail.
+- **Fixed quality corpus.** A reusable VOICE LAB benchmark suite now covers short speech, neutral speech, questions, hesitation, sibilants, stops, nasals, repair/rethink events, long single sentences, and multi-sentence input. CI checks finite plans, non-flat pitch motion, repair gaps, question behavior, and strategy selection.
+- **Strategy visibility.** Local playback status now shows `SHORT`, `NORMAL`, `LONG·4STEP`, or `MULTI`, making the active HQ routing observable instead of hidden.
+
+#### What was deliberately not copied
+
+- The Core ML model bundle is about 2.99 GB in the standard form and about 1.96 GB in its INT8 variant. That is appropriate for a native iOS/macOS app with Core ML, but not for the current Safari/PWA default path.
+- The Core ML runtime uses a text encoder, speaker encoder, duration model, cached context, a MeanFlow DiT, staged DACVAE decoding, and AudioSeal. VOICE LAB does not claim to reproduce those neural components with DSP.
+- Reference-audio voice cloning and caption-conditioned Voice Design require the trained Irodori model. VOICE LAB keeps its deterministic character/expression controls until a genuinely small browser-compatible model is available.
+- AudioSeal is not added to the current browser DSP path. If a future neural/native synthesis backend is distributed, provenance/watermark requirements should be reviewed together with that model's license and deployment mode.
+
+#### Native/iPhone lesson for a future optional backend
+
+Irodori's v0.2.0 runtime shows that stage-specific precision and selective quantization can preserve quality better than quantizing everything indiscriminately: its large text encoder is stored as INT8 while computation/output remain FP32, the DiT uses mixed precision, and decoder stages keep their validated precision. If VOICE LAB later gets a native Core ML companion, it should follow the same principle: compress the memory-heavy conditioning model first, keep the small quality-critical source/decoder layers at higher precision, and validate every model variant separately.
+
+The current browser architecture remains:
+
+`Open JTalk -> editable prosody -> adaptive utterance strategy -> mora control frame -> articulatory/timbre/H+N source-filter DSP -> optional HQ residual`
+
+A future native Core ML backend would be an additional engine, not a replacement for the instant no-download browser path.
