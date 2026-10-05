@@ -40,18 +40,19 @@ export interface VoicePlanQualityResult {
   metrics: VoicePlanQualityMetrics;
 }
 
-const LONG_SINGLE = 'きょうはとてもいいてんきなので、ゆっくりあるきながら、まちのようすやそらのいろやかぜのおとをたしかめて、もうすこしだけとおくまでいってみることにする。';
+const LONG_SINGLE_BODY = 'きょうはとてもいいてんきなので、ゆっくりあるきながら、まちのようすやそらのいろやかぜのおとをたしかめて、もうすこしだけとおくまでいってみることにする';
+const LONG_SINGLE = `${LONG_SINGLE_BODY}${LONG_SINGLE_BODY}。`;
 
 export const VOICE_QUALITY_CASES: readonly VoiceQualityCase[] = [
   { id: 'short', kind: 'short', text: 'いいね。' },
-  { id: 'neutral', kind: 'neutral', text: 'こんにちは。きょうはいいてんきです。' },
+  { id: 'neutral', kind: 'neutral', text: 'こんにちは、きょうはいいてんきです。' },
   { id: 'question', kind: 'question', text: 'ほんとうにいくの？' },
   { id: 'hesitation', kind: 'hesitation', text: 'まつかな……' },
   { id: 'sibilant', kind: 'sibilant', text: 'さしすせそ。しずかにはなす。' },
   { id: 'stop', kind: 'stop', text: 'かたぱ。がだば。' },
   { id: 'nasal', kind: 'nasal', text: 'なまん。みんなでまつ。' },
   { id: 'repair', kind: 'repair', text: 'あ。（言い直し）い。（思い直し）う。' },
-  { id: 'long-single', kind: 'long-single', text: LONG_SINGLE.repeat(2) },
+  { id: 'long-single', kind: 'long-single', text: LONG_SINGLE },
   { id: 'multi-sentence', kind: 'multi-sentence', text: 'おはよう。きょうはいくよ。ほんとうにいくの？' },
 ] as const;
 
