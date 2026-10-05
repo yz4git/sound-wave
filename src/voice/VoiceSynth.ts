@@ -1021,6 +1021,24 @@ export function japaneseBoundaryPauseSeconds(unit: VoiceUnit, rate: number): num
   return clamp(Math.max(boundaryPause, expressivePause, breathFloor), 0.025, 0.52);
 }
 
+export function speechBoundaryPauseForStrategy(
+  unit: VoiceUnit,
+  rate: number,
+  strategy: SpeechUtteranceStrategy,
+  finalUnit: boolean,
+): number {
+  const base = japaneseBoundaryPauseSeconds(unit, rate);
+  if (
+    strategy.kind === 'short'
+    && finalUnit
+    && unit.boundaryAfter === 'sentence'
+    && base > 0
+  ) {
+    return clamp(base * 0.68, 0.025, 0.28);
+  }
+  return base;
+}
+
 export function speechPitchTransitionScaleFor(
   unit: VoiceUnit,
   previousUnit: VoiceUnit | undefined,
@@ -1618,6 +1636,7 @@ export class VoiceSynth {
   ): VoicePlaybackPlan {
     const edits = normalizeProsodyEdits(prosodyInput);
     const globalExpression = settings.expression ?? { preset: 'neutral', intensity: 1 };
+    const initialUtteranceStrategy = speechUtteranceStrategyFor(script);
     const units: VoiceTimedUnit[] = [];
     const events: VoiceTimedSpeechEvent[] = [];
     const eventsByAfter = new Map<number, VoiceSpeechEvent[]>();
@@ -1742,7 +1761,12 @@ export class VoiceSynth {
 
       const pauseOverride = edits.pauseOverrides?.[index];
       const pause = pauseOverride === null || pauseOverride === undefined
-        ? japaneseBoundaryPauseSeconds(unit, effectiveRate)
+        ? speechBoundaryPauseForStrategy(
+            unit,
+            effectiveRate,
+            initialUtteranceStrategy,
+            index === script.units.length - 1,
+          )
         : clamp(pauseOverride, 0, 0.36);
       const followingEvents = eventsByAfter.get(index) ?? [];
       const hasRepair = followingEvents.some((event) => (
