@@ -63,6 +63,10 @@ import {
   voiceExpressionControl,
   type VoiceExpressionSettings,
 } from './VoiceExpression';
+import {
+  analyzeVoiceImprint,
+  validVoiceIdentityImprint,
+} from './VoiceImprint';
 
 type VoiceEngine = 'local' | 'system';
 type ProsodyLane = 'pitch' | 'energy' | 'duration';
@@ -183,6 +187,7 @@ export class VoiceMode {
       character: 'natural',
       tone: 0,
       tractLength: 0,
+      identityImprint: null,
       rate: 1,
       pitch: 60,
       energy: 0.92,
@@ -203,6 +208,9 @@ export class VoiceMode {
         character: validVoiceCharacterPreset(parsed.character) ? parsed.character : fallback.character,
         tone: clamp(Number(parsed.tone) || 0, -1, 1),
         tractLength: clamp(Number(parsed.tractLength) || 0, -1, 1),
+        identityImprint: validVoiceIdentityImprint(parsed.identityImprint)
+          ? parsed.identityImprint
+          : null,
         rate: clamp(Number(parsed.rate) || 1, 0.6, 1.65),
         pitch: clamp(Number(parsed.pitch) || 60, 45, 76),
         energy: clamp(Number(parsed.energy) || 0.92, 0.55, 1.15),
@@ -311,6 +319,14 @@ export class VoiceMode {
             </select></label>
             <label><span id="voice-tone-label">TONE 0</span><input id="voice-tone" type="range" min="-100" max="100" step="1" /></label>
             <label><span id="voice-vtl-label">VTL 0</span><input id="voice-vtl" type="range" min="-100" max="100" step="1" /></label>
+            <div class="voice-imprint">
+              <input id="voice-imprint-file" type="file" accept="audio/*" hidden />
+              <div class="voice-imprint-actions">
+                <button type="button" id="voice-imprint-load">VOICE IMPRINT</button>
+                <button type="button" id="voice-imprint-clear">CLEAR</button>
+              </div>
+              <span id="voice-imprint-status">NO IMPRINT · 3–10 s clear single voice recommended</span>
+            </div>
           </div>
 
           <div class="voice-control-group">
@@ -660,6 +676,28 @@ export class VoiceMode {
       void this.exportWav();
     }, { passive: false });
 
+    const imprintFile = this.required<HTMLInputElement>('#voice-imprint-file');
+    this.required<HTMLButtonElement>('#voice-imprint-load').addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      if (this.settings.engine !== 'local') return;
+      imprintFile.click();
+    }, { passive: false });
+    imprintFile.addEventListener('change', () => {
+      const file = imprintFile.files?.[0];
+      imprintFile.value = '';
+      if (file) void this.loadVoiceImprint(file);
+    });
+    this.required<HTMLButtonElement>('#voice-imprint-clear').addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      if (!this.settings.identityImprint) return;
+      this.settings.identityImprint = null;
+      this.saveSettings();
+      this.stop();
+      this.syncControls();
+      this.refreshPlan();
+      this.setStatus('VOICE IMPRINT CLEARED');
+    }, { passive: false });
+
     for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-voice-engine]')) {
       button.addEventListener('pointerdown', (event) => {
         event.preventDefault();
@@ -780,6 +818,14 @@ export class VoiceMode {
     this.required<HTMLButtonElement>('#voice-analyze-japanese').disabled =
       this.settings.engine !== 'local' || this.japaneseAnalyzing;
     this.required<HTMLButtonElement>('#voice-export-wav').disabled = this.settings.engine !== 'local';
+    this.required<HTMLButtonElement>('#voice-imprint-load').disabled = this.settings.engine !== 'local';
+    this.required<HTMLButtonElement>('#voice-imprint-clear').disabled =
+      this.settings.engine !== 'local' || !this.settings.identityImprint;
+    const imprintStatus = this.required<HTMLElement>('#voice-imprint-status');
+    const imprint = this.settings.identityImprint;
+    imprintStatus.textContent = imprint
+      ? `IMPRINT · ${imprint.medianF0Hz.toFixed(0)} Hz · CONF ${Math.round(imprint.confidence * 100)}% · ${imprint.analyzedSeconds.toFixed(1)} s`
+      : 'NO IMPRINT · 3–10 s clear single voice recommended';
     this.required<HTMLButtonElement>('#voice-reset-prosody').disabled = this.settings.engine !== 'local';
     for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-prosody-lane]')) {
       button.disabled = this.settings.engine !== 'local';
@@ -787,6 +833,58 @@ export class VoiceMode {
     this.required<HTMLElement>('#voice-contour').classList.toggle('disabled', this.settings.engine !== 'local');
     this.syncProsodyLaneUi();
     this.syncLabels();
+  }
+
+  private async loadVoiceImprint(file: File): Promise<void> {
+    const loadButton = this.required<HTMLButtonElement>('#voice-imprint-load');
+    if (file.size > 48 * 1024 * 1024) {
+      this.setStatus('VOICE IMPRINT · FILE TOO LARGE');
+      return;
+    }
+
+    loadButton.disabled = true;
+    loadButton.textContent = 'ANALYZING…';
+    this.setStatus('VOICE IMPRINT · ANALYZING LOCAL AUDIO');
+    let context: AudioContext | null = null;
+    try {
+      context = new AudioContext();
+      const encoded = await file.arrayBuffer();
+      const audio = await context.decodeAudioData(encoded.slice(0));
+      const seconds = audio.duration;
+      if (seconds < 0.5 || seconds > 120) {
+        throw new Error('Reference audio must be between 0.5 and 120 seconds');
+      }
+
+      const maxFrames = Math.min(audio.length, Math.floor(audio.sampleRate * 20));
+      const mono = new Float32Array(maxFrames);
+      for (let channel = 0; channel < audio.numberOfChannels; channel += 1) {
+        const source = audio.getChannelData(channel);
+        const scale = 1 / audio.numberOfChannels;
+        for (let i = 0; i < maxFrames; i += 1) {
+          mono[i] = (mono[i] ?? 0) + (source[i] ?? 0) * scale;
+        }
+      }
+
+      const analysis = analyzeVoiceImprint(mono, audio.sampleRate);
+      this.settings.identityImprint = analysis.imprint;
+      if (analysis.imprint.confidence >= 0.5) {
+        this.settings.pitch = clamp(analysis.imprint.suggestedPitchMidi, 45, 76);
+      }
+      this.saveSettings();
+      this.stop();
+      this.syncControls();
+      this.refreshPlan();
+      this.setStatus(
+        `VOICE IMPRINT READY · F0 ${analysis.imprint.medianF0Hz.toFixed(0)} Hz · ${Math.round(analysis.imprint.confidence * 100)}%`,
+      );
+    } catch (error) {
+      console.warn('VOICE LAB imprint analysis failed.', error);
+      this.setStatus('VOICE IMPRINT FAILED · USE CLEAR SOLO SPEECH');
+    } finally {
+      if (context) void context.close();
+      loadButton.textContent = 'VOICE IMPRINT';
+      loadButton.disabled = this.settings.engine !== 'local';
+    }
   }
 
   private syncLabels(): void {

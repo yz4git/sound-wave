@@ -1,4 +1,5 @@
 import type { VoiceCharacterPreset } from '../compose/VoiceCharacter';
+import type { VoiceIdentityImprint } from './VoiceImprint';
 
 export interface VoiceIdentityConditioning {
   formantGain: readonly [number, number, number, number, number];
@@ -63,6 +64,7 @@ export function voiceIdentityConditioningFor(
   character: VoiceCharacterPreset,
   tone: number,
   tractLength: number = 0,
+  imprint: VoiceIdentityImprint | null = null,
 ): VoiceIdentityConditioning {
   const base = BASE[character] ?? BASE.natural;
   const brightness = clamp(tone, -1, 1);
@@ -74,7 +76,7 @@ export function voiceIdentityConditioningFor(
     return clamp(value * (1 + normalizedBand * spectralSlope * 2), 0.88, 1.13);
   }) as [number, number, number, number, number];
 
-  return {
+  const identity: VoiceIdentityConditioning = {
     formantGain,
     sourceTiltScale: clamp(
       base.sourceTiltScale * (1 - brightness * 0.035 + length * 0.018),
@@ -100,6 +102,41 @@ export function voiceIdentityConditioningFor(
       base.radiationGainDb + brightness * 0.28 - length * 0.16,
       -0.8,
       0.95,
+    ),
+  };
+
+  if (!imprint) return identity;
+  const mix = clamp(imprint.confidence * 0.72, 0, 0.72);
+  const blendMultiplier = (value: number): number => 1 + (value - 1) * mix;
+
+  return {
+    formantGain: identity.formantGain.map((value, index) => (
+      clamp(value * blendMultiplier(imprint.formantGain[index] ?? 1), 0.84, 1.18)
+    )) as [number, number, number, number, number],
+    sourceTiltScale: clamp(
+      identity.sourceTiltScale * blendMultiplier(imprint.sourceTiltScale),
+      0.82,
+      1.2,
+    ),
+    presenceFrequencyScale: clamp(
+      identity.presenceFrequencyScale * blendMultiplier(imprint.presenceFrequencyScale),
+      0.94,
+      1.07,
+    ),
+    presenceGainScale: clamp(
+      identity.presenceGainScale * blendMultiplier(imprint.presenceGainScale),
+      0.82,
+      1.2,
+    ),
+    breathScale: clamp(
+      identity.breathScale * blendMultiplier(imprint.breathScale),
+      0.8,
+      1.24,
+    ),
+    radiationGainDb: clamp(
+      identity.radiationGainDb + imprint.radiationGainDb * mix,
+      -1.1,
+      1.2,
     ),
   };
 }

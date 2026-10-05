@@ -24,6 +24,7 @@ import {
   voiceIdentityConditioningFor,
   type VoiceIdentityConditioning,
 } from './VoiceConditioning';
+import type { VoiceIdentityImprint } from './VoiceImprint';
 
 export type VoiceRenderQuality = 'fast' | 'hq';
 
@@ -34,6 +35,8 @@ export interface VoiceSynthSettings {
   tone: number;
   /** -1 = shorter/brighter tract, +1 = longer/deeper tract. */
   tractLength?: number;
+  /** Optional local spectral imprint extracted from an authorized reference clip. */
+  identityImprint?: VoiceIdentityImprint | null;
   rate: number;
   pitch: number;
   energy: number;
@@ -1585,7 +1588,19 @@ export class VoiceSynth {
   private conditioningFor(settings: VoiceSynthSettings): VoiceIdentityConditioning {
     const tone = clamp(settings.tone, -1, 1);
     const tractLength = clamp(settings.tractLength ?? 0, -1, 1);
-    const key = `${settings.character}:${tone.toFixed(4)}:${tractLength.toFixed(4)}`;
+    const imprint = settings.identityImprint ?? null;
+    const imprintKey = imprint
+      ? [
+          imprint.confidence.toFixed(3),
+          ...imprint.formantGain.map((value) => value.toFixed(3)),
+          imprint.sourceTiltScale.toFixed(3),
+          imprint.presenceFrequencyScale.toFixed(3),
+          imprint.presenceGainScale.toFixed(3),
+          imprint.breathScale.toFixed(3),
+          imprint.radiationGainDb.toFixed(3),
+        ].join(':')
+      : 'none';
+    const key = `${settings.character}:${tone.toFixed(4)}:${tractLength.toFixed(4)}:${imprintKey}`;
     if (this.identityConditioning && key === this.identityConditioningKey) {
       return this.identityConditioning;
     }
@@ -1594,6 +1609,7 @@ export class VoiceSynth {
       settings.character,
       tone,
       tractLength,
+      imprint,
     );
     return this.identityConditioning;
   }

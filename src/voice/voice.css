@@ -983,3 +983,43 @@
     max-width: 70px;
   }
 }
+
+
+.voice-imprint {
+  display: grid;
+  gap: 6px;
+  margin-top: 2px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(126, 202, 255, .08);
+}
+
+.voice-imprint-actions {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px;
+}
+
+.voice-imprint-actions button {
+  appearance: none;
+  min-height: 30px;
+  border: 1px solid rgba(126, 204, 255, .18);
+  border-radius: 7px;
+  background: rgba(10, 18, 31, .78);
+  color: rgba(229, 244, 255, .78);
+  font: 800 8px/1 system-ui, sans-serif;
+  letter-spacing: .055em;
+  touch-action: manipulation;
+}
+
+.voice-imprint-actions button:first-of-type {
+  border-color: rgba(125, 210, 255, .34);
+  color: #b9e6ff;
+}
+
+.voice-imprint-actions button:disabled { opacity: .34; }
+
+#voice-imprint-status {
+  color: rgba(215, 235, 250, .44);
+  font: 650 7.5px/1.35 system-ui, sans-serif;
+  letter-spacing: .02em;
+}

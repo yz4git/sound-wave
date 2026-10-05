@@ -770,3 +770,18 @@ The next adopted idea is the separation between a stable reference/speaker condi
 - Formant energy, source tilt, breath, and upper-presence receive conservative identity corrections while pitch, timing, articulation, aspiration, phrase finality, and local expression remain in the delivery layer.
 - The target is perceptual continuity: changing expression should sound more like the same speaker changing delivery and less like switching synthetic characters.
 - This remains local deterministic DSP. It does not ingest a person's recording, create a neural speaker embedding, or claim voice cloning.
+
+
+### 39. Local Voice Imprint: reference-derived DSP identity without cloning
+
+VOICE LAB can now analyze an authorized reference recording locally and derive a compact speaker-tendency vector without uploading or persisting the source audio.
+
+- The browser decodes the selected audio locally and downmixes it to mono. Up to 20 seconds are analyzed; 3–10 seconds of clear single-speaker speech remains the recommended input.
+- A small frame sampler estimates median F0 with normalized autocorrelation and calculates coarse five-band spectral energy using Goertzel analysis. High-band spectral flatness estimates breath/noise tendency, while upper-band centroid/energy estimate presence placement and strength.
+- The resulting `VoiceIdentityImprint` contains only bounded numeric controls: five spectral gains, source tilt, presence center/gain, breath baseline, radiation bias, reference F0, confidence, and analyzed duration.
+- The original audio bytes are not written to localStorage. Only the compact numeric imprint is persisted.
+- Imprint controls are blended conservatively into the selected NATURAL / SOFT / CLEAR / AIRY / POWER identity according to analysis confidence. Character controls remain authoritative rather than being replaced by the recording.
+- A sufficiently confident reference also initializes the PITCH control from its median F0; the user can freely edit pitch afterward.
+- Delivery/expression remains separate. CALM / EXCITED / SERIOUS / WHISPER / NARRATION therefore operate on top of the same imported identity tendency instead of rewriting it.
+
+This is intentionally not neural voice cloning, speaker embedding inference, or impersonation. It is a low-dimensional DSP matching aid designed for privacy, offline use, predictable mobile cost, and editable synthesis.
