@@ -5,7 +5,12 @@ import {
   runVoicePlanQualitySuite,
   type VoiceQualityCase,
 } from '../src/voice/VoiceQualityBenchmark';
-import type { VoiceSynthSettings } from '../src/voice/VoiceSynth';
+import {
+  speechBoundaryPauseForStrategy,
+  speechUtteranceStrategyFor,
+  type VoiceSynthSettings,
+} from '../src/voice/VoiceSynth';
+import { parseVoiceScript } from '../src/voice/VoiceScript';
 
 const SETTINGS: VoiceSynthSettings = {
   quality: 'hq',
@@ -57,6 +62,19 @@ describe('Voice Lab quality benchmark suite', () => {
 
     expect(multi.kind).toBe('multi-sentence');
     expect(multi.samplingGrid).toBe('linear');
+  });
+
+  it('shortens only the terminal silence of short utterances', () => {
+    const script = parseVoiceScript('いいね。');
+    const strategy = speechUtteranceStrategyFor(script);
+    const finalUnit = script.units[script.units.length - 1]!;
+    const adaptive = speechBoundaryPauseForStrategy(finalUnit, 1, strategy, true);
+    const nonFinal = speechBoundaryPauseForStrategy(finalUnit, 1, strategy, false);
+
+    expect(strategy.kind).toBe('short');
+    expect(adaptive).toBeLessThan(nonFinal);
+    expect(adaptive).toBeLessThanOrEqual(0.28);
+    expect(finalUnit.sentenceTerminal).toBe('statement');
   });
 
   it('keeps repair timing conversational rather than stacking long pauses', () => {
