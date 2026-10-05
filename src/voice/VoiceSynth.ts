@@ -628,6 +628,85 @@ export function speechVocalTractProfileFor(
   };
 }
 
+export type VoiceUtteranceKind = 'short' | 'normal' | 'long-single' | 'multi-sentence';
+export type VoiceHQSamplingGrid = 'linear' | 'front-loaded';
+
+export interface SpeechUtteranceStrategy {
+  kind: VoiceUtteranceKind;
+  samplingGrid: VoiceHQSamplingGrid;
+  refinementSteps: readonly [number, number, number, number];
+  residualScale: number;
+  residualSmoothingScale: number;
+  closureSmoothingScale: number;
+  coarticulationScale: number;
+  phonationVariationScale: number;
+  finalMicrostructureScale: number;
+}
+
+export function speechUtteranceStrategyFor(
+  script: VoiceScript,
+  predictedDuration?: number,
+): SpeechUtteranceStrategy {
+  const units = script.units.length;
+  const sentenceBoundaries = script.units.filter((unit) => unit.boundaryAfter === 'sentence').length;
+  const longByDuration = (predictedDuration ?? units * 0.165) >= 9.5;
+  const longSingle = sentenceBoundaries <= 1 && (units >= 54 || longByDuration);
+
+  if (units <= 8) {
+    return {
+      kind: 'short',
+      samplingGrid: 'linear',
+      refinementSteps: [0.25, 0.25, 0.25, 0.25],
+      residualScale: 0.9,
+      residualSmoothingScale: 0.82,
+      closureSmoothingScale: 0.88,
+      coarticulationScale: 0.96,
+      phonationVariationScale: 0.86,
+      finalMicrostructureScale: 0.72,
+    };
+  }
+
+  if (longSingle) {
+    return {
+      kind: 'long-single',
+      samplingGrid: 'front-loaded',
+      refinementSteps: [0.125, 0.125, 0.25, 0.5],
+      residualScale: 1.03,
+      residualSmoothingScale: 1.22,
+      closureSmoothingScale: 1.08,
+      coarticulationScale: 1.05,
+      phonationVariationScale: 0.9,
+      finalMicrostructureScale: 0.88,
+    };
+  }
+
+  if (sentenceBoundaries > 1) {
+    return {
+      kind: 'multi-sentence',
+      samplingGrid: 'linear',
+      refinementSteps: [0.25, 0.25, 0.25, 0.25],
+      residualScale: 0.98,
+      residualSmoothingScale: 1.06,
+      closureSmoothingScale: 1,
+      coarticulationScale: 1,
+      phonationVariationScale: 0.96,
+      finalMicrostructureScale: 0.92,
+    };
+  }
+
+  return {
+    kind: 'normal',
+    samplingGrid: 'linear',
+    refinementSteps: [0.25, 0.25, 0.25, 0.25],
+    residualScale: 1,
+    residualSmoothingScale: 1,
+    closureSmoothingScale: 1,
+    coarticulationScale: 1,
+    phonationVariationScale: 1,
+    finalMicrostructureScale: 1,
+  };
+}
+
 export interface SpeechQualityProfile {
   sourceOversample: 1 | 2;
   residualAmount: number;
@@ -641,6 +720,7 @@ export interface SpeechQualityProfile {
 export function speechQualityProfileFor(
   quality: VoiceRenderQuality | undefined,
   frame: VoiceSpeechControlFrame,
+  strategy?: SpeechUtteranceStrategy,
 ): SpeechQualityProfile {
   if (quality === 'fast') {
     return {
@@ -664,26 +744,40 @@ export function speechQualityProfileFor(
   const timbreBody = clamp(frame.timbre.bodyMix, 0.035, 0.19);
   const timbreBrightness = clamp(frame.timbre.upperFormantGain - 0.9, 0, 0.3);
 
+  const resolvedStrategy = strategy ?? {
+    kind: 'normal' as const,
+    samplingGrid: 'linear' as const,
+    refinementSteps: [0.25, 0.25, 0.25, 0.25] as const,
+    residualScale: 1,
+    residualSmoothingScale: 1,
+    closureSmoothingScale: 1,
+    coarticulationScale: 1,
+    phonationVariationScale: 1,
+    finalMicrostructureScale: 1,
+  };
   return {
     sourceOversample: 2,
-    residualAmount: 0.145,
+    residualAmount: 0.145 * resolvedStrategy.residualScale,
     residualBody: clamp(
-      0.038 + openJaw * 0.026 + round * 0.02 + timbreBody * 0.12 - noisy * 0.055,
-      0.025,
-      0.09,
+      (0.038 + openJaw * 0.026 + round * 0.02 + timbreBody * 0.12 - noisy * 0.055)
+        * resolvedStrategy.residualScale,
+      0.022,
+      0.095,
     ),
     residualPresence: clamp(
-      0.038 + front * 0.02 + high * 0.012 + noisy * 0.045 + timbreBrightness * 0.045,
-      0.038,
-      0.09,
+      (0.038 + front * 0.02 + high * 0.012 + noisy * 0.045 + timbreBrightness * 0.045)
+        * resolvedStrategy.residualScale,
+      0.035,
+      0.095,
     ),
     residualAir: clamp(
-      -0.014 + noisy * 0.16 - round * 0.012 + timbreBrightness * 0.018,
-      -0.022,
-      0.042,
+      (-0.014 + noisy * 0.16 - round * 0.012 + timbreBrightness * 0.018)
+        * resolvedStrategy.residualScale,
+      -0.024,
+      0.045,
     ),
-    residualSmoothingMs: 14,
-    closureSmoothingMs: 0.42,
+    residualSmoothingMs: 14 * resolvedStrategy.residualSmoothingScale,
+    closureSmoothingMs: 0.42 * resolvedStrategy.closureSmoothingScale,
   };
 }
 
@@ -1677,6 +1771,7 @@ export class VoiceSynth {
 
     this.worklet.clear();
     const plan = this.plan(script, settings, prosodyInput);
+    const utteranceStrategy = speechUtteranceStrategyFor(script, plan.duration);
     const startAt = this.context.currentTime + 0.055;
     const takeIndex = this.takeIndex++;
     let previousPitchMidi: number | null = null;
@@ -1697,11 +1792,18 @@ export class VoiceSynth {
       const speechSource = speechSourceProfileFor(timed.expression);
       const speechPresence = speechPresenceProfileFor(unit, timed.expression);
       const consonantTransient = speechConsonantTransientProfileFor(unit);
-      const phonationMicrostructure = speechPhonationMicrostructureFor(
+      const rawPhonationMicrostructure = speechPhonationMicrostructureFor(
         unit,
         settings.quality,
         timed.expression,
       );
+      const phonationMicrostructure = {
+        cycleVariation: rawPhonationMicrostructure.cycleVariation
+          * utteranceStrategy.phonationVariationScale,
+        subharmonicMix: rawPhonationMicrostructure.subharmonicMix
+          * utteranceStrategy.finalMicrostructureScale,
+        sourceTractCoupling: rawPhonationMicrostructure.sourceTractCoupling,
+      };
       const controlFrame = voiceSpeechControlFrameFor(
         unit,
         index,
@@ -1711,7 +1813,11 @@ export class VoiceSynth {
         settings,
         timed.expression,
       );
-      const speechQuality = speechQualityProfileFor(settings.quality, controlFrame);
+      const speechQuality = speechQualityProfileFor(
+        settings.quality,
+        controlFrame,
+        utteranceStrategy,
+      );
       const speechTimbre = controlFrame.timbre;
       const articulatoryState = controlFrame.articulation;
       const articulatoryFilter = speechArticulatoryFilterFor(articulatoryState);
@@ -1826,8 +1932,16 @@ export class VoiceSynth {
         speechPresenceBoost: speechPresence.harmonicPresence,
         speechAirPresence: speechPresence.airPresence,
         speechFricativeGain: speechPresence.fricativeGain,
-        speechFormantCarry: speechSource.formantCarry,
-        speechVowelTransitionScale: speechSource.vowelTransitionScale,
+        speechFormantCarry: clamp(
+          speechSource.formantCarry * utteranceStrategy.coarticulationScale,
+          0.82,
+          0.97,
+        ),
+        speechVowelTransitionScale: clamp(
+          speechSource.vowelTransitionScale * utteranceStrategy.coarticulationScale,
+          0.88,
+          1.42,
+        ),
         speechCVOverlap: speechSource.cvOverlap,
         speechGlottalDriftCents: speechSource.glottalDriftCents,
         speechGlottalJitterCents: speechSource.glottalJitterCents,
