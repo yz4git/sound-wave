@@ -262,7 +262,7 @@ export class VoiceMode {
             <button type="button" data-voice-quality="fast">FAST DSP</button>
             <button type="button" data-voice-quality="hq">HQ REFINE</button>
           </div>
-          <p class="voice-engine-note">HQ · 2× glottal source + mora-aware body / presence / air residual · no model download</p>
+          <p class="voice-engine-note">HQ · adaptive SHORT / NORMAL / LONG·4STEP / MULTI strategy · 2× source + mora-aware residual · no model download</p>
           <div class="voice-japanese-tools">
             <button type="button" id="voice-analyze-japanese">JAPANESE G2P</button>
             <span id="voice-japanese-status">Open JTalk reading + pitch accent · kanji / おう / えい · first use ~24MB dictionary</span>
@@ -1808,12 +1808,21 @@ export class VoiceMode {
           ? 'SCHEDULING · HQ REFINE'
           : 'SCHEDULING · FAST DSP',
       );
-      const plan = await this.synth.play(script, this.settings, this.getProsodyEdits(script, localExpressions));
+      const plan = await this.synth.play(
+        script,
+        this.settings,
+        this.getProsodyEdits(script, localExpressions),
+      );
+      const strategyLabel = plan.strategy.kind === 'long-single'
+        ? 'LONG·4STEP'
+        : plan.strategy.kind === 'multi-sentence'
+          ? 'MULTI'
+          : plan.strategy.kind.toUpperCase();
       this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
       this.setStatus(
         quickKanaWhileLoading
           ? `SPEAKING · QUICK KANA · ${script.units.length} UNITS · G2P PREPARING`
-          : `SPEAKING · ${this.settings.quality === 'hq' ? 'HQ' : 'FAST'} · ${script.units.length} UNITS · ${plan.duration.toFixed(1)}s`,
+          : `SPEAKING · ${this.settings.quality === 'hq' ? 'HQ' : 'FAST'} · ${strategyLabel} · ${script.units.length} UNITS · ${plan.duration.toFixed(1)}s`,
       );
       for (const timed of plan.units.slice(0, 72)) {
         const timer = window.setTimeout(() => {
