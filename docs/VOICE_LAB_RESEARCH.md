@@ -758,3 +758,15 @@ The current browser architecture remains:
 `Open JTalk -> editable prosody -> adaptive utterance strategy -> mora control frame -> articulatory/timbre/H+N source-filter DSP -> optional HQ residual`
 
 A future native Core ML backend would be an additional engine, not a replacement for the instant no-download browser path.
+
+
+### 38. Separated speaker identity conditioning inspired by Irodori
+
+The next adopted idea is the separation between a stable reference/speaker condition and a changing delivery instruction. Sound Wave still does not perform neural reference-audio cloning; instead the procedural voice now has a compact deterministic identity vector.
+
+- `VoiceIdentityConditioning` stores a stable five-band spectral fingerprint, source tilt, presence placement/gain, breath baseline, and radiation bias for each voice character.
+- The vector is keyed by character, tone, and tract length and cached for the utterance.
+- Expression presets no longer modify the `VoiceCharacter` tone input itself. Calm, excited, serious, whisper, and narration become relative delivery deltas layered on top of the same character anchor.
+- Formant energy, source tilt, breath, and upper-presence receive conservative identity corrections while pitch, timing, articulation, aspiration, phrase finality, and local expression remain in the delivery layer.
+- The target is perceptual continuity: changing expression should sound more like the same speaker changing delivery and less like switching synthetic characters.
+- This remains local deterministic DSP. It does not ingest a person's recording, create a neural speaker embedding, or claim voice cloning.

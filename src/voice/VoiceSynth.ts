@@ -20,6 +20,10 @@ import {
   voiceExpressionForUnit,
   type VoiceExpressionSettings,
 } from './VoiceExpression';
+import {
+  voiceIdentityConditioningFor,
+  type VoiceIdentityConditioning,
+} from './VoiceConditioning';
 
 export type VoiceRenderQuality = 'fast' | 'hq';
 
@@ -1565,6 +1569,8 @@ export class VoiceSynth {
   private takeIndex = 0;
   private master: GainNode | null = null;
   private limiter: DynamicsCompressorNode | null = null;
+  private identityConditioningKey = '';
+  private identityConditioning: VoiceIdentityConditioning | null = null;
   private readonly worklet = new VocalWorkletBridge();
   private readonly wavCapture = new WavCapture();
 
@@ -1574,6 +1580,22 @@ export class VoiceSynth {
 
   get currentTime(): number {
     return this.context?.currentTime ?? 0;
+  }
+
+  private conditioningFor(settings: VoiceSynthSettings): VoiceIdentityConditioning {
+    const tone = clamp(settings.tone, -1, 1);
+    const tractLength = clamp(settings.tractLength ?? 0, -1, 1);
+    const key = `${settings.character}:${tone.toFixed(4)}:${tractLength.toFixed(4)}`;
+    if (this.identityConditioning && key === this.identityConditioningKey) {
+      return this.identityConditioning;
+    }
+    this.identityConditioningKey = key;
+    this.identityConditioning = voiceIdentityConditioningFor(
+      settings.character,
+      tone,
+      tractLength,
+    );
+    return this.identityConditioning;
   }
 
   async unlock(): Promise<void> {
@@ -1802,6 +1824,7 @@ export class VoiceSynth {
 
     this.worklet.clear();
     const plan = this.plan(script, settings, prosodyInput);
+    const identityConditioning = this.conditioningFor(settings);
     const utteranceStrategy = plan.strategy;
     const startAt = this.context.currentTime + 0.055;
     const takeIndex = this.takeIndex++;
@@ -1912,7 +1935,8 @@ export class VoiceSynth {
         index % 16,
         {
           preset: settings.character,
-          tone: clamp(settings.tone + expressionControl.toneOffset, -1, 1),
+          // Keep speaker identity fixed; expression remains a relative delivery delta.
+          tone: clamp(settings.tone, -1, 1),
         },
       );
 
@@ -1941,7 +1965,9 @@ export class VoiceSynth {
         doubleLevel: 0,
         onsetPitchCents: unit.phraseStart ? 1.8 : 0,
         breathLevel: clamp(
-          workletEvent.style.breathLevel * expressionControl.breathScale
+          workletEvent.style.breathLevel
+            * identityConditioning.breathScale
+            * expressionControl.breathScale
             + (unit.breathBefore > 0 ? 0.08 : 0)
             + attitude.breathAdd
             + (followsSigh ? 0.105 : followsLaugh ? 0.025 : 0),
@@ -1957,7 +1983,14 @@ export class VoiceSynth {
         releaseSeconds: workletEvent.style.releaseSeconds
           * (unit.phraseEnd ? finality.releaseScale * attitude.releaseScale : 0.88),
         speechSourceMix: speechSource.sourceMix,
-        speechSourceTilt: clamp(speechSource.sourceTilt * emphasisProfile.sourceTiltScale, 0.28, 0.82),
+        speechSourceTilt: clamp(
+          speechSource.sourceTilt
+            * identityConditioning.sourceTiltScale
+            * (1 - expressionControl.toneOffset * 0.12)
+            * emphasisProfile.sourceTiltScale,
+          0.28,
+          0.82,
+        ),
         speechCoarticulation: speechSource.coarticulation,
         speechPulseNoise: speechSource.pulseNoise,
         speechPresenceBoost: speechPresence.harmonicPresence,
@@ -2028,6 +2061,7 @@ export class VoiceSynth {
             * tract.bandwidthScale,
           gain: band.gain
             * (speechPresence.upperFormantGain[bandIndex] ?? 1)
+            * (identityConditioning.formantGain[bandIndex] ?? 1)
             * bodyScale,
         };
       });
@@ -2035,18 +2069,25 @@ export class VoiceSynth {
         ...workletEvent.style,
         presenceFrequency: clamp(
           workletEvent.style.presenceFrequency
+            * identityConditioning.presenceFrequencyScale
+            * (1 + expressionControl.toneOffset * 0.025)
             * speechPresence.presenceFrequencyScale
             * tract.frequencyScale,
           1700,
           4700,
         ),
         presenceGain: clamp(
-          workletEvent.style.presenceGain * speechPresence.presenceGainScale
-            + speechPresence.presenceGainAdd,
+          workletEvent.style.presenceGain
+            * identityConditioning.presenceGainScale
+            * speechPresence.presenceGainScale
+            + speechPresence.presenceGainAdd
+            + expressionControl.toneOffset * 0.008,
           0,
           0.18,
         ),
-        radiationGainDb: workletEvent.style.radiationGainDb + speechPresence.radiationGainDbAdd,
+        radiationGainDb: workletEvent.style.radiationGainDb
+          + identityConditioning.radiationGainDb
+          + speechPresence.radiationGainDbAdd,
       };
       workletEvent.phoneme = {
         ...workletEvent.phoneme,
@@ -2184,8 +2225,6 @@ export class VoiceSynth {
       previousPitchMidi = performancePitchMidi;
     });
 
-    const eventExpression = settings.expression ?? { preset: 'neutral', intensity: 1 };
-    const eventExpressionControl = voiceExpressionControl(eventExpression);
     plan.events.forEach((timedEvent, eventIndex) => {
       const profile = speechEventProfileFor(timedEvent.event.kind, timedEvent.event.strength);
       if (profile.pulseCount <= 0 || timedEvent.duration <= 0) return;
@@ -2236,7 +2275,7 @@ export class VoiceSynth {
           nonverbal.step % 16,
           {
             preset: settings.character,
-            tone: clamp(settings.tone + eventExpressionControl.toneOffset, -1, 1),
+            tone: clamp(settings.tone, -1, 1),
           },
         );
         eventWorklet.targetHz = midiToHz(pitchMidi);
