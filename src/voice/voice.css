@@ -1088,3 +1088,343 @@
   font: 650 7.5px/1.35 system-ui, sans-serif;
   letter-spacing: .02em;
 }
+
+
+/* iPhone portrait: one native scroller, touch-sized controls, no horizontal
+   overflow. This intentionally comes last so it wins over compact desktop
+   breakpoints and the legacy generic portrait block above. */
+@media (orientation: portrait) and (max-width: 560px) {
+  #voice-lab {
+    grid-template-rows: auto auto;
+    align-content: start;
+    gap: 8px;
+    overflow-x: clip;
+    overflow-y: scroll;
+    padding:
+      max(8px, env(safe-area-inset-top))
+      max(10px, env(safe-area-inset-right))
+      max(38px, calc(env(safe-area-inset-bottom) + 24px))
+      max(10px, env(safe-area-inset-left));
+  }
+
+  .voice-header {
+    width: 100%;
+    min-width: 0;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 8px;
+    padding: 2px 0 8px;
+  }
+
+  .voice-header > div:first-child {
+    min-width: 0;
+  }
+
+  .voice-header h1 {
+    font-size: clamp(25px, 7.2vw, 31px);
+    line-height: .96;
+  }
+
+  .voice-kicker {
+    font-size: 8px;
+  }
+
+  .voice-header p {
+    display: none;
+  }
+
+  .voice-transport {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 7px;
+  }
+
+  .voice-transport button,
+  .voice-export button,
+  .voice-engine button {
+    min-width: 0;
+    min-height: 44px;
+    padding: 0 10px;
+    font-size: 10px;
+  }
+
+  .voice-layout {
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 9px;
+  }
+
+  .voice-content-panel,
+  .voice-controls-panel {
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    overflow: visible;
+    touch-action: pan-y;
+    border-radius: 12px;
+    padding: 10px;
+  }
+
+  .voice-content-panel {
+    grid-template-rows: auto minmax(158px, auto) auto auto auto auto auto minmax(150px, auto);
+    gap: 8px;
+  }
+
+  #voice-text {
+    min-height: 158px;
+    resize: vertical;
+    padding: 12px;
+    font-size: 16px;
+    line-height: 1.55;
+  }
+
+  .voice-section-label {
+    gap: 5px;
+    font-size: 9px;
+  }
+
+  .voice-section-label em {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .voice-engine {
+    gap: 6px;
+  }
+
+  .voice-engine button,
+  .voice-japanese-tools button,
+  .voice-accent-header button,
+  .voice-accent-phrase button,
+  .voice-prosody-tools button,
+  .voice-expression-grid button,
+  .voice-imprint-actions button {
+    min-height: 40px;
+  }
+
+  .voice-local-delivery {
+    grid-template-columns: 1fr;
+    gap: 5px;
+  }
+
+  .voice-local-delivery > div,
+  .voice-accent-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .voice-local-delivery button {
+    min-height: 38px;
+    padding: 0 10px;
+  }
+
+  .voice-japanese-tools {
+    grid-template-columns: 1fr;
+    gap: 5px;
+  }
+
+  .voice-japanese-tools button {
+    width: 100%;
+  }
+
+  .voice-japanese-tools span {
+    white-space: normal;
+    line-height: 1.35;
+  }
+
+  .voice-accent-header {
+    align-items: start;
+    flex-wrap: wrap;
+  }
+
+  .voice-accent-reset-group {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .voice-accent-phrase {
+    max-width: calc(100vw - 42px);
+  }
+
+  .voice-accent-phrase button {
+    min-width: 36px;
+  }
+
+  .voice-phrase-controls,
+  .voice-phrase-presets {
+    flex-wrap: wrap;
+    max-width: none;
+  }
+
+  .voice-phrase-controls .voice-phrase-f0-drag {
+    min-width: 74px;
+  }
+
+  .voice-phrase-summary {
+    flex-basis: 100%;
+    text-align: left;
+    min-width: 0;
+  }
+
+  .voice-phrase-curve {
+    grid-template-columns: minmax(0, 1fr);
+    width: min(190px, 52vw);
+    gap: 3px;
+  }
+
+  .voice-phrase-curve svg {
+    width: 100%;
+    max-width: 190px;
+    height: 54px;
+  }
+
+  .voice-phrase-curve-value {
+    min-width: 0;
+    white-space: normal;
+  }
+
+  .voice-prosody-preview {
+    min-width: 0;
+    min-height: 150px;
+  }
+
+  .voice-prosody-tools {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "lanes lanes"
+      "page reset"
+      "hint hint";
+    justify-content: stretch;
+    gap: 6px;
+  }
+
+  .voice-prosody-lanes {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .voice-prosody-lanes button {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .voice-prosody-page {
+    justify-self: start;
+  }
+
+  .voice-prosody-tools > #voice-reset-prosody {
+    justify-self: end;
+  }
+
+  .voice-prosody-tools > #voice-prosody-hint {
+    min-width: 0;
+    white-space: normal;
+    line-height: 1.25;
+  }
+
+  .voice-contour {
+    min-height: 82px;
+  }
+
+  .voice-units {
+    min-height: 34px;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .voice-units::-webkit-scrollbar {
+    display: none;
+  }
+
+  .voice-units i {
+    height: 30px;
+    min-width: 28px;
+    font-size: 11px;
+  }
+
+  .voice-controls-panel {
+    gap: 12px;
+  }
+
+  .voice-control-group {
+    gap: 10px;
+  }
+
+  .voice-expression-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .voice-controls-panel label > span,
+  .voice-export span,
+  .voice-tech > span {
+    font-size: 9px;
+  }
+
+  .voice-controls-panel select {
+    min-height: 44px;
+    font-size: 13px;
+  }
+
+  .voice-controls-panel input[type="range"] {
+    min-height: 36px;
+  }
+
+  .voice-export {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+  }
+
+  .voice-export button {
+    width: 100%;
+  }
+
+  .voice-imprint-actions {
+    grid-template-columns: minmax(0, 1fr) minmax(0, .65fr);
+  }
+
+  .voice-tech > div {
+    grid-template-columns: 26px minmax(0, 1fr);
+    min-height: 34px;
+  }
+
+  .voice-tech em {
+    grid-column: 2;
+    text-align: left;
+  }
+}
+
+@media (orientation: portrait) and (max-width: 390px) {
+  #voice-lab {
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .voice-content-panel,
+  .voice-controls-panel {
+    padding: 8px;
+  }
+
+  .voice-header h1 {
+    font-size: 25px;
+  }
+
+  .voice-expression-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .voice-imprint-actions {
+    grid-template-columns: 1fr;
+  }
+}
