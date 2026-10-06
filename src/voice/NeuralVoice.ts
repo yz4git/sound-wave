@@ -176,7 +176,7 @@ export class BrowserNeuralVoice {
       ? Math.max(8_000, Math.min(96_000, rendered.sampling_rate))
       : 24_000;
     const buffer = context.createBuffer(1, rendered.audio.length, sampleRate);
-    buffer.copyToChannel(rendered.audio, 0);
+    buffer.getChannelData(0).set(rendered.audio);
 
     const source = context.createBufferSource();
     const gain = context.createGain();
