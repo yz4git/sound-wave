@@ -1135,39 +1135,49 @@ export function speechPresenceProfileFor(
 ): SpeechPresenceProfile {
   const intensity = clamp(expression.intensity, 0, 1.35);
   const brightPreset = expression.preset === 'excited'
-    ? 1 + 0.12 * intensity
+    ? 1 + 0.085 * intensity
     : expression.preset === 'serious'
-      ? 1 + 0.06 * intensity
+      ? 1 + 0.045 * intensity
       : expression.preset === 'whisper'
-        ? 0.9
+        ? 0.92
         : expression.preset === 'calm'
-          ? 0.94
+          ? 0.96
           : 1;
   const consonant = unit.syllable.toLowerCase();
-  const fricative = /^(s|sh|z|j|ts|ch|f|h)/.test(consonant);
+  const sibilant = /^(s|sh|z|j)/.test(consonant);
+  const affricate = /^(ts|ch)/.test(consonant);
+  const breathyFricative = /^(f|h)/.test(consonant);
+  const fricative = sibilant || affricate || breathyFricative;
 
-  const airy = expression.preset === 'whisper' ? 1.45 : expression.preset === 'calm' ? 0.82 : 1;
+  const airy = expression.preset === 'whisper' ? 1.42 : expression.preset === 'calm' ? 0.82 : 1;
+  const consonantNoiseBase = sibilant ? 1.3 : affricate ? 1.23 : breathyFricative ? 1.14 : 1.08;
+  const fricationBase = sibilant ? 1.06 : affricate ? 0.96 : breathyFricative ? 1.08 : 1;
+  const airBase = sibilant ? 0.078 : affricate ? 0.052 : breathyFricative ? 0.068 : 0.01;
+  const fricativeGainBase = sibilant ? 1.4 : affricate ? 1.32 : breathyFricative ? 1.24 : 1.08;
   return {
+    // The earlier profile boosted F3–F5 very aggressively. Keeping the vowel
+    // body closer to unity sounds less "radio EQ" and closer to system TTS,
+    // while consonant-specific envelopes retain intelligibility.
     upperFormantGain: [
-      1,
-      1.1,
-      1.42 * brightPreset,
-      1.6 * brightPreset,
-      1.48 * brightPreset,
+      1.02,
+      1.07,
+      1.25 * brightPreset,
+      1.36 * brightPreset,
+      1.24 * brightPreset,
     ],
-    presenceGainScale: 1.48 * brightPreset,
+    presenceGainScale: 1.27 * brightPreset,
     presenceGainAdd: expression.preset === 'whisper'
-      ? 0.046
+      ? 0.038
       : expression.preset === 'calm'
-        ? 0.052
-        : 0.074 * brightPreset,
-    presenceFrequencyScale: expression.preset === 'calm' ? 1.015 : 1.07,
-    radiationGainDbAdd: expression.preset === 'whisper' ? 1.35 : 2.25 * brightPreset,
-    consonantNoiseScale: fricative ? 1.58 * brightPreset : 1.16,
-    fricationScale: fricative ? 1.2 : 1.045,
-    harmonicPresence: clamp(0.15 * brightPreset, 0.09, 0.21),
-    airPresence: clamp((fricative ? 0.12 : 0.012) * airy * brightPreset, 0.008, 0.155),
-    fricativeGain: clamp((fricative ? 1.78 : 1.12) * brightPreset, 1, 1.96),
+        ? 0.041
+        : 0.052 * brightPreset,
+    presenceFrequencyScale: expression.preset === 'calm' ? 1.008 : 1.035,
+    radiationGainDbAdd: expression.preset === 'whisper' ? 0.95 : 1.35 * brightPreset,
+    consonantNoiseScale: consonantNoiseBase * brightPreset,
+    fricationScale: fricationBase,
+    harmonicPresence: clamp(0.112 * brightPreset, 0.075, 0.155),
+    airPresence: clamp((fricative ? airBase : 0.01) * airy * brightPreset, 0.006, 0.105),
+    fricativeGain: clamp(fricativeGainBase * brightPreset, 1, 1.62),
   };
 }
 
@@ -1518,38 +1528,38 @@ export function speechFinalityProfileFor(
           }
         : intonation === 'fall'
         ? {
-            creak: 0.3,
-            breath: 0.065,
-            pitchSemitones: -0.1,
-            durationScale: 1.08,
-            energyScale: 0.93,
-            releaseScale: 1.12,
-            fallCents: 7,
+            creak: 0.2,
+            breath: 0.055,
+            pitchSemitones: -0.085,
+            durationScale: 1.065,
+            energyScale: 0.94,
+            releaseScale: 1.09,
+            fallCents: 5.5,
           }
         : intonation === 'flat'
           ? {
-              creak: 0.14,
-              breath: 0.065,
-              pitchSemitones: -0.02,
-              durationScale: 1.03,
-              energyScale: 0.97,
-              releaseScale: 1.06,
-              fallCents: 2,
+              creak: 0.085,
+              breath: 0.05,
+              pitchSemitones: -0.015,
+              durationScale: 1.025,
+              energyScale: 0.975,
+              releaseScale: 1.045,
+              fallCents: 1.5,
             }
           : {
-              creak: 0.24,
-              breath: 0.08,
-              pitchSemitones: -0.04,
-              durationScale: 1.06,
-              energyScale: 0.95,
-              releaseScale: 1.1,
-              fallCents: 5,
+              creak: 0.145,
+              breath: 0.058,
+              pitchSemitones: -0.035,
+              durationScale: 1.045,
+              energyScale: 0.965,
+              releaseScale: 1.075,
+              fallCents: 3.8,
             };
 
   const delta = expression.preset === 'serious'
     ? {
-        creak: 0.12,
-        breath: -0.035,
+        creak: 0.07,
+        breath: -0.028,
         pitchSemitones: -0.08,
         durationScale: 0.02,
         energyScale: 0.01,

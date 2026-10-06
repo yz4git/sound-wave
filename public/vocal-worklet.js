@@ -683,8 +683,12 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       const start = Math.max(closureEnd, burstEnd - p.burstSeconds * 0.25);
       const span = Math.max(0.001, fricationEnd - start);
       const position = clamp01((elapsed - start) / span);
-      const frictionEnvelope = Math.sin(Math.PI * position) ** 0.7;
-      const consonantFade = 1 - voiceRamp * cvOverlap * 0.42;
+      // Fast onset, earlier decay: avoids the long synthetic "ssss" tail
+      // while preserving the perceptual consonant cue.
+      const frictionAttack = smoothstep(position / 0.16);
+      const frictionDecay = 1 - smoothstep((position - 0.5) / 0.5);
+      const frictionEnvelope = frictionAttack * Math.max(0, frictionDecay) ** 0.72;
+      const consonantFade = 1 - voiceRamp * cvOverlap * 0.38;
       consonantNoise += shapedNoise
         * p.noiseMix
         * frictionEnvelope
@@ -1229,7 +1233,9 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     // survive the final mix even on vowel-heavy phrases.
     const speechBrightnessGain = Math.max(
       0,
-      Math.min(0.42, (style.speechPresenceBoost || 0) * 2.35),
+      // Preserve articulation without turning the whole voice into a bright
+      // shelf. Consonant-specific noise now carries more of the intelligibility.
+      Math.min(0.34, (style.speechPresenceBoost || 0) * 2.1),
     );
     if (speechBrightnessGain > 0) {
       this.speechBrightnessLowState += (sample - this.speechBrightnessLowState) * 0.19;

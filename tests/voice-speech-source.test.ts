@@ -139,15 +139,19 @@ describe('VOICE LAB speech source', () => {
     const neutral = speechPresenceProfileFor(unit, { preset: 'neutral', intensity: 1 });
     const excited = speechPresenceProfileFor(unit, { preset: 'excited', intensity: 1 });
 
-    expect(neutral.upperFormantGain[0]).toBe(1);
-    expect(neutral.upperFormantGain[2]).toBeGreaterThan(1.35);
+    expect(neutral.upperFormantGain[0]).toBeGreaterThan(1);
+    expect(neutral.upperFormantGain[2]).toBeGreaterThan(1.2);
     expect(neutral.upperFormantGain[3]).toBeGreaterThan(neutral.upperFormantGain[2]);
-    expect(neutral.presenceGainScale).toBeGreaterThan(1.4);
-    expect(neutral.presenceGainAdd).toBeGreaterThan(0.07);
-    expect(neutral.consonantNoiseScale).toBeGreaterThan(1.5);
-    expect(neutral.harmonicPresence).toBeGreaterThan(0.14);
-    expect(neutral.airPresence).toBeGreaterThan(0.1);
-    expect(neutral.fricativeGain).toBeGreaterThan(1.7);
+    expect(neutral.upperFormantGain[3]).toBeLessThan(1.45);
+    expect(neutral.presenceGainScale).toBeGreaterThan(1.2);
+    expect(neutral.presenceGainScale).toBeLessThan(1.35);
+    expect(neutral.presenceGainAdd).toBeGreaterThan(0.045);
+    expect(neutral.consonantNoiseScale).toBeGreaterThan(1.2);
+    expect(neutral.consonantNoiseScale).toBeLessThan(1.4);
+    expect(neutral.harmonicPresence).toBeGreaterThan(0.1);
+    expect(neutral.airPresence).toBeGreaterThan(0.06);
+    expect(neutral.fricativeGain).toBeGreaterThan(1.3);
+    expect(neutral.fricativeGain).toBeLessThan(1.5);
     expect(excited.presenceGainScale).toBeGreaterThan(neutral.presenceGainScale);
   });
 
@@ -158,6 +162,20 @@ describe('VOICE LAB speech source', () => {
     expect(vowel.airPresence).toBeLessThan(0.04);
     expect(fricative.airPresence).toBeGreaterThan(vowel.airPresence * 3);
     expect(fricative.fricativeGain).toBeGreaterThan(vowel.fricativeGain);
+  });
+
+  it('uses consonant-class clarity instead of one oversized fricative boost', () => {
+    const expression = { preset: 'neutral' as const, intensity: 1 };
+    const sibilant = speechPresenceProfileFor(parseVoiceScript('さ。').units[0]!, expression);
+    const affricate = speechPresenceProfileFor(parseVoiceScript('ち。').units[0]!, expression);
+    const breathy = speechPresenceProfileFor(parseVoiceScript('は。').units[0]!, expression);
+    const vowel = speechPresenceProfileFor(parseVoiceScript('あ。').units[0]!, expression);
+
+    expect(sibilant.consonantNoiseScale).toBeGreaterThan(affricate.consonantNoiseScale);
+    expect(affricate.consonantNoiseScale).toBeGreaterThan(breathy.consonantNoiseScale);
+    expect(sibilant.fricativeGain).toBeGreaterThan(affricate.fricativeGain);
+    expect(breathy.airPresence).toBeGreaterThan(vowel.airPresence);
+    expect(sibilant.fricativeGain).toBeLessThan(1.5);
   });
 
   it('uses speech-only tract carry, CV overlap, and glottal microvariation', () => {
@@ -357,7 +375,8 @@ describe('VOICE LAB speech source', () => {
     const excited = speechFinalityProfileFor({ preset: 'excited', intensity: 1 }, 'natural');
     const whisper = speechFinalityProfileFor({ preset: 'whisper', intensity: 1 }, 'natural');
 
-    expect(neutral.creak).toBeGreaterThan(0.1);
+    expect(neutral.creak).toBeGreaterThan(0.08);
+    expect(neutral.creak).toBeLessThan(0.18);
     expect(neutral.pitchSemitones).toBeLessThan(0);
     expect(question.creak).toBeLessThan(neutral.creak);
     expect(question.pitchSemitones).toBeGreaterThan(0);

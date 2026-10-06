@@ -2060,9 +2060,19 @@ export class VoiceMode {
 
     const generation = ++this.systemSpeechGeneration;
     const voices = window.speechSynthesis.getVoices();
-    const voice = voices.find((candidate) => candidate.lang.toLowerCase().startsWith('ja'))
-      ?? voices.find((candidate) => candidate.lang.toLowerCase().startsWith('en'))
-      ?? null;
+    const voiceScore = (candidate: SpeechSynthesisVoice): number => {
+      const lang = candidate.lang.toLowerCase();
+      const name = candidate.name.toLowerCase();
+      let score = lang === 'ja-jp' ? 100 : lang.startsWith('ja') ? 80 : lang.startsWith('en') ? 20 : 0;
+      if (candidate.localService) score += 12;
+      if (/premium|enhanced|siri/.test(name)) score += 16;
+      if (/compact/.test(name)) score -= 12;
+      if (candidate.default) score += 4;
+      return score;
+    };
+    const voice = [...voices]
+      .filter((candidate) => candidate.lang.toLowerCase().startsWith('ja') || candidate.lang.toLowerCase().startsWith('en'))
+      .sort((a, b) => voiceScore(b) - voiceScore(a))[0] ?? null;
     let segmentIndex = 0;
 
     const speakNext = (): void => {

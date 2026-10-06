@@ -819,3 +819,21 @@ VOICE LAB now applies the same long-form principle to its deterministic AudioWor
 - **Visible routing.** Playback status now reports the chunk count when more than one long-form chunk is active.
 
 This differs from Irodori's neural PCM streaming implementation: Sound Wave still pre-schedules its lightweight DSP events. The adopted idea is the stable long-form boundary and state-management model—natural text chunks, one persistent voice identity, one continuous playback path.
+
+
+### 42. System-TTS parity pass: reduce spectral hype, improve consonant timing
+
+A parity review against the SYSTEM TTS path highlighted a structural difference: the procedural engine had been obtaining intelligibility partly through large broadband/presence boosts (especially F3–F5 and sibilant noise), while system voices tend to keep a fuller vowel body and make consonants readable through better class-specific timing and spectral shape.
+
+The browser environment used for repository work cannot capture and audition the user's iPhone system voice directly, so this pass does not claim a literal iPhone recording ABX test. The comparison is grounded in the app's two synthesis paths, the deterministic DSP parameters, and regression metrics; the UI still exposes SYSTEM TTS for direct device-side A/B listening.
+
+Changes:
+- F3–F5 speech-only boost was reduced substantially, preserving F1/F2 body.
+- The global post-tract high shelf is capped lower.
+- Sibilants, affricates, and /f h/ now have separate noise/frication/air profiles instead of one generic "fricative" multiplier.
+- Frication now uses a fast attack and earlier decay to avoid a long synthetic hiss tail.
+- Neutral/falling sentence-final creak and breath were reduced; serious delivery retains extra closure but no longer over-creaks.
+- SYSTEM TTS voice selection now prefers exact ja-JP, local voices, and premium/enhanced/Siri-labelled voices where the browser exposes them, while de-prioritizing compact voices.
+- Tests now enforce bounded sibilant brightness and class ordering instead of requiring the previous oversized high-frequency boost.
+
+The target is not to imitate a proprietary system voice. It is to close the perceptual gap in the categories where the procedural path was objectively overemphasized: high-frequency spectral tilt, fricative persistence, and terminal phonation.
