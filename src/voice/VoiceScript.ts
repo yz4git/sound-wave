@@ -989,20 +989,20 @@ function accentPhraseOffset(unit: VoiceUnit): number {
     if (unit.pitchAccent === 'high') {
       // A lexical H plateau gently declines within the accent phrase instead
       // of losing most of its height to the sentence contour.
-      const plateau = 0.5 - Math.min(0.16, unit.accentIndex * 0.045);
+      const plateau = 0.66 - Math.min(0.18, unit.accentIndex * 0.045);
       return plateau - (unit.accentEnd ? 0.055 : 0);
     }
     // Initial L is a rise preparation; a later L is the post-nucleus drop.
     const low = unit.accentIndex === 0
-      ? -0.34
-      : -0.31 - Math.min(0.09, (unit.accentIndex - 1) * 0.025);
+      ? -0.46
+      : -0.38 - Math.min(0.1, (unit.accentIndex - 1) * 0.025);
     return low - (unit.accentEnd ? 0.035 : 0);
   }
   if (unit.accentCount <= 1) return 0;
-  if (unit.accentIndex === 0) return -0.42;
-  const decline = Math.max(0, unit.accentIndex - 1) * 0.075;
-  const crest = 0.54 - decline;
-  return crest - (unit.accentEnd ? 0.1 : 0);
+  if (unit.accentIndex === 0) return -0.78;
+  const decline = Math.max(0, unit.accentIndex - 1) * 0.09;
+  const crest = 1.04 - decline;
+  return crest - (unit.accentEnd ? 0.14 : 0);
 }
 
 function consonantMicroProsody(unit: VoiceUnit): number {
