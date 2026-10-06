@@ -999,9 +999,9 @@ function accentPhraseOffset(unit: VoiceUnit): number {
     return low - (unit.accentEnd ? 0.035 : 0);
   }
   if (unit.accentCount <= 1) return 0;
-  if (unit.accentIndex === 0) return -0.78;
+  if (unit.accentIndex === 0) return -0.82;
   const decline = Math.max(0, unit.accentIndex - 1) * 0.09;
-  const crest = 1.04 - decline;
+  const crest = 1.1 - decline;
   return crest - (unit.accentEnd ? 0.14 : 0);
 }
 
