@@ -8,6 +8,7 @@ import {
   speechEventProfileFor,
   speechEventTransitionFor,
   speechPitchTransitionScaleFor,
+  speechChunkContinuityProfileFor,
   type VoiceSynthSettings,
 } from '../src/voice/VoiceSynth';
 
@@ -597,6 +598,50 @@ describe('Voice Lab synthesis plan', () => {
 
     expect(editedGap).toBeCloseTo(0.25, 6);
     expect(editedGap).toBeGreaterThan(baseGap);
+  });
+
+  it('builds continuous sentence chunks without changing the playback timeline', () => {
+    const synth = new VoiceSynth();
+    const script = parseVoiceScript('あいう。えおか。きくけ。');
+    const plan = synth.plan(script, SETTINGS);
+
+    expect(plan.chunks).toHaveLength(3);
+    expect(plan.chunks.map((chunk) => chunk.sentenceIndex)).toEqual([0, 1, 2]);
+    expect(plan.chunks.every((chunk) => chunk.kind === 'sentence')).toBe(true);
+    expect(plan.chunks[1]!.start).toBeCloseTo(plan.units[3]!.start, 8);
+    expect(plan.chunks[0]!.gapAfter).toBeGreaterThan(0.2);
+  });
+
+  it('bisects an oversized single sentence near natural boundaries', () => {
+    const synth = new VoiceSynth();
+    const text = 'あいうえおかきくけこ、さしすせそたちつてと、なにぬねのはひふへほ、まみむめもやゆよらりるれろ、わをんあいうえおかきくけこ。';
+    const script = parseVoiceScript(text);
+    const plan = synth.plan(script, SETTINGS);
+
+    expect(plan.strategy.kind).toBe('long-single');
+    expect(plan.chunks.length).toBeGreaterThan(1);
+    expect(plan.chunks.every((chunk) => chunk.sentenceIndex === 0)).toBe(true);
+    expect(plan.chunks.some((chunk) => chunk.kind === 'long-fragment')).toBe(true);
+    expect(plan.chunks.slice(1).every((chunk) => chunk.continuationFromPrevious)).toBe(true);
+    expect(Math.max(...plan.chunks.map((chunk) => chunk.endUnit - chunk.startUnit + 1))).toBeLessThanOrEqual(36);
+  });
+
+  it('stabilizes processing chunk starts without resetting internal sentence continuity', () => {
+    const synth = new VoiceSynth();
+    const script = parseVoiceScript('あいうえおかきくけこ、さしすせそたちつてと、なにぬねのはひふへほ、まみむめもやゆよらりるれろ。');
+    const plan = synth.plan(script, SETTINGS);
+    expect(plan.chunks.length).toBeGreaterThan(1);
+
+    const internal = plan.chunks[1]!;
+    const internalProfile = speechChunkContinuityProfileFor(
+      internal,
+      internal.startUnit,
+      plan.chunks.length,
+    );
+    expect(internal.continuationFromPrevious).toBe(true);
+    expect(internalProfile.variationScale).toBeLessThan(1);
+    expect(internalProfile.formantCarryScale).toBeGreaterThan(1);
+    expect(internalProfile.residualSmoothingScale).toBeGreaterThan(1);
   });
 
   it('preserves longer sentence pauses than accent phrase pauses', () => {

@@ -111,11 +111,28 @@ export function voiceSpeechControlFrameFor(
   };
 }
 
+export type VoiceSynthesisChunkKind = 'sentence' | 'long-fragment';
+
+export interface VoiceSynthesisChunk {
+  index: number;
+  sentenceIndex: number;
+  startUnit: number;
+  endUnit: number;
+  start: number;
+  end: number;
+  duration: number;
+  gapAfter: number;
+  kind: VoiceSynthesisChunkKind;
+  /** True when this chunk is a processing split inside the same sentence. */
+  continuationFromPrevious: boolean;
+}
+
 export interface VoicePlaybackPlan {
   duration: number;
   units: VoiceTimedUnit[];
   events: VoiceTimedSpeechEvent[];
   strategy: SpeechUtteranceStrategy;
+  chunks: VoiceSynthesisChunk[];
 }
 
 export interface SpeechEventProfile {
@@ -712,6 +729,155 @@ export function speechUtteranceStrategyFor(
     coarticulationScale: 1,
     phonationVariationScale: 1,
     finalMicrostructureScale: 1,
+  };
+}
+
+interface VoiceChunkUnitRange {
+  sentenceIndex: number;
+  startUnit: number;
+  endUnit: number;
+  splitSentence: boolean;
+}
+
+function splitLongVoiceRange(
+  script: VoiceScript,
+  sentenceIndex: number,
+  startUnit: number,
+  endUnit: number,
+  output: VoiceChunkUnitRange[],
+): void {
+  const length = endUnit - startUnit + 1;
+  if (length <= 36) {
+    output.push({ sentenceIndex, startUnit, endUnit, splitSentence: false });
+    return;
+  }
+
+  const middle = (startUnit + endUnit) * 0.5;
+  const low = startUnit + 11;
+  const high = endUnit - 11;
+  let splitAfter = -1;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (let index = low; index <= high; index += 1) {
+    const unit = script.units[index];
+    if (!unit) continue;
+    const naturalBoundary = unit.boundaryAfter === 'accent'
+      || unit.breathAfter
+      || unit.continuationAfter !== 'none'
+      || unit.discourseAfter === 'list'
+      || unit.discourseAfter === 'subject';
+    if (!naturalBoundary) continue;
+    const distance = Math.abs(index - middle);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      splitAfter = index;
+    }
+  }
+
+  if (splitAfter < startUnit || splitAfter >= endUnit) {
+    splitAfter = Math.floor(middle);
+  }
+
+  const left: VoiceChunkUnitRange[] = [];
+  const right: VoiceChunkUnitRange[] = [];
+  splitLongVoiceRange(script, sentenceIndex, startUnit, splitAfter, left);
+  splitLongVoiceRange(script, sentenceIndex, splitAfter + 1, endUnit, right);
+  for (const range of [...left, ...right]) {
+    output.push({ ...range, splitSentence: true });
+  }
+}
+
+/**
+ * Irodori-style long-form routing for the deterministic browser engine.
+ * Sentences are processing chunks; oversized sentences are bisected near a
+ * natural accent/breath boundary. No audio node or speaker identity is reset.
+ */
+export function speechSynthesisChunksFor(
+  script: VoiceScript,
+  timedUnits: readonly VoiceTimedUnit[],
+): VoiceSynthesisChunk[] {
+  if (script.units.length === 0 || timedUnits.length === 0) return [];
+
+  const ranges: VoiceChunkUnitRange[] = [];
+  let sentenceStart = 0;
+  let sentenceIndex = 0;
+  for (let index = 0; index < script.units.length; index += 1) {
+    const isSentenceEnd = script.units[index]!.boundaryAfter === 'sentence'
+      || index === script.units.length - 1;
+    if (!isSentenceEnd) continue;
+    const sentenceRanges: VoiceChunkUnitRange[] = [];
+    splitLongVoiceRange(script, sentenceIndex, sentenceStart, index, sentenceRanges);
+    ranges.push(...sentenceRanges);
+    sentenceStart = index + 1;
+    sentenceIndex += 1;
+  }
+
+  const chunks = ranges.map((range, index): VoiceSynthesisChunk => {
+    const first = timedUnits[range.startUnit]!;
+    const last = timedUnits[range.endUnit]!;
+    const start = first.start;
+    const end = last.start + last.duration;
+    const previousUnit = script.units[range.startUnit - 1];
+    return {
+      index,
+      sentenceIndex: range.sentenceIndex,
+      startUnit: range.startUnit,
+      endUnit: range.endUnit,
+      start,
+      end,
+      duration: Math.max(0, end - start),
+      gapAfter: 0,
+      kind: range.splitSentence ? 'long-fragment' : 'sentence',
+      continuationFromPrevious: range.startUnit > 0
+        && previousUnit?.boundaryAfter !== 'sentence',
+    };
+  });
+
+  for (let index = 0; index < chunks.length - 1; index += 1) {
+    const current = chunks[index]!;
+    const next = chunks[index + 1]!;
+    current.gapAfter = Math.max(0, next.start - current.end);
+  }
+  return chunks;
+}
+
+export interface SpeechChunkContinuityProfile {
+  variationScale: number;
+  formantCarryScale: number;
+  transitionScale: number;
+  residualSmoothingScale: number;
+  phonationVariationScale: number;
+}
+
+export function speechChunkContinuityProfileFor(
+  chunk: VoiceSynthesisChunk | undefined,
+  unitIndex: number,
+  chunkCount: number,
+): SpeechChunkContinuityProfile {
+  if (!chunk || chunkCount <= 1) {
+    return {
+      variationScale: 1,
+      formantCarryScale: 1,
+      transitionScale: 1,
+      residualSmoothingScale: 1,
+      phonationVariationScale: 1,
+    };
+  }
+
+  const chunkStart = unitIndex === chunk.startUnit;
+  const internalStart = chunkStart && chunk.continuationFromPrevious;
+  const sentenceStart = chunkStart && !chunk.continuationFromPrevious && chunk.index > 0;
+
+  return {
+    // Keep microvariation, but prevent each processing chunk from sounding like
+    // a newly randomized speaker take.
+    variationScale: internalStart ? 0.56 : sentenceStart ? 0.66 : 0.86,
+    // Internal long-sentence splits retain tract motion; real sentence starts
+    // reset articulation more strongly while leaving identity untouched.
+    formantCarryScale: internalStart ? 1.055 : sentenceStart ? 0.91 : 1,
+    transitionScale: internalStart ? 1.06 : sentenceStart ? 0.95 : 1,
+    residualSmoothingScale: internalStart ? 1.1 : 1.045,
+    phonationVariationScale: 0.92,
   };
 }
 
@@ -1826,6 +1992,7 @@ export class VoiceSynth {
       units,
       events,
       strategy: speechUtteranceStrategyFor(script, duration),
+      chunks: speechSynthesisChunksFor(script, units),
     };
   }
 
@@ -1845,9 +2012,22 @@ export class VoiceSynth {
     const startAt = this.context.currentTime + 0.055;
     const takeIndex = this.takeIndex++;
     let previousPitchMidi: number | null = null;
+    const chunkForUnit: (VoiceSynthesisChunk | undefined)[] = new Array(plan.units.length);
+    for (const chunk of plan.chunks) {
+      for (let unitIndex = chunk.startUnit; unitIndex <= chunk.endUnit; unitIndex += 1) {
+        chunkForUnit[unitIndex] = chunk;
+      }
+    }
 
     plan.units.forEach((timed, index) => {
       const unit = timed.unit;
+      const chunk = chunkForUnit[index];
+      const chunkContinuity = speechChunkContinuityProfileFor(chunk, index, plan.chunks.length);
+      const startsNewSentenceChunk = chunk
+        && index === chunk.startUnit
+        && chunk.index > 0
+        && !chunk.continuationFromPrevious;
+      if (startsNewSentenceChunk) previousPitchMidi = null;
       const interruptionBefore = script.events.some((event) => (
         event.afterUnit === index - 1
         && (
@@ -1869,7 +2049,8 @@ export class VoiceSynth {
       );
       const phonationMicrostructure = {
         cycleVariation: rawPhonationMicrostructure.cycleVariation
-          * utteranceStrategy.phonationVariationScale,
+          * utteranceStrategy.phonationVariationScale
+          * chunkContinuity.phonationVariationScale,
         subharmonicMix: rawPhonationMicrostructure.subharmonicMix
           * utteranceStrategy.finalMicrostructureScale,
         sourceTractCoupling: rawPhonationMicrostructure.sourceTractCoupling,
@@ -1886,7 +2067,11 @@ export class VoiceSynth {
       const speechQuality = speechQualityProfileFor(
         settings.quality,
         controlFrame,
-        utteranceStrategy,
+        {
+          ...utteranceStrategy,
+          residualSmoothingScale: utteranceStrategy.residualSmoothingScale
+            * chunkContinuity.residualSmoothingScale,
+        },
       );
       const speechTimbre = controlFrame.timbre;
       const articulatoryState = controlFrame.articulation;
@@ -1919,10 +2104,20 @@ export class VoiceSynth {
       const resolvedIntonation = resolveVoiceIntonation(unit, settings.intonation);
       const finality = speechFinalityProfileFor(timed.expression, resolvedIntonation);
       const attitude = speechAttitudeProfileFor(unit);
-      const variation = speechTakeVariationFor(index, takeIndex);
+      const rawVariation = speechTakeVariationFor(index, takeIndex);
+      const variation = {
+        pitchCents: rawVariation.pitchCents * chunkContinuity.variationScale,
+        velocityScale: 1 + (rawVariation.velocityScale - 1) * chunkContinuity.variationScale,
+        attackScale: 1 + (rawVariation.attackScale - 1) * chunkContinuity.variationScale,
+        timingOffsetSeconds: rawVariation.timingOffsetSeconds * chunkContinuity.variationScale,
+      };
       const performancePitchMidi = timed.pitchMidi + variation.pitchCents / 100;
       const previousUnit = plan.units[index - 1]?.unit;
       const pitchTransitionScale = speechPitchTransitionScaleFor(unit, previousUnit);
+      const continuesDocument = unit.boundaryAfter === 'sentence'
+        && chunk !== undefined
+        && chunk.index < plan.chunks.length - 1;
+      const documentFinalityScale = continuesDocument ? 0.78 : 1;
       const roundedMidi = Math.round(timed.pitchMidi);
       const event: VocalEvent = {
         step: index,
@@ -1997,7 +2192,8 @@ export class VoiceSynth {
           * (followsSigh ? 1.08 : 1)
           * (unit.geminateBefore ? 0.78 : 1),
         releaseSeconds: workletEvent.style.releaseSeconds
-          * (unit.phraseEnd ? finality.releaseScale * attitude.releaseScale : 0.88),
+          * (unit.phraseEnd ? finality.releaseScale * attitude.releaseScale : 0.88)
+          * (continuesDocument ? 0.95 : 1),
         speechSourceMix: speechSource.sourceMix,
         speechSourceTilt: clamp(
           speechSource.sourceTilt
@@ -2013,14 +2209,18 @@ export class VoiceSynth {
         speechAirPresence: speechPresence.airPresence,
         speechFricativeGain: speechPresence.fricativeGain,
         speechFormantCarry: clamp(
-          speechSource.formantCarry * utteranceStrategy.coarticulationScale,
+          speechSource.formantCarry
+            * utteranceStrategy.coarticulationScale
+            * chunkContinuity.formantCarryScale,
           0.82,
-          0.97,
+          0.975,
         ),
         speechVowelTransitionScale: clamp(
-          speechSource.vowelTransitionScale * utteranceStrategy.coarticulationScale,
+          speechSource.vowelTransitionScale
+            * utteranceStrategy.coarticulationScale
+            * chunkContinuity.transitionScale,
           0.88,
-          1.42,
+          1.46,
         ),
         speechCVOverlap: speechSource.cvOverlap,
         speechGlottalDriftCents: speechSource.glottalDriftCents,
@@ -2044,9 +2244,11 @@ export class VoiceSynth {
         speechSubharmonicMix: phonationMicrostructure.subharmonicMix,
         speechSourceTractCoupling: phonationMicrostructure.sourceTractCoupling,
         speechPitchTransitionScale: pitchTransitionScale,
-        speechFinalCreak: unit.phraseEnd ? finality.creak : 0,
+        speechFinalCreak: unit.phraseEnd
+          ? finality.creak * documentFinalityScale
+          : 0,
         speechFinalBreath: unit.phraseEnd
-          ? finality.breath
+          ? finality.breath * documentFinalityScale
           : unit.breathAfter
             ? 0.09
             : unit.hesitationAfter

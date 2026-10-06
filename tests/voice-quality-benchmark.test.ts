@@ -6,6 +6,7 @@ import {
   type VoiceQualityCase,
 } from '../src/voice/VoiceQualityBenchmark';
 import {
+  VoiceSynth,
   speechBoundaryPauseForStrategy,
   speechUtteranceStrategyFor,
   type VoiceSynthSettings,
@@ -110,6 +111,18 @@ describe('Voice Lab quality benchmark suite', () => {
     // Both cases have the same mora count; the difference is sentence-final delivery.
     expect(questionLast).toBe(statementLast);
     expect(question.metrics.pitchRangeSemitones).toBeGreaterThan(statement.metrics.pitchRangeSemitones);
+  });
+
+  it('exposes sentence-aware chunks for long-form regression cases', () => {
+    const multiCase = VOICE_QUALITY_CASES.find((candidate) => candidate.id === 'multi-sentence')!;
+    const longCase = VOICE_QUALITY_CASES.find((candidate) => candidate.id === 'long-single')!;
+    const synth = new VoiceSynth();
+    const multiPlan = synth.plan(parseVoiceScript(multiCase.text), SETTINGS);
+    const longPlan = synth.plan(parseVoiceScript(longCase.text), SETTINGS);
+
+    expect(multiPlan.chunks.length).toBeGreaterThan(1);
+    expect(multiPlan.chunks.every((chunk) => !chunk.continuationFromPrevious)).toBe(true);
+    expect(longPlan.chunks.length).toBeGreaterThanOrEqual(1);
   });
 
   it('keeps long-single HQ stability more conservative than normal HQ', () => {

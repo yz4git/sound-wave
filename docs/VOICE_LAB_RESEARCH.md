@@ -800,3 +800,22 @@ A second pass over `irodori-tts-coreml` focused on the reference-registration pa
 - **Legacy compatibility.** Existing version-1 Imprints remain valid; the new quality block is optional when loading older saved settings.
 
 This preserves the same privacy boundary as the earlier Voice Imprint feature: there is no neural speaker embedding, no model fine-tuning, and no network upload. Irodori's registration design is used as an engineering pattern for normalization, caching, and input-quality control rather than as a claim of equivalent voice cloning.
+
+
+### 41. Continuous sentence chunks for long-form speech
+
+Irodori's streaming guidance treats completed sentences as the right unit for a conversational TTS queue: feed confirmed sentences in order, keep one engine alive, and keep the playback buffer continuous rather than tearing the engine/player down for every sentence. Its text path also bisects overlong model inputs near punctuation instead of silently truncating them.
+
+VOICE LAB now applies the same long-form principle to its deterministic AudioWorklet architecture.
+
+- **Sentence-aware processing chunks.** Multi-sentence scripts expose one processing chunk per sentence. This is metadata and stability routing only; playback is still scheduled into one persistent AudioWorklet.
+- **Natural bisection of oversized sentences.** A sentence above 36 mora units is recursively split near the midpoint, preferring accent boundaries, planned breaths, connective endings, and discourse-list/subject boundaries. If none is available, a balanced midpoint is used.
+- **No speaker reset.** All chunks share the same cached `VoiceIdentityConditioning`, Voice Imprint, character controls, output bus, and AudioWorklet state.
+- **Internal-fragment continuity.** A chunk created only because one sentence is long gets slightly stronger formant carry and vowel-transition smoothing at its entry. F0 is not reset there.
+- **Real sentence restart.** A new sentence clears the previous F0 glide state so it can begin cleanly, while retaining the same timbre/identity condition.
+- **Reduced per-chunk randomness.** Deterministic pitch/velocity/attack/timing microvariation is attenuated in long-form mode, especially at chunk starts, so each sentence does not sound like a separately randomized take.
+- **HQ stability by chunk.** Residual smoothing and phonation variation are made more conservative for long-form chunks without changing the user's mora-level PITCH / ENERGY / TIMING edits.
+- **Document continuity.** Sentence-final creak/breath is softened for non-final sentences in a document. The last sentence keeps the full requested finality.
+- **Visible routing.** Playback status now reports the chunk count when more than one long-form chunk is active.
+
+This differs from Irodori's neural PCM streaming implementation: Sound Wave still pre-schedules its lightweight DSP events. The adopted idea is the stable long-form boundary and state-management model—natural text chunks, one persistent voice identity, one continuous playback path.

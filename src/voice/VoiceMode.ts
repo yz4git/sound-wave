@@ -284,7 +284,7 @@ export class VoiceMode {
             <button type="button" data-voice-quality="fast">FAST DSP</button>
             <button type="button" data-voice-quality="hq">HQ REFINE</button>
           </div>
-          <p class="voice-engine-note">HQ · adaptive SHORT / NORMAL / LONG·4STEP / MULTI strategy · 2× source + mora-aware residual · no model download</p>
+          <p class="voice-engine-note">HQ · adaptive SHORT / NORMAL / LONG·4STEP / MULTI · continuous sentence chunks · 2× source + mora-aware residual</p>
           <div class="voice-japanese-tools">
             <button type="button" id="voice-analyze-japanese">JAPANESE G2P</button>
             <span id="voice-japanese-status">Open JTalk reading + pitch accent · kanji / おう / えい · first use ~24MB dictionary</span>
@@ -2000,7 +2000,7 @@ export class VoiceMode {
       this.setStatus(
         quickKanaWhileLoading
           ? `SPEAKING · QUICK KANA · ${script.units.length} UNITS · G2P PREPARING`
-          : `SPEAKING · ${this.settings.quality === 'hq' ? 'HQ' : 'FAST'} · ${strategyLabel} · ${script.units.length} UNITS · ${plan.duration.toFixed(1)}s`,
+          : `SPEAKING · ${this.settings.quality === 'hq' ? 'HQ' : 'FAST'} · ${strategyLabel}${plan.chunks.length > 1 ? ` · ${plan.chunks.length} CHUNKS` : ''} · ${script.units.length} UNITS · ${plan.duration.toFixed(1)}s`,
       );
       for (const timed of plan.units.slice(0, 72)) {
         const timer = window.setTimeout(() => {
