@@ -2455,6 +2455,10 @@ export class VoiceSynth {
       const resolvedIntonation = resolveVoiceIntonation(unit, settings.intonation);
       const finality = speechFinalityProfileFor(timed.expression, resolvedIntonation);
       const attitude = speechAttitudeProfileFor(unit);
+      const punctuationProsody = speechPunctuationProsodyFor(
+        unit.punctuationAfter,
+        unit.punctuationCount,
+      );
       const rawVariation = speechTakeVariationFor(index, takeIndex);
       const variation = {
         pitchCents: rawVariation.pitchCents * chunkContinuity.variationScale,
