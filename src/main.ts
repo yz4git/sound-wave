@@ -664,7 +664,13 @@ document.addEventListener('visibilitychange', () => {
     autoCompose.resumeAudio();
   }
 });
-document.addEventListener('touchmove', (event) => event.preventDefault(), { passive: false });
+document.addEventListener('touchmove', (event) => {
+  // Game modes intentionally suppress page panning, but VOICE LAB is a
+  // document-style editor and must keep native iPhone momentum scrolling.
+  const target = event.target;
+  if (target instanceof Element && target.closest('#voice-lab')) return;
+  event.preventDefault();
+}, { passive: false });
 
 function frame(now: number): void {
   const deltaMs = Math.min(100, Math.max(0, now - lastFrame));
