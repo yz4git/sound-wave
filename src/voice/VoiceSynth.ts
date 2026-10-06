@@ -988,6 +988,128 @@ export function speechHarmonicNoiseProfileFor(unit: VoiceUnit): SpeechHarmonicNo
   return { harmonicGain: 1, noiseGain: 1 };
 }
 
+export interface SpeechAperiodicityProfile {
+  amount: number;
+  low: number;
+  mid: number;
+  presence: number;
+  air: number;
+  lfBlend: number;
+  lfRd: number;
+}
+
+export function speechAperiodicityProfileFor(
+  unit: VoiceUnit,
+  quality: VoiceRenderQuality | undefined,
+  expression: VoiceExpressionSettings,
+): SpeechAperiodicityProfile {
+  if (quality === 'fast') {
+    return {
+      amount: 0,
+      low: 0,
+      mid: 0,
+      presence: 0,
+      air: 0,
+      lfBlend: 0,
+      lfRd: 1.4,
+    };
+  }
+
+  const consonant = consonantForSyllable(unit.syllable);
+  const sibilant = consonant === 's' || consonant === 'sh' || consonant === 'z' || consonant === 'j';
+  const affricate = consonant === 'ts' || consonant === 'ch';
+  const breathyFricative = consonant === 'f' || consonant === 'h';
+  const stop = consonant === 'k' || consonant === 't' || consonant === 'p'
+    || consonant === 'g' || consonant === 'd' || consonant === 'b';
+
+  let amount = 0.022;
+  let low = 0.58;
+  let mid = 0.46;
+  let presence = 0.24;
+  let air = 0.12;
+
+  if (sibilant) {
+    amount = 0.078;
+    low = 0.08;
+    mid = 0.28;
+    presence = 0.94;
+    air = 1;
+  } else if (affricate) {
+    amount = 0.064;
+    low = 0.14;
+    mid = 0.48;
+    presence = 0.88;
+    air = 0.78;
+  } else if (breathyFricative) {
+    amount = 0.057;
+    low = 0.22;
+    mid = 0.54;
+    presence = 0.62;
+    air = 0.84;
+  } else if (stop) {
+    amount = 0.032;
+    low = 0.34;
+    mid = 0.58;
+    presence = 0.42;
+    air = 0.2;
+  } else if (consonant === 'n' || consonant === 'm' || consonant === 'N') {
+    amount = 0.018;
+    low = 0.82;
+    mid = 0.38;
+    presence = 0.12;
+    air = 0.05;
+  }
+
+  if (unit.devoiced) {
+    amount = Math.max(amount, 0.105);
+    low = 0.12;
+    mid = 0.42;
+    presence = 0.9;
+    air = 1;
+  }
+
+  const intensity = clamp(expression.intensity, 0, 1.35);
+  const expressionScale = expression.preset === 'whisper'
+    ? 1.9
+    : expression.preset === 'calm'
+      ? 0.84
+      : expression.preset === 'excited'
+        ? 1.08
+        : 1;
+  amount = clamp(amount * (1 + (expressionScale - 1) * intensity), 0.012, 0.16);
+
+  const lfRd = expression.preset === 'whisper'
+    ? 2.15
+    : expression.preset === 'calm'
+      ? 1.72
+      : expression.preset === 'excited'
+        ? 1.08
+        : expression.preset === 'serious'
+          ? 1.2
+          : expression.preset === 'narration'
+            ? 1.48
+            : 1.4;
+  const lfBlend = expression.preset === 'whisper'
+    ? 0.62
+    : expression.preset === 'calm'
+      ? 0.88
+      : expression.preset === 'excited'
+        ? 0.74
+        : expression.preset === 'serious'
+          ? 0.82
+          : 0.84;
+
+  return {
+    amount,
+    low,
+    mid,
+    presence,
+    air,
+    lfBlend,
+    lfRd,
+  };
+}
+
 export interface SpeechTimbreProfile {
   closureAsymmetry: number;
   closureStrength: number;
@@ -2102,6 +2224,11 @@ export class VoiceSynth {
           )
         : tract;
       const harmonicNoise = controlFrame.harmonicNoise;
+      const aperiodicity = speechAperiodicityProfileFor(
+        unit,
+        settings.quality,
+        timed.expression,
+      );
       const precedingSpeechEvents = script.events.filter((event) => event.afterUnit === index - 1);
       const followsSigh = precedingSpeechEvents.some((event) => event.kind === 'sigh');
       const followsLaugh = precedingSpeechEvents.some((event) => event.kind === 'laugh');
@@ -2243,6 +2370,13 @@ export class VoiceSynth {
         speechFormantMotion: speechTimbre.formantMotion,
         speechHarmonicGain: harmonicNoise.harmonicGain,
         speechNoiseGain: harmonicNoise.noiseGain,
+        speechLfBlend: aperiodicity.lfBlend,
+        speechLfRd: aperiodicity.lfRd,
+        speechAperiodicityAmount: aperiodicity.amount,
+        speechAperiodicityLow: aperiodicity.low,
+        speechAperiodicityMid: aperiodicity.mid,
+        speechAperiodicityPresence: aperiodicity.presence,
+        speechAperiodicityAir: aperiodicity.air,
         speechSourceOversample: speechQuality.sourceOversample,
         speechResidualAmount: speechQuality.residualAmount,
         speechResidualBody: speechQuality.residualBody,

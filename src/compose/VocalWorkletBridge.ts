@@ -130,6 +130,20 @@ export interface VocalWorkletEvent {
     speechHarmonicGain?: number;
     /** Speech-only gain for aperiodic/noise energy after the vocal tract. */
     speechNoiseGain?: number;
+    /** Blend toward an LF-style speech glottal flow shape. */
+    speechLfBlend?: number;
+    /** LF-style Rd voice-quality coordinate: lower is tighter, higher is breathier. */
+    speechLfRd?: number;
+    /** Master amount of WORLD-inspired banded aperiodic excitation. */
+    speechAperiodicityAmount?: number;
+    /** Low-band aperiodicity weight. */
+    speechAperiodicityLow?: number;
+    /** Mid-band aperiodicity weight. */
+    speechAperiodicityMid?: number;
+    /** Presence-band aperiodicity weight. */
+    speechAperiodicityPresence?: number;
+    /** Air-band aperiodicity weight. */
+    speechAperiodicityAir?: number;
     /** Enable a cheap 2x glottal-source evaluation for speech-only anti-aliasing. */
     speechSourceOversample?: number;
     /** Master amount for the HQ speech-only post-tract residual refiner. */

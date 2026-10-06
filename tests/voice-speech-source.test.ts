@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseVoiceScript } from '../src/voice/VoiceScript';
 import {
   geminatePreclosureSeconds,
+  speechAperiodicityProfileFor,
   speechArticulatoryFilterFor,
   speechArticulatoryStateFor,
   speechArticulatoryTransitionScalesFor,
@@ -86,6 +87,39 @@ describe('VOICE LAB speech source', () => {
     expect(vowel.residualBody).toBeGreaterThan(fricative.residualBody);
     expect(fricative.residualPresence).toBeGreaterThanOrEqual(vowel.residualPresence);
     expect(fricative.residualAir).toBeGreaterThan(vowel.residualAir);
+  });
+
+  it('adds WORLD-style banded aperiodicity only to the HQ speech path', () => {
+    const expression = { preset: 'neutral' as const, intensity: 1 };
+    const vowel = parseVoiceScript('あ。').units[0]!;
+    const sibilant = parseVoiceScript('さ。').units[0]!;
+    const devoiced = parseVoiceScript('すき。').units.find((unit) => unit.devoiced)!;
+
+    const fast = speechAperiodicityProfileFor(vowel, 'fast', expression);
+    const hqVowel = speechAperiodicityProfileFor(vowel, 'hq', expression);
+    const hqSibilant = speechAperiodicityProfileFor(sibilant, 'hq', expression);
+    const hqDevoiced = speechAperiodicityProfileFor(devoiced, 'hq', expression);
+
+    expect(fast.amount).toBe(0);
+    expect(fast.lfBlend).toBe(0);
+    expect(hqVowel.amount).toBeGreaterThan(0);
+    expect(hqVowel.low).toBeGreaterThan(hqVowel.air);
+    expect(hqSibilant.presence).toBeGreaterThan(hqSibilant.mid);
+    expect(hqSibilant.air).toBeGreaterThan(0.8);
+    expect(hqDevoiced.amount).toBeGreaterThan(hqSibilant.amount);
+  });
+
+  it('maps delivery style onto a stable LF-style Rd voice-quality axis', () => {
+    const unit = parseVoiceScript('あ。').units[0]!;
+    const serious = speechAperiodicityProfileFor(unit, 'hq', { preset: 'serious', intensity: 1 });
+    const neutral = speechAperiodicityProfileFor(unit, 'hq', { preset: 'neutral', intensity: 1 });
+    const calm = speechAperiodicityProfileFor(unit, 'hq', { preset: 'calm', intensity: 1 });
+    const whisper = speechAperiodicityProfileFor(unit, 'hq', { preset: 'whisper', intensity: 1 });
+
+    expect(serious.lfRd).toBeLessThan(neutral.lfRd);
+    expect(neutral.lfRd).toBeLessThan(calm.lfRd);
+    expect(calm.lfRd).toBeLessThan(whisper.lfRd);
+    expect(neutral.lfBlend).toBeGreaterThan(0.75);
   });
 
   it('adds subtle HQ-only phonation microstructure and vowel coupling', () => {

@@ -68,6 +68,9 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     this.speechResidualPresenceGainState = 0;
     this.speechResidualAirGainState = 0;
     this.speechClosureDerivativeState = 0;
+    this.speechAperiodLowState = 0;
+    this.speechAperiodMidState = 0;
+    this.speechAperiodPresenceState = 0;
     this.speechCycleGainState = 0;
     this.speechCycleGainTarget = 0;
     this.speechCycleIndex = 0;
@@ -147,6 +150,9 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       this.speechResidualPresenceGainState = 0;
       this.speechResidualAirGainState = 0;
       this.speechClosureDerivativeState = 0;
+      this.speechAperiodLowState = 0;
+      this.speechAperiodMidState = 0;
+      this.speechAperiodPresenceState = 0;
       this.speechCycleGainState = 0;
       this.speechCycleGainTarget = 0;
       this.speechCycleIndex = 0;
@@ -313,6 +319,38 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     const closeLength = Math.max(0.001, openQuotient - openingEnd);
     const x = (phase - openingEnd) / closeLength;
     return Math.cos(x * Math.PI * 0.5) ** 2;
+  }
+
+  lfSpeechFlow(phase, rd, openQuotient, speedQuotient) {
+    // Stable LF-style approximation for realtime AudioWorklet use. Rd moves a
+    // single voice-quality axis: low values tighten closure, high values keep
+    // more residual flow and soften the return phase.
+    const normalizedRd = clamp01((rd - 0.7) / 1.8);
+    const oq = Math.max(
+      0.42,
+      Math.min(0.9, openQuotient + (normalizedRd - 0.42) * 0.075),
+    );
+    const openingEnd = Math.max(
+      0.06,
+      Math.min(oq * 0.82, oq * (0.46 + speedQuotient * 0.38)),
+    );
+    const residualFlow = 0.025 + normalizedRd * 0.13;
+
+    if (phase < openingEnd) {
+      const x = clamp01(phase / openingEnd);
+      const rise = Math.sin(x * Math.PI * 0.5);
+      return rise * rise;
+    }
+    if (phase < oq) {
+      const x = clamp01((phase - openingEnd) / Math.max(0.001, oq - openingEnd));
+      const decay = 0.5 + 0.5 * Math.cos(Math.PI * x);
+      return residualFlow + (1 - residualFlow) * decay;
+    }
+
+    const returnLength = Math.max(0.001, 1 - oq);
+    const x = clamp01((phase - oq) / returnLength);
+    const returnRate = 4.8 - normalizedRd * 2.25;
+    return residualFlow * Math.exp(-x * returnRate) * (1 - smoothstep(x));
   }
 
   coarticulationMix(event, elapsed, noteDuration) {
@@ -967,27 +1005,32 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       1,
       Math.min(2, Math.round(style.speechSourceOversample || 1)),
     );
+    const lfBlend = Math.max(0, Math.min(0.96, style.speechLfBlend || 0));
+    const lfRd = Math.max(0.7, Math.min(2.8, style.speechLfRd || 1.4));
+    const sourceFlowAt = (phase) => {
+      const legacy = this.glottalFlow(
+        phase,
+        dynamicOpenQuotient,
+        dynamicSpeedQuotient,
+      );
+      if (lfBlend <= 0) return legacy;
+      const lf = this.lfSpeechFlow(
+        phase,
+        lfRd,
+        dynamicOpenQuotient,
+        dynamicSpeedQuotient,
+      );
+      return legacy * (1 - lfBlend) + lf * lfBlend;
+    };
     let flow;
     if (sourceOversample > 1) {
       const midpointPhase = previousPhase + phaseStep * 0.5;
       const wrappedMidpoint = midpointPhase - Math.floor(midpointPhase);
-      const midpointFlow = this.glottalFlow(
-        wrappedMidpoint,
-        dynamicOpenQuotient,
-        dynamicSpeedQuotient,
-      );
-      const endpointFlow = this.glottalFlow(
-        this.phase,
-        dynamicOpenQuotient,
-        dynamicSpeedQuotient,
-      );
+      const midpointFlow = sourceFlowAt(wrappedMidpoint);
+      const endpointFlow = sourceFlowAt(this.phase);
       flow = (midpointFlow + endpointFlow) * 0.5;
     } else {
-      flow = this.glottalFlow(
-        this.phase,
-        dynamicOpenQuotient,
-        dynamicSpeedQuotient,
-      );
+      flow = sourceFlowAt(this.phase);
     }
     const derivative = flow - this.previousFlow;
     this.previousFlow = flow;
@@ -1089,7 +1132,36 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       * (1 - sourceDamping * 0.45);
     const rawSource = singingSource * (1 - speechSourceMix)
       + (bodySource + harmonicPresence) * speechSourceMix;
-    this.sourceState += (rawSource - this.sourceState) * (0.54 + speechSourceMix * 0.08);
+
+    // WORLD-inspired banded aperiodicity: a small, time-continuous noise
+    // component is split into broad bands before entering the tract. This
+    // replaces global broadband hiss with phoneme-appropriate periodic/noisy
+    // balance while keeping the existing fricative path for consonant detail.
+    const aperiodicityAmount = Math.max(
+      0,
+      Math.min(0.18, style.speechAperiodicityAmount || 0),
+    );
+    this.speechAperiodLowState += (noise - this.speechAperiodLowState) * 0.026;
+    this.speechAperiodMidState += (noise - this.speechAperiodMidState) * 0.095;
+    this.speechAperiodPresenceState += (
+      noise - this.speechAperiodPresenceState
+    ) * 0.31;
+    const aperiodLow = this.speechAperiodLowState;
+    const aperiodMid = this.speechAperiodMidState - this.speechAperiodLowState;
+    const aperiodPresence = this.speechAperiodPresenceState - this.speechAperiodMidState;
+    const aperiodAir = noise - this.speechAperiodPresenceState;
+    const aperiodicSource = (
+      aperiodLow * Math.max(0, Math.min(1.2, style.speechAperiodicityLow || 0))
+      + aperiodMid * Math.max(0, Math.min(1.2, style.speechAperiodicityMid || 0))
+      + aperiodPresence * Math.max(0, Math.min(1.2, style.speechAperiodicityPresence || 0))
+      + aperiodAir * Math.max(0, Math.min(1.2, style.speechAperiodicityAir || 0))
+    );
+    const periodicScale = 1 - aperiodicityAmount * 0.34;
+    const sourceWithAperiodicity = rawSource * periodicScale
+      + aperiodicSource * aperiodicityAmount;
+    this.sourceState += (
+      sourceWithAperiodicity - this.sourceState
+    ) * (0.54 + speechSourceMix * 0.08);
 
     const phraseCoupling = Math.max(
       0,

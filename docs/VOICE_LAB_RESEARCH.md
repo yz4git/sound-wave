@@ -1033,3 +1033,18 @@ Automated scores are not substitutes for listening. Keep an iPhone A/B panel aga
 7. **Track distilled Qwen3-TTS / CosyVoice-class models** — strong future candidates when sub-200M browser-friendly derivatives appear.
 
 The important architectural principle is to keep the existing editable prosody/timbre layer even if a neural renderer is added. The neural renderer should consume the same structured Japanese analysis rather than replacing the editor with an opaque text-to-waveform button.
+
+
+### 44. LF-style source and banded aperiodicity implementation
+
+The first high-impact items from the 2026 survey are now implemented in the realtime browser renderer.
+
+- **HQ-only LF-style source.** Spoken HQ events now carry an LF-style blend and an Rd-like voice-quality coordinate. The AudioWorklet uses a stable realtime approximation with an explicit opening, closure, and return phase. It is deliberately described as LF-style rather than a bit-for-bit implementation of the canonical analytic LF equations.
+- **Delivery-aware Rd.** Serious/excited speech receives a tighter source; calm/whisper receives a softer, more open source. Neutral sits between them. The existing character/tone controls remain independent.
+- **WORLD-inspired four-band aperiodicity.** White excitation is split by continuous one-pole crossover states into low, mid, presence, and air bands before entering the tract.
+- **Phoneme-specific band weights.** Vowels retain mostly periodic energy with a small low/mid aperiodic component. Sibilants emphasize presence/air, affricates emphasize mid/presence, /f h/ emphasize mid/air, nasals remain low-heavy, and devoiced Japanese /i,u/ strongly increase presence/air aperiodicity.
+- **No generic brightness compensation.** Aperiodic energy is injected before the vocal tract at a conservative level, so intelligibility can increase without restoring the harsh global high-shelf behavior removed in the previous parity pass.
+- **FAST compatibility.** FAST DSP keeps the old source path: LF blend and banded aperiodicity are both zero there.
+- **Cost control.** The extra work is three one-pole states plus a few arithmetic operations per sample in HQ. Existing 2x source evaluation remains the only oversampling step.
+
+This is an intentionally lightweight bridge between classic source-filter synthesis and modern harmonic/noise neural vocoders. It preserves deterministic editing, offline browser execution, and the existing Voice Imprint / prosody pipeline.
