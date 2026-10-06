@@ -1115,3 +1115,27 @@ A clarity-specific HQ pass now targets masking rather than simply adding more hi
 - **Very low runtime cost.** The additional per-sample work is two one-pole states and a small number of multiplies; there is no FFT, convolution, or new model.
 
 This stage complements the earlier naturalness pass: articulation is made easier to hear by reducing simultaneous masking energy, not by restoring the harsh global high-frequency boosts that were removed during SYSTEM TTS parity tuning.
+
+
+### 49. Optional Neural HQ renderer: Kokoro 82M + browser Open JTalk
+
+The largest quality step is now architectural rather than another DSP tuning pass. VOICE LAB adds an optional **NEURAL HQ** renderer while preserving the existing deterministic DSP renderer and SYSTEM TTS for direct A/B comparison.
+
+Why this renderer:
+- Kokoro 82M is small enough to have practical quantized ONNX browser builds and its model family is Apache-2.0.
+- `kokoro-js-jp` provides a browser-only Japanese path: Kokoro synthesis plus Open JTalk WASM G2P, without a server/container.
+- The integration is pinned to `kokoro-js-jp@0.2.0` instead of floating latest, so deployments remain reproducible.
+- The model is loaded as q8 only after the user explicitly selects NEURAL HQ and presses SPEAK. The normal game and DSP path pay zero model memory/network cost.
+- Japanese dictionary assets remain lazy inside the library and are fetched on the first Japanese utterance.
+- The current stable backend is WASM. WebGPU is deliberately not forced yet because Safari support and ONNX operator/backend behavior can vary; quality is unchanged by using WASM.
+- iOS playback uses an already-unlocked Web Audio context and the returned PCM rather than relying on a delayed HTMLMediaElement `play()` call after model download.
+
+Current control mapping:
+- VOICE character selects one of five Japanese Kokoro voices.
+- RATE and DELIVERY affect neural speaking speed.
+- ENERGY controls playback gain.
+- DSP-specific hand-drawn F0, VTL, source/filter parameters, and Voice Imprint remain DSP-only for now.
+
+This is a true dual-renderer architecture: DSP remains immediate/editable and lightweight; Neural HQ is the higher-naturalness final-listen path. Future work can pass the structured phrase/accent/punctuation representation into a neural conditioning or post-render alignment layer rather than discarding the editor.
+
+MOSS-TTS-Nano was also reviewed as a technically strong ~100M multilingual ONNX/browser candidate, but its upstream repository explicitly says to treat it as not licensed for redistribution until a root LICENSE is published. It is therefore not bundled or dynamically integrated at this stage.

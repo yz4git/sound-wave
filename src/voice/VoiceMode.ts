@@ -69,8 +69,9 @@ import {
   validVoiceIdentityImprint,
   type VoiceIdentityImprint,
 } from './VoiceImprint';
+import { BrowserNeuralVoice } from './NeuralVoice';
 
-type VoiceEngine = 'local' | 'system';
+type VoiceEngine = 'local' | 'neural' | 'system';
 type ProsodyLane = 'pitch' | 'energy' | 'duration';
 
 interface VoiceLabSettings extends VoiceSynthSettings {
@@ -104,7 +105,7 @@ function validIntonation(value: unknown): value is VoiceIntonation {
 }
 
 function validEngine(value: unknown): value is VoiceEngine {
-  return value === 'local' || value === 'system';
+  return value === 'local' || value === 'neural' || value === 'system';
 }
 
 function validQuality(value: unknown): value is VoiceRenderQuality {
@@ -119,6 +120,7 @@ function safeFilename(text: string): string {
 export class VoiceMode {
   private readonly root: HTMLElement;
   private readonly synth = new VoiceSynth();
+  private readonly neural = new BrowserNeuralVoice();
   private settings: VoiceLabSettings;
   private active = false;
   private playbackTimer = 0;
@@ -300,15 +302,16 @@ export class VoiceMode {
               <button type="button" id="voice-clear-local">CLEAR TAGS</button>
             </div>
           </div>
-          <div class="voice-engine" role="group" aria-label="Voice engine">
+          <div class="voice-engine voice-engine-source" role="group" aria-label="Voice engine">
             <button type="button" data-voice-engine="local">SOUND WAVE DSP</button>
+            <button type="button" data-voice-engine="neural">NEURAL HQ</button>
             <button type="button" data-voice-engine="system">SYSTEM TTS</button>
           </div>
           <div class="voice-engine" role="group" aria-label="Local render quality">
             <button type="button" data-voice-quality="fast">FAST DSP</button>
             <button type="button" data-voice-quality="hq">HQ REFINE</button>
           </div>
-          <p class="voice-engine-note">HQ · adaptive SHORT / NORMAL / LONG·4STEP / MULTI · continuous sentence chunks · 2× source + mora-aware residual</p>
+          <p class="voice-engine-note">DSP HQ · editable source/filter renderer · NEURAL HQ · Kokoro 82M q8 + Open JTalk, loaded only on first use</p>
           <div class="voice-japanese-tools">
             <button type="button" id="voice-analyze-japanese">JAPANESE G2P</button>
             <span id="voice-japanese-status">Open JTalk reading + pitch accent · kanji / おう / えい · first use ~24MB dictionary</span>
@@ -1241,6 +1244,9 @@ export class VoiceMode {
               ? 'READY · LOCAL DSP'
               : 'ENTER KANA OR ROMAJI',
       );
+    } else if (this.settings.engine === 'neural') {
+      note.textContent = 'NEURAL HQ · Kokoro 82M q8 · Japanese Open JTalk · client-side after download · first Japanese use also loads dictionary assets · VOICE maps to five Kokoro Japanese speakers · RATE / DELIVERY / ENERGY applied';
+      this.setStatus(this.neural.loaded ? 'READY · NEURAL HQ · MODEL CACHED IN SESSION' : 'READY · NEURAL HQ · MODEL LOADS ON FIRST SPEAK');
     } else {
       note.textContent = 'SYSTEM TTS · device/browser voice · kanji and general text supported · availability varies by OS';
       this.setStatus('READY · SYSTEM TTS');
@@ -1949,6 +1955,7 @@ export class VoiceMode {
   private stop(): void {
     this.clearPlaybackTimers();
     this.synth.stop();
+    this.neural.stop();
     this.systemSpeechGeneration += 1;
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
@@ -1958,7 +1965,9 @@ export class VoiceMode {
           ? this.settings.quality === 'hq'
             ? 'READY · HQ REFINE'
             : 'READY · FAST DSP'
-          : 'READY · SYSTEM TTS',
+          : this.settings.engine === 'neural'
+            ? 'READY · NEURAL HQ'
+            : 'READY · SYSTEM TTS',
       );
     }
   }
@@ -1974,6 +1983,10 @@ export class VoiceMode {
     const markup = parseVoiceMarkup(text);
     if (this.settings.engine === 'system') {
       this.playSystem(markup);
+      return;
+    }
+    if (this.settings.engine === 'neural') {
+      await this.playNeural(markup);
       return;
     }
 
@@ -2043,6 +2056,42 @@ export class VoiceMode {
     } catch (error) {
       console.warn('VOICE LAB local synthesis failed.', error);
       this.setStatus('LOCAL VOICE ENGINE UNAVAILABLE');
+    }
+  }
+
+  private async playNeural(script: VoiceMarkupScript): Promise<void> {
+    const plainText = script.plainText.trim();
+    if (!plainText) {
+      this.setStatus('ENTER TEXT');
+      return;
+    }
+
+    try {
+      await this.neural.play(plainText, {
+        character: this.settings.character,
+        rate: this.settings.rate,
+        energy: this.settings.energy,
+        expression: this.settings.expression,
+        onStatus: (message) => {
+          if (!this.active || this.settings.engine !== 'neural') return;
+          this.setStatus(message);
+          this.required<HTMLButtonElement>('#voice-play').textContent = '… NEURAL HQ';
+        },
+        onStart: (voiceId) => {
+          if (!this.active || this.settings.engine !== 'neural') return;
+          this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
+          this.setStatus(`NEURAL HQ · ${voiceId.toUpperCase()} · LOCAL ONNX`);
+        },
+        onEnd: () => {
+          if (!this.active || this.settings.engine !== 'neural') return;
+          this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
+          this.setStatus('READY · NEURAL HQ');
+        },
+      });
+    } catch (error) {
+      console.warn('VOICE LAB Neural HQ synthesis failed.', error);
+      this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
+      this.setStatus('NEURAL HQ FAILED · DSP / SYSTEM TTS STILL AVAILABLE');
     }
   }
 
