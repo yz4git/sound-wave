@@ -986,15 +986,23 @@ export function parseVoiceScript(text: string): VoiceScript {
 
 function accentPhraseOffset(unit: VoiceUnit): number {
   if (unit.pitchAccent !== 'auto') {
-    const lexical = unit.pitchAccent === 'high' ? 0.58 : -0.5;
-    const declination = unit.pitchAccent === 'high' ? unit.accentIndex * 0.062 : 0;
-    return lexical - declination - (unit.accentEnd ? 0.08 : 0);
+    if (unit.pitchAccent === 'high') {
+      // A lexical H plateau gently declines within the accent phrase instead
+      // of losing most of its height to the sentence contour.
+      const plateau = 0.5 - Math.min(0.16, unit.accentIndex * 0.045);
+      return plateau - (unit.accentEnd ? 0.055 : 0);
+    }
+    // Initial L is a rise preparation; a later L is the post-nucleus drop.
+    const low = unit.accentIndex === 0
+      ? -0.34
+      : -0.31 - Math.min(0.09, (unit.accentIndex - 1) * 0.025);
+    return low - (unit.accentEnd ? 0.035 : 0);
   }
   if (unit.accentCount <= 1) return 0;
-  if (unit.accentIndex === 0) return -0.62;
-  const decline = Math.max(0, unit.accentIndex - 1) * 0.13;
-  const crest = 0.7 - decline;
-  return crest - (unit.accentEnd ? 0.18 : 0);
+  if (unit.accentIndex === 0) return -0.42;
+  const decline = Math.max(0, unit.accentIndex - 1) * 0.075;
+  const crest = 0.54 - decline;
+  return crest - (unit.accentEnd ? 0.1 : 0);
 }
 
 function consonantMicroProsody(unit: VoiceUnit): number {
@@ -1022,29 +1030,54 @@ export function resolveVoiceIntonation(
   return 'natural';
 }
 
-export function prosodyOffsetForUnit(
+export interface JapaneseF0Layers {
+  /** Slow sentence/phrase baseline: phrase command, declination, reset, downstep. */
+  phrase: number;
+  /** Lexical or inferred accent-phrase component. */
+  accent: number;
+  /** Segmental microprosody from consonant/vowel context. */
+  micro: number;
+  /** Boundary/continuation/discourse movement. */
+  boundary: number;
+  /** Sentence-final or user-selected macro intonation. */
+  terminal: number;
+  total: number;
+}
+
+export function japaneseF0LayersForUnit(
   unit: VoiceUnit,
-  _index: number,
-  _count: number,
   intonation: VoiceIntonation | VoiceResolvedIntonation,
-): number {
+): JapaneseF0Layers {
   const resolvedIntonation = resolveVoiceIntonation(unit, intonation);
-  if (resolvedIntonation === 'flat') return 0;
+  if (resolvedIntonation === 'flat') {
+    return { phrase: 0, accent: 0, micro: 0, boundary: 0, terminal: 0, total: 0 };
+  }
 
   const phraseProgress = unit.phraseCount <= 1
     ? 0
     : unit.phraseIndex / Math.max(1, unit.phraseCount - 1);
   const lexicalAccent = unit.pitchAccent !== 'auto';
-  // Conversational declaratives keep enough contour to avoid a flat synthetic read.
-  const phraseArcBase = Math.sin(phraseProgress * Math.PI) * 0.36 - phraseProgress * 0.5;
-  const phraseArc = phraseArcBase * (lexicalAccent ? 0.25 : 1);
+
+  // Fujisaki/Hirose-inspired engineering layer: a sentence phrase command
+  // decays smoothly while accent-phrase starts can partially reset it. This
+  // stays independent from the lexical H/L component below.
+  const phraseImpulse = 0.34 * Math.exp(-2.35 * phraseProgress) - 0.08;
+  const sentenceDeclination = -0.28 * phraseProgress ** 1.12;
+  const phraseStartReset = unit.phraseStart
+    ? 0.12
+    : unit.accentStart && unit.boundaryBefore === 'accent'
+      ? Math.max(0.045, 0.13 - unit.accentPhraseIndex * 0.012)
+      : 0;
+  const downstep = -Math.min(0.34, unit.accentPhraseIndex * 0.06);
+  const phrase = phraseImpulse + sentenceDeclination + phraseStartReset + downstep;
+
   const accent = accentPhraseOffset(unit);
   const micro = consonantMicroProsody(unit);
-  const sentenceDeclination = -phraseProgress * 0.12;
+
   const boundaryResetStrength = unit.accentStart && unit.boundaryBefore === 'accent'
     ? Math.max(0, Math.min(1, (unit.pauseBefore - 0.03) / 0.14))
     : 0;
-  const boundaryReset = boundaryResetStrength * (lexicalAccent ? 0.18 : 0.26);
+  const boundaryReset = boundaryResetStrength * (lexicalAccent ? 0.13 : 0.2);
   const continuationTailLift = unit.continuationAfter === 'contrast'
     ? 0.16
     : unit.continuationAfter === 'condition'
@@ -1062,7 +1095,6 @@ export function prosodyOffsetForUnit(
     : unit.continuationBefore !== 'none'
       ? 0.12
       : 0;
-  const continuationMotion = continuationTailLift + continuationReset;
   const discourseTail = unit.discourseAfter === 'subject'
     ? 0.08
     : unit.discourseAfter === 'list'
@@ -1105,70 +1137,77 @@ export function prosodyOffsetForUnit(
     - (unit.parenthetical ? 0.055 : 0)
     - (unit.filledPause ? 0.08 : 0)
     - (unit.hesitationAfter ? 0.055 : 0);
-  const downstep = -Math.min(0.3, unit.accentPhraseIndex * 0.05);
-  const discourseMotion = discourseTail + discourseReset + focusLift + downstep;
+  const boundary = boundaryReset
+    + continuationTailLift
+    + continuationReset
+    + discourseTail
+    + discourseReset
+    + focusLift;
+
+  let terminal = 0;
+  let phraseScale = 1;
+  let accentScale = 1;
+  let microScale = 1;
 
   if (resolvedIntonation === 'rise') {
-    return -0.7 + phraseProgress * 1.9 + accent * 0.35 + micro + boundaryReset + continuationMotion + discourseMotion;
-  }
-  if (resolvedIntonation === 'fall') {
-    return 0.72 - phraseProgress * 1.8 + accent * 0.35 + micro + boundaryReset + continuationMotion + discourseMotion;
-  }
-  if (resolvedIntonation === 'question') {
-    const terminal = unit.phraseCount <= 1
+    terminal = -0.68 + phraseProgress * 1.82;
+    phraseScale = 0.42;
+    accentScale = 0.34;
+  } else if (resolvedIntonation === 'fall') {
+    terminal = 0.68 - phraseProgress * 1.72;
+    phraseScale = 0.42;
+    accentScale = 0.34;
+  } else if (resolvedIntonation === 'question') {
+    const progress = unit.phraseCount <= 1
       ? 1
       : Math.max(0, Math.min(1, (phraseProgress - 0.58) / 0.42));
-    const easedTerminal = terminal * terminal * (3 - 2 * terminal);
-    const questionLift = (unit.phraseCount <= 1 ? 1.25 : 1.55) * easedTerminal;
-    return phraseArc + accent * 0.8 + micro + questionLift + sentenceDeclination + boundaryReset + continuationMotion + discourseMotion;
-  }
-  if (resolvedIntonation === 'content-question') {
-    const terminal = unit.phraseCount <= 1
+    const eased = progress * progress * (3 - 2 * progress);
+    terminal = (unit.phraseCount <= 1 ? 1.22 : 1.48) * eased;
+    phraseScale = 0.88;
+    accentScale = 0.86;
+  } else if (resolvedIntonation === 'content-question') {
+    const progress = unit.phraseCount <= 1
       ? 1
       : Math.max(0, Math.min(1, (phraseProgress - 0.68) / 0.32));
-    const easedTerminal = terminal * terminal * (3 - 2 * terminal);
-    const focusLift = unit.questionFocus ? 0.22 : 0;
-    const questionLift = (unit.phraseCount <= 1 ? 0.35 : 0.48) * easedTerminal;
-    return phraseArc
-      + accent * 0.85
-      + micro
-      + focusLift
-      + questionLift
-      + sentenceDeclination
-      + boundaryReset
-      + continuationMotion + discourseMotion;
-  }
-  if (resolvedIntonation === 'exclaim') {
-    const terminal = unit.phraseCount <= 1
+    const eased = progress * progress * (3 - 2 * progress);
+    terminal = (unit.phraseCount <= 1 ? 0.34 : 0.46) * eased
+      + (unit.questionFocus ? 0.22 : 0);
+    phraseScale = 0.92;
+    accentScale = 0.9;
+  } else if (resolvedIntonation === 'exclaim') {
+    const progress = unit.phraseCount <= 1
       ? 1
       : Math.max(0, Math.min(1, (phraseProgress - 0.72) / 0.28));
-    const easedTerminal = terminal * terminal * (3 - 2 * terminal);
-    const energeticArc = Math.sin(phraseProgress * Math.PI) * 0.16;
-    return phraseArc * 0.72
-      + accent
-      + micro
-      + energeticArc
-      + easedTerminal * 0.14
-      + sentenceDeclination * 0.35
-      + boundaryReset
-      + continuationMotion + discourseMotion;
+    const eased = progress * progress * (3 - 2 * progress);
+    terminal = Math.sin(phraseProgress * Math.PI) * 0.14 + eased * 0.14;
+    phraseScale = 0.9;
+    accentScale = 1.02;
+  } else {
+    const progress = unit.phraseCount <= 1
+      ? 1
+      : Math.max(0, Math.min(1, (phraseProgress - 0.68) / 0.32));
+    const eased = progress * progress * (3 - 2 * progress);
+    terminal = -(lexicalAccent ? 0.11 : 0.24) * eased;
+    phraseScale = 1.06;
+    accentScale = 1.08;
+    microScale = 1.04;
   }
 
-  const reset = unit.phraseStart ? (lexicalAccent ? 0.09 : 0.18) : 0;
-  const terminal = unit.phraseCount <= 1
-    ? 1
-    : Math.max(0, Math.min(1, (phraseProgress - 0.68) / 0.32));
-  const easedTerminal = terminal * terminal * (3 - 2 * terminal);
-  const finalLowering = -(lexicalAccent ? 0.12 : 0.28) * easedTerminal;
-  return phraseArc * 1.22
-    + accent * 1.16
-    + micro * 1.08
-    + reset
-    + finalLowering
-    + sentenceDeclination
-    + boundaryReset
-    + continuationMotion
-    + discourseMotion;
+  const total = phrase * phraseScale
+    + accent * accentScale
+    + micro * microScale
+    + boundary
+    + terminal;
+  return { phrase, accent, micro, boundary, terminal, total };
+}
+
+export function prosodyOffsetForUnit(
+  unit: VoiceUnit,
+  _index: number,
+  _count: number,
+  intonation: VoiceIntonation | VoiceResolvedIntonation,
+): number {
+  return japaneseF0LayersForUnit(unit, intonation).total;
 }
 
 // Kept as a simple public contour helper for tests and external callers.

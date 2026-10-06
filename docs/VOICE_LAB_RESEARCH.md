@@ -1062,3 +1062,19 @@ The next source-filter quality pass improves CV transitions without adding any n
 - **Near-zero runtime cost.** The existing AudioWorklet interpolation is reused; the new work is event-time parameter selection only.
 
 This complements the LF-style source and banded aperiodicity: the source now has more realistic periodic/noisy structure, while the tract carries a stronger consonant-place cue into each vowel.
+
+
+### 46. Two-layer Japanese F0: phrase baseline + accent command
+
+VOICE LAB now separates Japanese pitch generation into explicit long- and short-time-scale layers instead of mixing sentence shape and lexical accent in one contour formula.
+
+- **Phrase layer.** A Fujisaki/Hirose-inspired engineering approximation provides a sentence-start phrase command that decays smoothly, sentence-level declination, partial resets at accent-phrase boundaries, and phrase-by-phrase downstep.
+- **Accent layer.** Lexical Open JTalk H/L labels remain authoritative when present. H plateaus now decline gently inside the accent phrase; initial L and post-nucleus L use different targets. Kana-only inferred accent phrases retain a smaller L→H contour.
+- **Layer independence.** Supplying lexical accent no longer collapses the sentence phrase contour to a fraction of its normal range. This prevents the common failure mode where pronunciation is lexically correct but the whole sentence sounds locally stepped and globally flat.
+- **Terminal layer.** Question, content-question, exclamation, explicit rise/fall, and declarative final lowering are applied after the phrase/accent layers. They no longer have to distort lexical H/L targets to create sentence modality.
+- **Boundary/discourse layer.** Comma resets, connective continuation, topic/list/quote cues, focus, hesitation, and sentence attitude remain separate residual motion.
+- **Microprosody layer.** Consonant-induced tiny F0 perturbations remain small and independent.
+- **Neural-ready metadata.** Each planned spoken mora now exposes `phraseF0Offset` and `accentF0Offset` separately, so a future Neural HQ renderer can consume the same structured Japanese prosody instead of reverse-engineering one flattened F0 value.
+- **Manual edits stay last.** User PITCH drawing, phrase pitch edits, expression offsets, and emphasis remain additive after the structured automatic contour.
+
+This is not a numerical implementation of the original Fujisaki equations. It borrows the important decomposition—slow phrase command plus faster accent command—while preserving the existing deterministic semitone-domain editor and Open JTalk accent labels.

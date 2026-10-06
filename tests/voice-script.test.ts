@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   finalizeVoiceUnits,
+  japaneseF0LayersForUnit,
   parseVoiceScript,
   prosodyOffset,
   prosodyOffsetForUnit,
@@ -122,6 +123,53 @@ describe('Voice Lab speech planning', () => {
       prosodyOffsetForUnit(secondStart, 3, script.units.length, 'auto'),
       8,
     );
+  });
+
+  it('separates Japanese phrase baseline from lexical accent movement', () => {
+    const script = parseVoiceScript('あいうえお。');
+    const start = script.units[0]!;
+    const middle = script.units[2]!;
+    const end = script.units.at(-1)!;
+
+    const startLayers = japaneseF0LayersForUnit(start, 'natural');
+    const middleLayers = japaneseF0LayersForUnit(middle, 'natural');
+    const endLayers = japaneseF0LayersForUnit(end, 'natural');
+
+    expect(startLayers.phrase).toBeGreaterThan(middleLayers.phrase);
+    expect(middleLayers.phrase).toBeGreaterThan(endLayers.phrase);
+    expect(startLayers.total).toBeCloseTo(
+      prosodyOffsetForUnit(start, start.index, script.units.length, 'natural'),
+      8,
+    );
+  });
+
+  it('keeps lexical H/L contrast independent from sentence declination', () => {
+    const script = parseVoiceScript('あいう。');
+    const low = { ...script.units[0]!, pitchAccent: 'low' as const, accentIndex: 0 };
+    const high = { ...script.units[0]!, pitchAccent: 'high' as const, accentIndex: 0 };
+    const lowLayers = japaneseF0LayersForUnit(low, 'natural');
+    const highLayers = japaneseF0LayersForUnit(high, 'natural');
+
+    expect(highLayers.phrase).toBeCloseTo(lowLayers.phrase, 8);
+    expect(highLayers.accent).toBeGreaterThan(lowLayers.accent + 0.65);
+  });
+
+  it('adds phrase reset but preserves downstep across later accent phrases', () => {
+    const script = parseVoiceScript('あいうえおかきく。');
+    for (const index of [1, 3, 5]) {
+      script.units[index]!.boundaryAfter = 'accent';
+      script.units[index]!.pauseAfter = 0.09;
+    }
+    finalizeVoiceUnits(script.units);
+
+    const secondStart = script.units[2]!;
+    const thirdStart = script.units[4]!;
+    const second = japaneseF0LayersForUnit(secondStart, 'natural');
+    const third = japaneseF0LayersForUnit(thirdStart, 'natural');
+
+    expect(secondStart.accentStart).toBe(true);
+    expect(thirdStart.accentStart).toBe(true);
+    expect(third.phrase).toBeLessThan(second.phrase);
   });
 
   it('adds a small F0 reset after a comma-like accent boundary', () => {

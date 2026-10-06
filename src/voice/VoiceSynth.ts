@@ -6,7 +6,7 @@ import { VocalWorkletBridge, vocalEventToWorklet, type VocalWorkletStatus } from
 import type { VoiceCharacterPreset } from '../compose/VoiceCharacter';
 import { WavCapture } from '../compose/SongExport';
 import {
-  prosodyOffsetForUnit,
+  japaneseF0LayersForUnit,
   resolveVoiceIntonation,
   type VoiceIntonation,
   type VoiceResolvedIntonation,
@@ -71,6 +71,10 @@ export interface VoiceTimedUnit {
   phraseRateScale: number;
   phraseEnergyScale: number;
   phraseEmphasis: number;
+  /** Slow Japanese phrase/baseline F0 component in semitones. */
+  phraseF0Offset: number;
+  /** Lexical/inferred accent-phrase F0 component in semitones. */
+  accentF0Offset: number;
   expression: VoiceExpressionSettings;
 }
 
@@ -2106,8 +2110,8 @@ export class VoiceSynth {
       const expressionControl = voiceExpressionControl(expression);
       const expressionUnit = voiceExpressionForUnit(unit, index, script.units.length, expression);
       const resolvedIntonation = resolveVoiceIntonation(unit, settings.intonation);
-      const offset = prosodyOffsetForUnit(unit, index, script.units.length, resolvedIntonation)
-        * expressionControl.pitchRangeScale;
+      const f0Layers = japaneseF0LayersForUnit(unit, resolvedIntonation);
+      const offset = f0Layers.total * expressionControl.pitchRangeScale;
       const manualPitchOffset = clamp(edits.pitchOffsets?.[index] ?? 0, -3.5, 3.5);
       const manualEnergyScale = clamp(edits.energyScales?.[index] ?? 1, 0.45, 1.55);
       const manualDurationScale = clamp(edits.durationScales?.[index] ?? 1, 0.6, 1.65);
@@ -2185,6 +2189,8 @@ export class VoiceSynth {
         phraseRateScale,
         phraseEnergyScale,
         phraseEmphasis,
+        phraseF0Offset: f0Layers.phrase * expressionControl.pitchRangeScale,
+        accentF0Offset: f0Layers.accent * expressionControl.pitchRangeScale,
         expression,
       });
 
