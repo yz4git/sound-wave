@@ -1048,3 +1048,17 @@ The first high-impact items from the 2026 survey are now implemented in the real
 - **Cost control.** The extra work is three one-pole states plus a few arithmetic operations per sample in HQ. Existing 2x source evaluation remains the only oversampling step.
 
 This is an intentionally lightweight bridge between classic source-filter synthesis and modern harmonic/noise neural vocoders. It preserves deterministic editing, offline browser execution, and the existing Voice Imprint / prosody pipeline.
+
+
+### 45. Consonant formant-locus transitions
+
+The next source-filter quality pass improves CV transitions without adding any new per-sample DSP stage.
+
+- **Digraph-aware loci.** The onset-locus lookup now recognizes /sh/, /ch/, /ts/, and /j/ explicitly instead of using only the first character of the romanized syllable. This fixes the previous case where "shi" collapsed to plain /s/ and "chi" had no dedicated onset locus.
+- **Expanded Japanese onset table.** Separate acoustic transition anchors now exist for voiced stops, palato-alveolar fricatives/affricates, /w/, /v/, Japanese /r/, nasals, bilabials, velars, and coronals.
+- **Place/manner-specific transition time.** Stops move rapidly into the vowel; fricatives/affricates retain their locus longer; /j,w,r/ retain moving resonance cues longest.
+- **Per-band transition bandwidth.** Coronal/affricate upper formants broaden during the onset, bilabials remain softer, glides stay narrower, and nasals widen lower resonances.
+- **No extra high shelf.** The clarity gain comes from the trajectory of F1/F2/F3 and their bandwidth, not from adding broadband treble.
+- **Near-zero runtime cost.** The existing AudioWorklet interpolation is reused; the new work is event-time parameter selection only.
+
+This complements the LF-style source and banded aperiodicity: the source now has more realistic periodic/noisy structure, while the tract carries a stronger consonant-place cue into each vowel.

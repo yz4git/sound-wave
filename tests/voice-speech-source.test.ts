@@ -7,6 +7,7 @@ import {
   speechArticulatoryStateFor,
   speechArticulatoryTransitionScalesFor,
   speechAttitudeProfileFor,
+  speechConsonantLocusProfileFor,
   speechConsonantTransientProfileFor,
   speechContextDeliveryFor,
   speechFinalityProfileFor,
@@ -259,6 +260,23 @@ describe('VOICE LAB speech source', () => {
     expect(f2.current).not.toBeCloseTo(f2.next, 4);
     expect(f2.next).toBeGreaterThan(f2.current);
     expect(terminal.next).toBeCloseTo(terminal.current, 8);
+  });
+
+  it('uses place-specific consonant loci and transition speeds', () => {
+    const k = speechConsonantLocusProfileFor(parseVoiceScript('か。').units[0]!);
+    const t = speechConsonantLocusProfileFor(parseVoiceScript('た。').units[0]!);
+    const sh = speechConsonantLocusProfileFor(parseVoiceScript('し。').units[0]!);
+    const ch = speechConsonantLocusProfileFor(parseVoiceScript('ち。').units[0]!);
+    const y = speechConsonantLocusProfileFor(parseVoiceScript('や。').units[0]!);
+    const w = speechConsonantLocusProfileFor(parseVoiceScript('わ。').units[0]!);
+    const vowel = speechConsonantLocusProfileFor(parseVoiceScript('あ。').units[0]!);
+
+    expect(t.transitionScale).toBeLessThan(k.transitionScale);
+    expect(sh.transitionScale).toBeGreaterThan(1);
+    expect(ch.bandwidthScale[3]).toBeGreaterThan(1.1);
+    expect(y.transitionScale).toBeGreaterThan(sh.transitionScale);
+    expect(w.bandwidthScale[1]).toBeLessThan(1);
+    expect(vowel.transitionScale).toBe(1);
   });
 
   it('derives vocal-tract and harmonic-noise controls from articulation', () => {

@@ -501,6 +501,99 @@ export function speechArticulatoryFilterFor(
   };
 }
 
+export interface SpeechConsonantLocusProfile {
+  transitionScale: number;
+  bandwidthScale: readonly [number, number, number, number, number];
+}
+
+export function speechConsonantLocusProfileFor(
+  unit: VoiceUnit,
+): SpeechConsonantLocusProfile {
+  const consonant = consonantForSyllable(unit.syllable);
+  const neutral: SpeechConsonantLocusProfile = {
+    transitionScale: 1,
+    bandwidthScale: [1, 1, 1, 1, 1],
+  };
+
+  // Stops move quickly from a compact locus into the vowel. Coronal stops have
+  // slightly broader upper transitions; bilabials keep the upper tract softer.
+  if (consonant === 'k' || consonant === 'g') {
+    return {
+      transitionScale: 0.86,
+      bandwidthScale: [1.04, 1.08, 1.12, 1.08, 1.04],
+    };
+  }
+  if (consonant === 't' || consonant === 'd') {
+    return {
+      transitionScale: 0.8,
+      bandwidthScale: [1.02, 1.1, 1.16, 1.12, 1.06],
+    };
+  }
+  if (consonant === 'p' || consonant === 'b') {
+    return {
+      transitionScale: 0.78,
+      bandwidthScale: [1.02, 1.04, 1.05, 1.03, 1.02],
+    };
+  }
+
+  // Affricates/fricatives retain their place cue a little longer while the
+  // periodic vowel source enters underneath the noise.
+  if (consonant === 'ch' || consonant === 'ts') {
+    return {
+      transitionScale: 1.12,
+      bandwidthScale: [1.04, 1.1, 1.18, 1.2, 1.14],
+    };
+  }
+  if (consonant === 'sh' || consonant === 'j') {
+    return {
+      transitionScale: 1.16,
+      bandwidthScale: [1.02, 1.08, 1.16, 1.18, 1.12],
+    };
+  }
+  if (consonant === 's' || consonant === 'z') {
+    return {
+      transitionScale: 1.08,
+      bandwidthScale: [1.02, 1.06, 1.14, 1.2, 1.16],
+    };
+  }
+  if (consonant === 'f' || consonant === 'h' || consonant === 'v') {
+    return {
+      transitionScale: 1.04,
+      bandwidthScale: [1.03, 1.06, 1.1, 1.1, 1.08],
+    };
+  }
+
+  // Glides and Japanese /r/ are defined mainly by moving resonances, so keep
+  // the locus audible longer but with relatively narrow, smooth bands.
+  if (consonant === 'y') {
+    return {
+      transitionScale: 1.3,
+      bandwidthScale: [0.96, 0.94, 0.96, 0.98, 1],
+    };
+  }
+  if (consonant === 'w') {
+    return {
+      transitionScale: 1.28,
+      bandwidthScale: [0.97, 0.93, 0.96, 0.98, 1],
+    };
+  }
+  if (consonant === 'r' || consonant === 'l') {
+    return {
+      transitionScale: 1.18,
+      bandwidthScale: [0.98, 0.96, 0.94, 0.98, 1],
+    };
+  }
+
+  if (consonant === 'm' || consonant === 'n' || consonant === 'N') {
+    return {
+      transitionScale: 1.2,
+      bandwidthScale: [1.12, 1.14, 1.08, 1.04, 1.02],
+    };
+  }
+
+  return neutral;
+}
+
 export interface SpeechConsonantTransientProfile {
   burstGain: number;
   burstSharpness: number;
@@ -2174,6 +2267,7 @@ export class VoiceSynth {
       const speechSource = speechSourceProfileFor(timed.expression);
       const speechPresence = speechPresenceProfileFor(unit, timed.expression);
       const consonantTransient = speechConsonantTransientProfileFor(unit);
+      const consonantLocus = speechConsonantLocusProfileFor(unit);
       const rawPhonationMicrostructure = speechPhonationMicrostructureFor(
         unit,
         settings.quality,
@@ -2355,9 +2449,10 @@ export class VoiceSynth {
         speechVowelTransitionScale: clamp(
           speechSource.vowelTransitionScale
             * utteranceStrategy.coarticulationScale
-            * chunkContinuity.transitionScale,
-          0.88,
-          1.46,
+            * chunkContinuity.transitionScale
+            * consonantLocus.transitionScale,
+          0.72,
+          1.58,
         ),
         speechCVOverlap: speechSource.cvOverlap,
         speechGlottalDriftCents: speechSource.glottalDriftCents,
@@ -2420,7 +2515,8 @@ export class VoiceSynth {
             : band.nextHz * nextScale,
           bandwidth: band.bandwidth
             * articulatoryFilter.bandwidthScale
-            * tract.bandwidthScale,
+            * tract.bandwidthScale
+            * (consonantLocus.bandwidthScale[bandIndex] ?? 1),
           gain: band.gain
             * (speechPresence.upperFormantGain[bandIndex] ?? 1)
             * (identityConditioning.formantGain[bandIndex] ?? 1)

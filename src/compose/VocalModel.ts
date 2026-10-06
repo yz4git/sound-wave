@@ -163,26 +163,45 @@ export function glottalHarmonicSeries(style: VocalStyle, count = 48): Float32Arr
 
 export function onsetFormantFrequency(syllable: string, index: number, targetFrequency: number): number {
   const normalized = syllable.trim().toLowerCase();
-  const initial = normalized === 'n' || normalized === 'nn' ? 'N' : normalized.charAt(0);
+  const initial = normalized === 'n' || normalized === 'nn'
+    ? 'N'
+    : normalized.startsWith('sh')
+      ? 'sh'
+      : normalized.startsWith('ch')
+        ? 'ch'
+        : normalized.startsWith('ts')
+          ? 'ts'
+          : normalized.startsWith('j')
+            ? 'j'
+            : normalized.charAt(0);
   const presets: Record<string, readonly number[]> = {
-    // Nasals / approximants.
-    m: [250, 900, 2200, 3300, 4700],
+    // Nasals / approximants. These are acoustic transition loci, not
+    // stationary consonant "formants".
+    m: [250, 850, 2150, 3250, 4650],
     n: [300, 1350, 2450, 3400, 4800],
-    N: [280, 1050, 2200, 3250, 4550],
-    l: [390, 1200, 2450, 3500, 4900],
-    r: [380, 1250, 1750, 3450, 4850],
-    y: [280, 2200, 3000, 3700, 4950],
-    // Japanese-style places of articulation. These are transition anchors, not
-    // static consonant formants: the worklet moves through them into the vowel.
-    k: [360, 1180, 2500, 3500, 4800],
-    g: [340, 1120, 2420, 3450, 4780],
-    t: [350, 1650, 2850, 3850, 5000],
-    s: [330, 1750, 3150, 4300, 5200],
-    z: [340, 1650, 3000, 4150, 5100],
-    p: [260, 820, 2180, 3300, 4680],
-    b: [270, 860, 2220, 3320, 4700],
-    h: [420, 1450, 2600, 3600, 4850],
-    f: [360, 1250, 2380, 3500, 4750],
+    N: [280, 1020, 2180, 3200, 4500],
+    l: [390, 1220, 2450, 3500, 4900],
+    r: [360, 1320, 1820, 3450, 4850],
+    y: [285, 2260, 3060, 3740, 5000],
+    w: [300, 760, 2180, 3250, 4620],
+    // Japanese-style places of articulation. Digraphs need their own loci:
+    // treating "shi" as plain /s/ and "chi" as an unknown onset made their
+    // CV transitions less natural even when frication itself was correct.
+    k: [350, 1220, 2550, 3520, 4820],
+    g: [340, 1160, 2470, 3460, 4780],
+    t: [345, 1700, 2860, 3860, 5000],
+    d: [350, 1610, 2780, 3780, 4940],
+    s: [330, 1820, 3180, 4300, 5200],
+    z: [340, 1700, 3020, 4150, 5100],
+    sh: [315, 1980, 2860, 3950, 5000],
+    j: [330, 1880, 2780, 3880, 4940],
+    ch: [320, 1920, 2820, 3920, 4980],
+    ts: [335, 1760, 3060, 4180, 5120],
+    p: [255, 790, 2140, 3260, 4660],
+    b: [270, 850, 2200, 3300, 4700],
+    h: [415, 1460, 2600, 3600, 4850],
+    f: [350, 1200, 2340, 3460, 4720],
+    v: [330, 1050, 2260, 3400, 4740],
   };
   return presets[initial]?.[index] ?? targetFrequency;
 }
