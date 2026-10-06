@@ -2217,10 +2217,13 @@ export class VoiceSynth {
       const phraseEnergyScale = clamp(edits.phraseEnergyScales?.[index] ?? 1, 0.65, 1.45);
       const phraseEmphasis = clamp(edits.phraseEmphasisScales?.[index] ?? 0, 0, 1.5);
       const contextDelivery = speechContextDeliveryFor(unit, expression);
-      const previousPunctuation = speechPunctuationProsodyFor(
-        script.units[index - 1]?.punctuationAfter ?? 'none',
-        script.units[index - 1]?.punctuationCount ?? 0,
-      );
+      const previousUnitForPunctuation = script.units[index - 1];
+      const previousPunctuation = previousUnitForPunctuation?.boundaryAfter === 'sentence'
+        ? speechPunctuationProsodyFor('none', 0)
+        : speechPunctuationProsodyFor(
+            previousUnitForPunctuation?.punctuationAfter ?? 'none',
+            previousUnitForPunctuation?.punctuationCount ?? 0,
+          );
       const effectiveRate = settings.rate
         * phraseRateScale
         * unit.autoRateScale

@@ -901,7 +901,15 @@ export function parseVoiceScript(text: string): VoiceScript {
     if (normalized.startsWith('...', index)) {
       let end = index + 3;
       while (normalized[end] === '.') end += 1;
-      markExpressivePause(units, end - index >= 6 ? 0.24 : 0.2, true, 'ellipsis', end - index);
+      const dotCount = end - index;
+      const ellipsisCount = Math.max(1, Math.ceil(dotCount / 3));
+      markExpressivePause(
+        units,
+        dotCount >= 6 ? 0.24 : 0.2,
+        true,
+        'ellipsis',
+        ellipsisCount,
+      );
       index = end;
       continue;
     }
