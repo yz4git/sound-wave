@@ -1100,3 +1100,18 @@ Punctuation is now preserved as a first-class prosody channel instead of collaps
 - Repeated punctuation is deliberately conservative: it changes delivery strength but never creates extreme pitch or gain values.
 
 This follows the useful Style-Bert-VITS2 frontend lesson that punctuation carries information lost by lexical accent extraction. In VOICE LAB it remains an explicit deterministic control lane, independent from lexical H/L, phrase F0, sentence modality, and manual PITCH edits.
+
+
+### 48. Dynamic clarity unmasking without treble hype
+
+A clarity-specific HQ pass now targets masking rather than simply adding more high-frequency energy.
+
+- **Consonant-onset vocal ducking.** During the short consonant portion of a CV mora, the periodic vocal-tract source is reduced by a small amount. Frication/burst energy is left intact, so the consonant edge is easier to hear without increasing noise gain.
+- **Dynamic low-mid cleanup.** Two cheap one-pole states isolate a broad low-mid body band (roughly the region where F1/body energy can mask articulation). HQ removes only a conservative fraction of this band.
+- **Presence focusing.** The existing post-tract presence shelf is no longer equally strong through the vowel body. HQ keeps more of it on consonant cues and backs it off on sustained vowel portions, reducing "bright haze".
+- **Character aware.** The CLEAR character gets the strongest unmasking, NATURAL remains moderate, SOFT/AIRY/POWER are less aggressive.
+- **Expression aware.** Whisper deliberately reduces clarity processing because its identity depends on diffuse aperiodic energy and aggressive unmasking would make it papery.
+- **FAST untouched.** All new clarity parameters are zero in FAST mode.
+- **Very low runtime cost.** The additional per-sample work is two one-pole states and a small number of multiplies; there is no FFT, convolution, or new model.
+
+This stage complements the earlier naturalness pass: articulation is made easier to hear by reducing simultaneous masking energy, not by restoring the harsh global high-frequency boosts that were removed during SYSTEM TTS parity tuning.

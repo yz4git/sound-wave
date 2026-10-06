@@ -979,6 +979,62 @@ export function speechChunkContinuityProfileFor(
   };
 }
 
+export interface SpeechClarityProfile {
+  amount: number;
+  bodyCut: number;
+  consonantDuck: number;
+}
+
+export function speechClarityProfileFor(
+  unit: VoiceUnit,
+  quality: VoiceRenderQuality | undefined,
+  character: VoiceCharacterPreset,
+  expression: VoiceExpressionSettings,
+): SpeechClarityProfile {
+  if (quality === 'fast') {
+    return { amount: 0, bodyCut: 0, consonantDuck: 0 };
+  }
+
+  const consonant = consonantForSyllable(unit.syllable);
+  const baseByCharacter: Record<VoiceCharacterPreset, number> = {
+    soft: 0.56,
+    natural: 0.76,
+    clear: 1,
+    airy: 0.64,
+    power: 0.7,
+  };
+  const consonantScale = consonant === 'vowel'
+    ? 0.7
+    : consonant === 'm' || consonant === 'n' || consonant === 'N'
+      ? 0.76
+      : consonant === 'r' || consonant === 'y' || consonant === 'w'
+        ? 0.84
+        : 1;
+  const expressionScale = expression.preset === 'whisper'
+    ? 0.48
+    : expression.preset === 'calm'
+      ? 0.78
+      : expression.preset === 'excited'
+        ? 1.04
+        : 1;
+  const amount = clamp(
+    (baseByCharacter[character] ?? 0.76)
+      * consonantScale
+      * (1 + (expressionScale - 1) * clamp(expression.intensity, 0, 1.35)),
+    0.28,
+    1,
+  );
+
+  return {
+    amount,
+    // Conservative dynamic low-mid subtraction. Enough to separate F1/F2
+    // body from consonant cues without making vowels thin.
+    bodyCut: 0.075 + amount * 0.035,
+    // Duck only the voiced tract during the consonant onset, not the final mix.
+    consonantDuck: 0.065 + amount * 0.045,
+  };
+}
+
 export interface SpeechQualityProfile {
   sourceOversample: 1 | 2;
   residualAmount: number;
@@ -2410,6 +2466,12 @@ export class VoiceSynth {
         settings,
         timed.expression,
       );
+      const clarity = speechClarityProfileFor(
+        unit,
+        settings.quality,
+        settings.character,
+        timed.expression,
+      );
       const speechQuality = speechQualityProfileFor(
         settings.quality,
         controlFrame,
@@ -2601,6 +2663,9 @@ export class VoiceSynth {
         speechResidualBody: speechQuality.residualBody,
         speechResidualPresence: speechQuality.residualPresence,
         speechResidualAir: speechQuality.residualAir,
+        speechClarityAmount: clarity.amount,
+        speechClarityBodyCut: clarity.bodyCut,
+        speechClarityConsonantDuck: clarity.consonantDuck,
         speechResidualSmoothingMs: speechQuality.residualSmoothingMs,
         speechClosureSmoothingMs: speechQuality.closureSmoothingMs,
         speechCycleVariation: phonationMicrostructure.cycleVariation,

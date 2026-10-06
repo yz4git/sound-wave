@@ -7,6 +7,7 @@ import {
   speechArticulatoryStateFor,
   speechArticulatoryTransitionScalesFor,
   speechAttitudeProfileFor,
+  speechClarityProfileFor,
   speechConsonantLocusProfileFor,
   speechConsonantTransientProfileFor,
   speechContextDeliveryFor,
@@ -232,6 +233,41 @@ describe('VOICE LAB speech source', () => {
     expect(calm.vowelTransitionScale).toBeGreaterThan(neutral.vowelTransitionScale);
     expect(excited.cvOverlap).toBeLessThan(neutral.cvOverlap);
     expect(excited.glottalJitterCents).toBeGreaterThan(neutral.glottalJitterCents);
+  });
+
+  it('uses HQ dynamic unmasking for clarity without affecting FAST rendering', () => {
+    const unit = parseVoiceScript('さ。').units[0]!;
+    const neutral = { preset: 'neutral' as const, intensity: 1 };
+    const fast = speechClarityProfileFor(unit, 'fast', 'natural', neutral);
+    const natural = speechClarityProfileFor(unit, 'hq', 'natural', neutral);
+    const clear = speechClarityProfileFor(unit, 'hq', 'clear', neutral);
+    const whisper = speechClarityProfileFor(unit, 'hq', 'clear', { preset: 'whisper', intensity: 1 });
+
+    expect(fast.amount).toBe(0);
+    expect(natural.amount).toBeGreaterThan(0.6);
+    expect(clear.amount).toBeGreaterThan(natural.amount);
+    expect(clear.bodyCut).toBeGreaterThan(natural.bodyCut);
+    expect(clear.consonantDuck).toBeGreaterThan(natural.consonantDuck);
+    expect(whisper.amount).toBeLessThan(clear.amount);
+  });
+
+  it('keeps vowel clarity gentler than obstruent clarity', () => {
+    const expression = { preset: 'neutral' as const, intensity: 1 };
+    const vowel = speechClarityProfileFor(
+      parseVoiceScript('あ。').units[0]!,
+      'hq',
+      'natural',
+      expression,
+    );
+    const stop = speechClarityProfileFor(
+      parseVoiceScript('た。').units[0]!,
+      'hq',
+      'natural',
+      expression,
+    );
+
+    expect(stop.amount).toBeGreaterThan(vowel.amount);
+    expect(vowel.bodyCut).toBeLessThan(stop.bodyCut);
   });
 
   it('maps Japanese vowels into physically consistent articulatory states', () => {

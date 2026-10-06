@@ -154,6 +154,12 @@ export interface VocalWorkletEvent {
     speechResidualPresence?: number;
     /** High-band/air residual amount. May be slightly negative for vowels. */
     speechResidualAir?: number;
+    /** HQ dynamic clarity / masking-reduction amount. */
+    speechClarityAmount?: number;
+    /** Low-mid dynamic cleanup strength. */
+    speechClarityBodyCut?: number;
+    /** Voiced-tract duck during consonant onset. */
+    speechClarityConsonantDuck?: number;
     /** Cross-mora smoothing time for HQ residual targets. */
     speechResidualSmoothingMs?: number;
     /** Smoothing time for HQ glottal closure excitation. */

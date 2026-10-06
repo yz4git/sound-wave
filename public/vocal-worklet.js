@@ -62,6 +62,8 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     this.speechTiltState = 0;
     this.speechAirLowState = 0;
     this.speechBrightnessLowState = 0;
+    this.speechClarityLowState = 0;
+    this.speechClarityMidState = 0;
     this.speechResidualLowState = 0;
     this.speechResidualMidState = 0;
     this.speechResidualBodyGainState = 0;
@@ -789,6 +791,8 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       this.speechTiltState *= 0.997;
       this.speechAirLowState *= 0.994;
       this.speechBrightnessLowState *= 0.994;
+      this.speechClarityLowState *= 0.995;
+      this.speechClarityMidState *= 0.994;
       this.speechResidualLowState *= 0.995;
       this.speechResidualMidState *= 0.994;
       this.speechResidualBodyGainState *= 0.996;
@@ -1183,7 +1187,37 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       noise,
     );
 
-    const tractSource = coupledSource * articulation.sourceGain;
+    const clarityAmount = Math.max(
+      0,
+      Math.min(1, style.speechClarityAmount || 0),
+    );
+    const clarityDuck = Math.max(
+      0,
+      Math.min(0.16, style.speechClarityConsonantDuck || 0),
+    );
+    const phoneme = active.phoneme || {};
+    const consonantSpan = Math.min(
+      noteDuration * 0.52,
+      Math.max(
+        0.026,
+        (phoneme.closureSeconds || 0)
+          + (phoneme.burstSeconds || 0)
+          + (phoneme.fricationSeconds || 0)
+          + (phoneme.voicingDelaySeconds || 0) * 0.45,
+      ),
+    );
+    const hasConsonant = Boolean(
+      active.articulate
+        && phoneme.consonant
+        && phoneme.consonant !== 'vowel'
+        && !phoneme.moraicN,
+    );
+    const consonantActivity = hasConsonant
+      ? 1 - smoothstep(elapsed / Math.max(0.026, consonantSpan + 0.018))
+      : 0;
+    const tractSource = coupledSource
+      * articulation.sourceGain
+      * (1 - consonantActivity * clarityAmount * clarityDuck);
     let vocal = 0;
     for (let index = 0; index < Math.min(5, active.formants.length); index += 1) {
       const gainScale = this.formantGainScale[index] || 1;
@@ -1300,6 +1334,27 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
       ) * speechNoiseGain
     ) * this.envelopeState * 0.405;
 
+    // Dynamic low-mid unmasking. Two cheap one-pole states isolate a broad
+    // ~300–1000 Hz band. Removing only a few percent here clears F1/body haze
+    // while leaving the fundamental and consonant air intact.
+    this.speechClarityLowState += (
+      sample - this.speechClarityLowState
+    ) * 0.038;
+    this.speechClarityMidState += (
+      sample - this.speechClarityMidState
+    ) * 0.125;
+    if (clarityAmount > 0) {
+      const clarityBand = this.speechClarityMidState - this.speechClarityLowState;
+      const bodyCut = Math.max(
+        0,
+        Math.min(0.14, style.speechClarityBodyCut || 0),
+      );
+      const dynamicCut = bodyCut
+        * clarityAmount
+        * (0.72 + consonantActivity * 0.28);
+      sample -= clarityBand * dynamicCut;
+    }
+
     // Speech-only post-tract high shelf. The previous presence controls act
     // inside the source/tract model; this small shelf makes upper harmonics
     // survive the final mix even on vowel-heavy phrases.
@@ -1312,7 +1367,13 @@ class SoundWaveVocalProcessor extends AudioWorkletProcessor {
     if (speechBrightnessGain > 0) {
       this.speechBrightnessLowState += (sample - this.speechBrightnessLowState) * 0.19;
       const upper = sample - this.speechBrightnessLowState;
-      sample += upper * speechBrightnessGain;
+      // Keep full presence on consonant cues; reduce the always-on vowel shelf
+      // so "clear" does not mean "bright and hissy".
+      const vowelShelfReduction = clarityAmount
+        * (1 - consonantActivity)
+        * 0.38;
+      const focusedBrightness = speechBrightnessGain * (1 - vowelShelfReduction);
+      sample += upper * focusedBrightness;
     } else {
       this.speechBrightnessLowState += (sample - this.speechBrightnessLowState) * 0.19;
     }
