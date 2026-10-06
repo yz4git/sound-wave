@@ -837,3 +837,199 @@ Changes:
 - Tests now enforce bounded sibilant brightness and class ordering instead of requiring the previous oversized high-frequency boost.
 
 The target is not to imitate a proprietary system voice. It is to close the perceptual gap in the categories where the procedural path was objectively overemphasized: high-frequency spectral tilt, fricative persistence, and terminal phonation.
+
+
+### 43. 2026 broad TTS survey: what can materially improve Voice Lab next
+
+A broad literature/code pass covered modern flow/LM TTS, Japanese-specialized systems, source-filter vocoders, browser inference, and evaluation. The important conclusion is that VOICE LAB should not chase one architecture. The best path is a two-tier design:
+
+1. **Instant DSP** remains the default: tiny, deterministic, editable, offline, and immediate.
+2. **Optional Neural HQ** can be loaded on capable devices for final rendering/listening, while sharing the same Japanese G2P/prosody editor and reference-conditioning UI.
+
+#### A. Highest-value improvements that fit the current AudioWorklet DSP
+
+**1. WORLD-style banded aperiodicity**
+
+WORLD's core representation separates speech into F0, harmonic spectral envelope, and an aperiodicity envelope. VOICE LAB currently has harmonic/noise controls, but most aperiodicity is still represented as a small number of global noise/aspiration scalars.
+
+Next step:
+- add 4–6 time-varying aperiodicity bands (roughly low/body, mid, presence, sibilance, air);
+- compute each band's voiced/noisy ratio from consonant class, devoicing, expression, phrase position, and Voice Imprint;
+- crossfade the bands per 5–10 ms control frame rather than per mora only;
+- keep pitch-periodic excitation and unvoiced excitation separate until the final tract/filter stage.
+
+This is likely the highest-return DSP change because it improves breathiness, fricatives, devoiced /i,u/, aspiration, and the transition between voiced and unvoiced regions without globally brightening the voice.
+
+**2. Full LF-style glottal source with an Rd-like voice-quality coordinate**
+
+Modern neural source-filter systems still benefit from explicit periodic excitation and F0 control. The classic LF model gives a physically meaningful glottal pulse shape instead of relying only on open quotient / speed quotient heuristics.
+
+Next step:
+- implement a numerically stable LF or LF-inspired derivative source in the AudioWorklet;
+- expose one compact voice-quality coordinate analogous to Rd, with safe bounds;
+- map DELIVERY and TIMBRE onto that coordinate;
+- extend Voice Imprint with glottal estimates such as spectral tilt, harmonic-to-noise ratio / cepstral prominence proxies, and closure sharpness;
+- use the current source/filter coupling as a modulation around the LF source rather than as the primary pulse shape.
+
+**3. Japanese phrase + accent superposition layer**
+
+The Fujisaki/Hirose model represents log-F0 as a base plus phrase and accent components. This remains a useful engineering representation for Japanese because it prevents implausible frame-to-frame pitch wiggle and maps naturally to accent phrases.
+
+Next step:
+- preserve the existing mora-level lexical accent;
+- add a phrase command / declination component over each accent phrase;
+- add an accent command component around the lexical accent nucleus;
+- let user pitch-draw edits become residuals on top of this structured contour;
+- scale phrase/accent command strength with speaking rate and expression.
+
+This should improve the current gap between "correct accent" and "natural Japanese intonation".
+
+**4. Keep punctuation as an explicit prosody channel**
+
+Style-Bert-VITS2's Japanese frontend deliberately reconstructs punctuation after extracting Open JTalk accent information because punctuation type/count otherwise disappears. This is directly applicable to VOICE LAB.
+
+Next step:
+- represent comma, period, question mark, exclamation, ellipsis, dash, repeated punctuation, and brackets as explicit prosody tokens;
+- do not collapse repeated marks into the same pause;
+- feed punctuation tokens to pause duration, boundary tone, breath probability, energy reset, and expression intensity;
+- keep lexical pitch accent in a separate channel from punctuation/prosody.
+
+**5. Formant-locus transitions rather than only vowel-to-vowel interpolation**
+
+Consonant identity is strongly carried by CV transitions. The current tract system already interpolates formants, but the target should depend more strongly on consonant place/manner.
+
+Next step:
+- add per-consonant F1/F2/F3 locus targets;
+- interpolate from the locus into the vowel target over the consonant-specific transition;
+- use shorter transitions for stops, longer ones for approximants /j,w,r/, and noisy overlays for fricatives;
+- vary formant bandwidth and damping during the transition, not only center frequency.
+
+**6. Anti-aliasing / periodicity discipline from modern vocoders**
+
+BigVGAN's AMP blocks and PeriodWave both reinforce the lesson that periodic structure must be modeled explicitly and that high-frequency aliasing hurts perceptual quality.
+
+For VOICE LAB:
+- oversample only the glottal excitation / sharp closure path when HQ is active;
+- low-pass before downsampling;
+- avoid adding broadband brightness after the tract merely to recover clarity;
+- prefer periodic-source quality plus consonant-specific aperiodicity over generic high shelves.
+
+#### B. Japanese-specialized neural references
+
+**Style-Bert-VITS2 / JP-Extra**
+
+Important transferable ideas:
+- phones and pitch-accent tones are parallel inputs;
+- punctuation is retained as a distinct sequence;
+- text/style context and speaker identity are separated;
+- manual accent correction is a first-class feature.
+
+A 2025 Japanese expressive-TTS benchmark reported Style-BERT-VITS2 JP Extra near human ground-truth naturalness on its evaluated character datasets. This makes it a valuable Japanese quality reference, even when its complete stack is too heavy or license-sensitive for direct inclusion.
+
+**VOICEVOX / AivisSpeech**
+
+Useful product-design lessons:
+- accent phrases are editable objects rather than hidden model state;
+- devoicing, accent nucleus, pause boundaries, question endings, and kana pronunciation can be inspected and corrected;
+- AivisSpeech uses ONNX Runtime for Style-Bert-VITS2-family inference, confirming that a Japanese neural path can be packaged without PyTorch.
+
+#### C. Browser/local neural candidates
+
+**Kokoro 82M**
+- 82M-parameter TTS;
+- ONNX / Transformers.js browser implementations exist;
+- quantized q8/q4 variants are available;
+- official Kokoro has Japanese voices and a Japanese G2P path;
+- however Japanese training data/voice quality is weaker than its best English voices and there have been Japanese G2P/inference issues in the ecosystem.
+
+Recommendation: useful as a **browser neural baseline** and integration prototype, not yet the default Japanese quality target.
+
+**Piper / sherpa-onnx / piper-plus**
+- proven ONNX/WASM browser TTS path;
+- sherpa-onnx documents WASM TTS builds;
+- community piper-plus adds Open JTalk and Japanese browser support.
+
+Recommendation: useful to benchmark model-load time, offline caching, worker architecture, and iPhone memory behavior. Expected ceiling is lower than the latest large TTS models, so use mainly as deployment research.
+
+**MOSS-TTS-Nano 100M**
+- released in 2026;
+- about 100M parameters;
+- ONNX CPU version;
+- 48 kHz output and streaming;
+- Japanese among its supported languages;
+- project demonstrates browser-side ONNX integration and reports CPU-friendly inference.
+
+This is currently the most interesting *technical* fit for VOICE LAB's optional Neural HQ tier. However, its repository/model licensing is not sufficiently clear for redistribution at the time of this survey. Do not ship or bundle weights until the license is explicit and compatible.
+
+**Qwen3-TTS**
+- 0.6B / 1.7B family;
+- Japanese among ten languages;
+- 3-second voice cloning and instruction-based control;
+- 12 Hz / 25 Hz speech tokenizers;
+- streaming design with reported first-packet latency down to about 97 ms;
+- Apache-2.0 code.
+
+Recommendation: architecture/reference target, but too large for the primary iPhone-browser path today. Its low-rate speech-token design is especially worth following for future smaller distilled models.
+
+#### D. Modern architecture lessons worth borrowing, not porting literally
+
+**F5-TTS / flow matching**
+- simple non-autoregressive flow-matching speech generation;
+- inference-time sampling schedule matters significantly (Sway Sampling);
+- reinforces the idea that a small number of well-placed refinement passes can outperform uniform refinement.
+
+This validates VOICE LAB's current nonuniform HQ refinement idea, but a true F5 port would require a large learned model.
+
+**CosyVoice 2 / 3**
+- chunk-aware causal flow matching enables streaming and offline generation in one system;
+- later work improves tokenizer supervision using ASR/emotion/language/audio-event/speaker tasks;
+- post-training reward models are used to improve content, speaker, and prosody quality.
+
+Transferable idea: define explicit chunk-state and quality signals, and evaluate pronunciation/prosody separately rather than with one generic quality score.
+
+**BigVGAN / PeriodWave**
+- periodic inductive bias matters;
+- anti-aliasing around nonlinear/periodic operations matters;
+- waveform refinement should preserve periodicity rather than smear it.
+
+**SiFi-GAN / HN-uSFGAN / NSF**
+- explicit F0 source plus learned/filter path remains useful even in high-quality neural vocoders;
+- harmonic + noise decomposition is a strong bridge between VOICE LAB's controllable DSP and modern learned vocoders.
+
+#### E. Evaluation: stop relying only on "sounds better"
+
+Future changes should use a repeatable evaluation pack.
+
+Minimum regression corpus:
+- vowels /a i u e o/ at multiple pitches;
+- stop contrasts /k t p g d b/;
+- fricatives /s sh z j f h/;
+- moraic nasal and geminate;
+- devoiced /i,u/ contexts;
+- heiban / atamadaka / nakadaka / odaka words;
+- questions, exclamations, ellipses, repeated punctuation;
+- long accent phrases and multi-sentence paragraphs;
+- neutral, calm, serious, excited, whisper;
+- Voice Imprint on/off.
+
+Recommended automated metrics:
+- UTMOS/UTMOSv2 for predicted naturalness;
+- ASR CER/WER for intelligibility;
+- F0 contour / DTW-style pitch similarity for prosody;
+- spectral centroid / high-band energy to catch over-bright sibilants;
+- voiced/unvoiced transition timing;
+- speaker embedding similarity when a reference voice is explicitly supplied.
+
+Automated scores are not substitutes for listening. Keep an iPhone A/B panel against SYSTEM TTS and a small set of fixed reference clips.
+
+#### F. Recommended implementation order
+
+1. **Banded aperiodicity + LF source** — highest expected improvement per unit of browser cost.
+2. **Japanese phrase/accent superposition + punctuation lane** — highest Japanese naturalness gain without a model download.
+3. **Consonant formant-locus / bandwidth transitions** — improves articulation without restoring harsh high-frequency boosts.
+4. **Objective evaluation harness** — prevents quality regressions and makes later tuning measurable.
+5. **Optional browser Neural HQ prototype** — benchmark Kokoro and/or another clearly licensed small ONNX model behind a feature flag.
+6. **Re-evaluate MOSS-TTS-Nano licensing** — technically promising for Japanese/iPhone, but do not redistribute until licensing is clear.
+7. **Track distilled Qwen3-TTS / CosyVoice-class models** — strong future candidates when sub-200M browser-friendly derivatives appear.
+
+The important architectural principle is to keep the existing editable prosody/timbre layer even if a neural renderer is added. The neural renderer should consume the same structured Japanese analysis rather than replacing the editor with an opaque text-to-waveform button.
