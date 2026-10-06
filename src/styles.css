@@ -16,6 +16,13 @@ body.voice-lab-open {
   touch-action: pan-y;
 }
 
+/* VOICE LAB is portaled directly under body while open. Keep the game shell
+   locked, but never let #app's fixed overflow boundary own editor gestures. */
+body.voice-lab-open > #voice-lab {
+  pointer-events: auto;
+  touch-action: pan-y;
+}
+
 * { box-sizing: border-box; }
 html, body, #app { width: 100%; height: 100%; margin: 0; overflow: hidden; }
 body { position: fixed; inset: 0; overscroll-behavior: none; background: #080a12; }

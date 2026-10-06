@@ -162,8 +162,24 @@ export class VoiceMode {
     valueLabel: HTMLElement;
   } | null = null;
 
+  private readonly syncVisualViewport = (): void => {
+    const viewport = window.visualViewport;
+    const width = viewport?.width ?? window.innerWidth;
+    const height = viewport?.height ?? window.innerHeight;
+    const left = viewport?.offsetLeft ?? 0;
+    const top = viewport?.offsetTop ?? 0;
+    this.root.style.setProperty('--voice-viewport-width', `${Math.round(width)}px`);
+    this.root.style.setProperty('--voice-viewport-height', `${Math.round(height)}px`);
+    this.root.style.setProperty('--voice-viewport-left', `${Math.round(left)}px`);
+    this.root.style.setProperty('--voice-viewport-top', `${Math.round(top)}px`);
+  };
+
   constructor(root: HTMLElement) {
     this.root = root;
+    // Escape #app's game-only overflow:hidden boundary. iOS Safari can clip
+    // fixed descendants to a fixed/overflow-hidden ancestor even when the
+    // child itself is scrollable.
+    if (this.root.parentElement !== document.body) document.body.append(this.root);
     this.settings = this.loadSettings();
     this.renderShell();
     this.bindEvents();
@@ -177,8 +193,13 @@ export class VoiceMode {
     this.active = true;
     document.documentElement.classList.add('voice-lab-open');
     document.body.classList.add('voice-lab-open');
+    this.syncVisualViewport();
+    window.addEventListener('resize', this.syncVisualViewport);
+    window.visualViewport?.addEventListener('resize', this.syncVisualViewport);
+    window.visualViewport?.addEventListener('scroll', this.syncVisualViewport);
     this.root.classList.add('active');
     this.root.setAttribute('aria-hidden', 'false');
+    this.root.scrollTop = 0;
     if (this.settings.engine === 'local') await this.synth.unlock();
     this.refreshPlan();
   }
@@ -189,6 +210,9 @@ export class VoiceMode {
     this.synth.suspend();
     this.root.classList.remove('active');
     this.root.setAttribute('aria-hidden', 'true');
+    window.removeEventListener('resize', this.syncVisualViewport);
+    window.visualViewport?.removeEventListener('resize', this.syncVisualViewport);
+    window.visualViewport?.removeEventListener('scroll', this.syncVisualViewport);
     document.documentElement.classList.remove('voice-lab-open');
     document.body.classList.remove('voice-lab-open');
   }

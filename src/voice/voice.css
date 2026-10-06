@@ -16,11 +16,14 @@
 
 #voice-lab {
   position: fixed;
-  z-index: 9;
-  inset: 0;
-  width: 100%;
-  height: 100dvh;
-  max-height: 100dvh;
+  z-index: 9999;
+  inset: auto;
+  top: var(--voice-viewport-top, 0px);
+  left: var(--voice-viewport-left, 0px);
+  width: var(--voice-viewport-width, 100vw);
+  height: var(--voice-viewport-height, 100dvh);
+  max-width: var(--voice-viewport-width, 100vw);
+  max-height: var(--voice-viewport-height, 100dvh);
   display: none;
   grid-template-rows: auto minmax(0, 1fr);
   gap: clamp(10px, 1.4vh, 16px);
@@ -39,11 +42,23 @@
   background-size: 26px 26px, 26px 26px, auto, auto, auto;
   /* VOICE LAB can grow taller than compact iPhone landscape viewports.
      Keep the game shell fixed, but make this mode its own touch scroller. */
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow-x: clip;
+  overflow-y: scroll;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-y;
+  scrollbar-width: none;
+  isolation: isolate;
+}
+
+#voice-lab::-webkit-scrollbar { display: none; }
+
+#voice-lab,
+#voice-lab .voice-layout,
+#voice-lab .voice-content-panel,
+#voice-lab .voice-controls-panel {
+  box-sizing: border-box;
+  max-width: 100%;
 }
 
 #voice-lab.active { display: grid; }
@@ -930,22 +945,35 @@
     gap: 7px;
     grid-template-rows: auto auto;
     align-content: start;
-    /* A little extra scroll runway keeps the last control above the
-       iPhone home indicator/browser chrome. */
-    padding-bottom: max(28px, calc(env(safe-area-inset-bottom) + 18px));
+    padding:
+      max(6px, env(safe-area-inset-top))
+      max(10px, env(safe-area-inset-right))
+      max(34px, calc(env(safe-area-inset-bottom) + 22px))
+      max(10px, env(safe-area-inset-left));
   }
-  .voice-header { padding-bottom: 6px; }
+  .voice-header {
+    padding-bottom: 6px;
+    width: 100%;
+    min-width: 0;
+  }
   .voice-header h1 { font-size: 29px; }
   .voice-layout {
+    /* iPhone landscape previously kept the desktop two-column editor.
+       A single document column guarantees that every control is inside the
+       visual viewport and lets one native scroller own all vertical panning. */
+    grid-template-columns: minmax(0, 1fr);
     min-height: auto;
+    width: 100%;
     align-items: start;
   }
   .voice-content-panel,
   .voice-controls-panel {
+    width: 100%;
+    min-width: 0;
     padding: 9px;
     overflow: visible;
     max-height: none;
-    touch-action: auto;
+    touch-action: pan-y;
   }
   .voice-content-panel { gap: 6px; }
   .voice-prosody-preview { min-height: 96px; }
