@@ -102,6 +102,23 @@ describe('Voice Lab speech planning', () => {
     expect(resolveVoiceIntonation(script.units[4]!, 'auto')).toBe('natural');
   });
 
+  it('keeps punctuation kind and repeated strength as explicit prosody tokens', () => {
+    const comma = parseVoiceScript('あ、い。');
+    const question = parseVoiceScript('ほんと？？');
+    const exclaim = parseVoiceScript('いく！！！');
+    const ellipsis = parseVoiceScript('まつ……');
+    const dash = parseVoiceScript('あ――い。');
+
+    expect(comma.units[0]!.punctuationAfter).toBe('comma');
+    expect(question.units.at(-1)!.punctuationAfter).toBe('question');
+    expect(question.units.at(-1)!.punctuationCount).toBe(2);
+    expect(exclaim.units.at(-1)!.punctuationAfter).toBe('exclamation');
+    expect(exclaim.units.at(-1)!.punctuationCount).toBe(3);
+    expect(ellipsis.units.at(-1)!.punctuationAfter).toBe('ellipsis');
+    expect(ellipsis.units.at(-1)!.punctuationCount).toBe(2);
+    expect(dash.units[0]!.punctuationAfter).toBe('dash');
+  });
+
   it('lets a trailing question mark dominate mixed sentence punctuation', () => {
     const script = parseVoiceScript('ほんと！？');
     const final = script.units.at(-1)!;

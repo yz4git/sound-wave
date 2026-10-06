@@ -16,6 +16,17 @@ export type VoiceContinuationKind =
   | 'additive';
 export type VoiceDiscourseRole = 'none' | 'topic' | 'subject' | 'quote' | 'list' | 'focus';
 export type VoiceSpeechEventKind = 'laugh' | 'sigh' | 'inhale' | 'restart' | 'rethink';
+export type VoicePunctuationKind =
+  | 'none'
+  | 'comma'
+  | 'period'
+  | 'question'
+  | 'exclamation'
+  | 'ellipsis'
+  | 'dash'
+  | 'semicolon'
+  | 'middle'
+  | 'linebreak';
 
 export interface VoiceSpeechEvent {
   kind: VoiceSpeechEventKind;
@@ -63,6 +74,10 @@ export interface VoiceUnit {
   breathAfter: boolean;
   expressivePauseAfter: number;
   hesitationAfter: boolean;
+  /** Explicit punctuation/prosody token attached after this mora. */
+  punctuationAfter: VoicePunctuationKind;
+  /** Repeated punctuation count, bounded at parse time for prosody strength. */
+  punctuationCount: number;
   filledPause: boolean;
   autoRateScale: number;
   /** Explicit punctuation attached to this mora, when it ends a sentence. */
@@ -87,6 +102,7 @@ interface PunctuationSpec {
   pause: number;
   boundary: VoiceBoundary;
   terminal?: VoiceSentenceTerminal;
+  kind: VoicePunctuationKind;
 }
 
 interface VoiceSpeechEventMarker {
@@ -162,20 +178,20 @@ const PAREN_OPEN = new Set(['(', '[', '【', '〈', '《']);
 const PAREN_CLOSE = new Set([')', ']', '】', '〉', '》']);
 
 const PUNCTUATION = new Map<string, PunctuationSpec>([
-  ['、', { pause: 0.16, boundary: 'accent' }],
-  [',', { pause: 0.14, boundary: 'accent' }],
-  ['，', { pause: 0.14, boundary: 'accent' }],
-  ['。', { pause: 0.34, boundary: 'sentence', terminal: 'statement' }],
-  ['.', { pause: 0.28, boundary: 'sentence', terminal: 'statement' }],
-  ['！', { pause: 0.3, boundary: 'sentence', terminal: 'exclamation' }],
-  ['!', { pause: 0.26, boundary: 'sentence', terminal: 'exclamation' }],
-  ['？', { pause: 0.34, boundary: 'sentence', terminal: 'question' }],
-  ['?', { pause: 0.32, boundary: 'sentence', terminal: 'question' }],
-  [';', { pause: 0.18, boundary: 'accent' }],
-  ['；', { pause: 0.18, boundary: 'accent' }],
-  ['・', { pause: 0.08, boundary: 'accent' }],
-  ['/', { pause: 0.07, boundary: 'accent' }],
-  ['\n', { pause: 0.36, boundary: 'sentence', terminal: 'statement' }],
+  ['、', { pause: 0.16, boundary: 'accent', kind: 'comma' }],
+  [',', { pause: 0.14, boundary: 'accent', kind: 'comma' }],
+  ['，', { pause: 0.14, boundary: 'accent', kind: 'comma' }],
+  ['。', { pause: 0.34, boundary: 'sentence', terminal: 'statement', kind: 'period' }],
+  ['.', { pause: 0.28, boundary: 'sentence', terminal: 'statement', kind: 'period' }],
+  ['！', { pause: 0.3, boundary: 'sentence', terminal: 'exclamation', kind: 'exclamation' }],
+  ['!', { pause: 0.26, boundary: 'sentence', terminal: 'exclamation', kind: 'exclamation' }],
+  ['？', { pause: 0.34, boundary: 'sentence', terminal: 'question', kind: 'question' }],
+  ['?', { pause: 0.32, boundary: 'sentence', terminal: 'question', kind: 'question' }],
+  [';', { pause: 0.18, boundary: 'accent', kind: 'semicolon' }],
+  ['；', { pause: 0.18, boundary: 'accent', kind: 'semicolon' }],
+  ['・', { pause: 0.08, boundary: 'accent', kind: 'middle' }],
+  ['/', { pause: 0.07, boundary: 'accent', kind: 'middle' }],
+  ['\n', { pause: 0.36, boundary: 'sentence', terminal: 'statement', kind: 'linebreak' }],
 ]);
 
 const KANA: Record<string, string> = {
@@ -315,6 +331,8 @@ function pushUnit(
     breathAfter: false,
     expressivePauseAfter: 0,
     hesitationAfter: false,
+    punctuationAfter: 'none',
+    punctuationCount: 0,
     filledPause: false,
     autoRateScale: 1,
     geminateBefore: flags.geminateBefore ?? false,
@@ -336,16 +354,43 @@ function strongerTerminal(
   return 'statement';
 }
 
+function punctuationPriority(kind: VoicePunctuationKind): number {
+  if (kind === 'question') return 9;
+  if (kind === 'exclamation') return 8;
+  if (kind === 'period' || kind === 'linebreak') return 7;
+  if (kind === 'ellipsis') return 6;
+  if (kind === 'dash') return 5;
+  if (kind === 'semicolon') return 4;
+  if (kind === 'comma') return 3;
+  if (kind === 'middle') return 2;
+  return 0;
+}
+
+function attachPunctuation(
+  unit: VoiceUnit,
+  kind: VoicePunctuationKind,
+  count = 1,
+): void {
+  if (kind === 'none') return;
+  unit.punctuationCount = Math.min(4, unit.punctuationCount + Math.max(1, count));
+  if (punctuationPriority(kind) >= punctuationPriority(unit.punctuationAfter)) {
+    unit.punctuationAfter = kind;
+  }
+}
+
 function markPause(
   units: VoiceUnit[],
   pause: number,
   boundary: VoiceBoundary,
   terminal?: VoiceSentenceTerminal,
+  punctuation: VoicePunctuationKind = 'none',
+  count = 1,
 ): void {
   const previous = units[units.length - 1];
   if (!previous) return;
   previous.pauseAfter = Math.max(previous.pauseAfter, pause);
   previous.boundaryAfter = strongerBoundary(previous.boundaryAfter, boundary);
+  attachPunctuation(previous, punctuation, count);
   if (boundary === 'sentence') {
     const mergedTerminal = strongerTerminal(previous.terminalAfter, terminal);
     if (mergedTerminal) previous.terminalAfter = mergedTerminal;
@@ -568,11 +613,14 @@ function markExpressivePause(
   units: VoiceUnit[],
   pause: number,
   hesitation = false,
+  punctuation: VoicePunctuationKind = 'ellipsis',
+  count = 1,
 ): void {
   const previous = units[units.length - 1];
   if (!previous) return;
   previous.expressivePauseAfter = Math.max(previous.expressivePauseAfter, pause);
   previous.hesitationAfter ||= hesitation;
+  attachPunctuation(previous, punctuation, count);
 }
 
 function annotateFilledPauses(units: VoiceUnit[]): void {
@@ -853,21 +901,21 @@ export function parseVoiceScript(text: string): VoiceScript {
     if (normalized.startsWith('...', index)) {
       let end = index + 3;
       while (normalized[end] === '.') end += 1;
-      markExpressivePause(units, end - index >= 6 ? 0.24 : 0.2, true);
+      markExpressivePause(units, end - index >= 6 ? 0.24 : 0.2, true, 'ellipsis', end - index);
       index = end;
       continue;
     }
     if (char === '…') {
       let end = index + 1;
       while (normalized[end] === '…') end += 1;
-      markExpressivePause(units, end - index >= 2 ? 0.24 : 0.18, true);
+      markExpressivePause(units, end - index >= 2 ? 0.24 : 0.18, true, 'ellipsis', end - index);
       index = end;
       continue;
     }
     if (char === '―' || char === '—') {
       let end = index + 1;
       while (normalized[end] === char) end += 1;
-      markExpressivePause(units, end - index >= 2 ? 0.2 : 0.14, true);
+      markExpressivePause(units, end - index >= 2 ? 0.2 : 0.14, true, 'dash', end - index);
       index = end;
       continue;
     }
@@ -907,8 +955,19 @@ export function parseVoiceScript(text: string): VoiceScript {
 
     const punctuation = PUNCTUATION.get(char);
     if (punctuation) {
-      markPause(units, punctuation.pause, punctuation.boundary, punctuation.terminal);
-      index += 1;
+      let end = index + 1;
+      while (end < normalized.length && normalized[end] === char) end += 1;
+      const repeatCount = end - index;
+      const repeatPause = punctuation.pause * (1 + Math.min(0.24, (repeatCount - 1) * 0.08));
+      markPause(
+        units,
+        repeatPause,
+        punctuation.boundary,
+        punctuation.terminal,
+        punctuation.kind,
+        repeatCount,
+      );
+      index = end;
       continue;
     }
 

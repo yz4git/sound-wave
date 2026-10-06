@@ -1078,3 +1078,25 @@ VOICE LAB now separates Japanese pitch generation into explicit long- and short-
 - **Manual edits stay last.** User PITCH drawing, phrase pitch edits, expression offsets, and emphasis remain additive after the structured automatic contour.
 
 This is not a numerical implementation of the original Fujisaki equations. It borrows the important decomposition—slow phrase command plus faster accent command—while preserving the existing deterministic semitone-domain editor and Open JTalk accent labels.
+
+
+### 47. Explicit punctuation prosody tokens
+
+Punctuation is now preserved as a first-class prosody channel instead of collapsing immediately into pause duration and sentence type.
+
+- Each spoken mora can carry `punctuationAfter` and bounded `punctuationCount`.
+- Supported tokens distinguish comma, period, question, exclamation, ellipsis, dash, semicolon, middle-dot/slash, and line break.
+- Repeated marks such as `？？` and `！！！` retain bounded strength rather than becoming identical to a single mark or growing without limit.
+- Ellipsis and dash are no longer only `expressivePauseAfter`; they also keep their token identity.
+- Tail prosody is token-specific:
+  - comma stays slightly open and softer;
+  - period lowers and settles;
+  - question adds a small terminal lift on top of sentence-question intonation;
+  - exclamation shortens and energizes;
+  - ellipsis lengthens, lowers energy, and adds breath;
+  - dash creates interruption tension rather than a generic long pause.
+- Restart prosody is also token-specific. The first mora after punctuation can receive a small pitch/energy/rate reset, so a comma continuation does not restart like a full stop and a dash restarts more abruptly.
+- Punctuation breath is added to the existing finality model instead of replacing expression/attitude.
+- Repeated punctuation is deliberately conservative: it changes delivery strength but never creates extreme pitch or gain values.
+
+This follows the useful Style-Bert-VITS2 frontend lesson that punctuation carries information lost by lexical accent extraction. In VOICE LAB it remains an explicit deterministic control lane, independent from lexical H/L, phrase F0, sentence modality, and manual PITCH edits.

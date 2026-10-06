@@ -8,6 +8,7 @@ import {
   speechEventProfileFor,
   speechEventTransitionFor,
   speechPitchTransitionScaleFor,
+  speechPunctuationProsodyFor,
   speechChunkContinuityProfileFor,
   type VoiceSynthSettings,
 } from '../src/voice/VoiceSynth';
@@ -23,6 +24,33 @@ const SETTINGS: VoiceSynthSettings = {
 };
 
 describe('Voice Lab synthesis plan', () => {
+  it('gives punctuation types distinct tail and restart prosody', () => {
+    const comma = speechPunctuationProsodyFor('comma', 1);
+    const period = speechPunctuationProsodyFor('period', 1);
+    const question = speechPunctuationProsodyFor('question', 1);
+    const exclamation = speechPunctuationProsodyFor('exclamation', 2);
+    const ellipsis = speechPunctuationProsodyFor('ellipsis', 2);
+    const dash = speechPunctuationProsodyFor('dash', 2);
+
+    expect(comma.restartPitchSemitones).toBeGreaterThan(0);
+    expect(period.tailPitchSemitones).toBeLessThan(0);
+    expect(question.tailPitchSemitones).toBeGreaterThan(0);
+    expect(exclamation.energyScale).toBeGreaterThan(1);
+    expect(ellipsis.durationScale).toBeGreaterThan(period.durationScale);
+    expect(ellipsis.breathAdd).toBeGreaterThan(period.breathAdd);
+    expect(dash.restartEnergyScale).toBeGreaterThan(comma.restartEnergyScale);
+  });
+
+  it('uses repeated punctuation strength without unbounded exaggeration', () => {
+    const singleQuestion = speechPunctuationProsodyFor('question', 1);
+    const tripleQuestion = speechPunctuationProsodyFor('question', 3);
+    const quadrupleExclaim = speechPunctuationProsodyFor('exclamation', 4);
+
+    expect(tripleQuestion.tailPitchSemitones).toBeGreaterThan(singleQuestion.tailPitchSemitones);
+    expect(tripleQuestion.tailPitchSemitones).toBeLessThan(0.3);
+    expect(quadrupleExclaim.energyScale).toBeLessThan(1.2);
+  });
+
   it('uses punctuation to choose sentence intonation in AUTO mode', () => {
     const synth = new VoiceSynth();
     const autoSettings: VoiceSynthSettings = { ...SETTINGS, intonation: 'auto' };

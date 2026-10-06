@@ -9,6 +9,7 @@ import {
   japaneseF0LayersForUnit,
   resolveVoiceIntonation,
   type VoiceIntonation,
+  type VoicePunctuationKind,
   type VoiceResolvedIntonation,
   type VoiceScript,
   type VoiceSpeechEvent,
@@ -1456,6 +1457,102 @@ export function speechPitchTransitionScaleFor(
   return 1;
 }
 
+export interface SpeechPunctuationProsodyProfile {
+  tailPitchSemitones: number;
+  durationScale: number;
+  energyScale: number;
+  breathAdd: number;
+  restartPitchSemitones: number;
+  restartEnergyScale: number;
+  restartRateScale: number;
+}
+
+export function speechPunctuationProsodyFor(
+  kind: VoicePunctuationKind,
+  count = 1,
+): SpeechPunctuationProsodyProfile {
+  const strength = 1 + Math.min(0.3, Math.max(0, count - 1) * 0.1);
+  const neutral: SpeechPunctuationProsodyProfile = {
+    tailPitchSemitones: 0,
+    durationScale: 1,
+    energyScale: 1,
+    breathAdd: 0,
+    restartPitchSemitones: 0,
+    restartEnergyScale: 1,
+    restartRateScale: 1,
+  };
+  if (kind === 'comma') return {
+    tailPitchSemitones: 0.08 * strength,
+    durationScale: 1.025,
+    energyScale: 0.97,
+    breathAdd: 0.008,
+    restartPitchSemitones: 0.13,
+    restartEnergyScale: 1.025,
+    restartRateScale: 0.995,
+  };
+  if (kind === 'semicolon') return {
+    tailPitchSemitones: -0.025,
+    durationScale: 1.045,
+    energyScale: 0.95,
+    breathAdd: 0.015,
+    restartPitchSemitones: 0.16,
+    restartEnergyScale: 1.035,
+    restartRateScale: 0.99,
+  };
+  if (kind === 'period' || kind === 'linebreak') return {
+    tailPitchSemitones: -0.12 * strength,
+    durationScale: 1.055,
+    energyScale: 0.94,
+    breathAdd: 0.018,
+    restartPitchSemitones: kind === 'linebreak' ? 0.19 : 0.12,
+    restartEnergyScale: 1.025,
+    restartRateScale: 0.995,
+  };
+  if (kind === 'question') return {
+    tailPitchSemitones: 0.18 * strength,
+    durationScale: 1.045,
+    energyScale: 0.985,
+    breathAdd: 0.006,
+    restartPitchSemitones: 0.16,
+    restartEnergyScale: 1.035,
+    restartRateScale: 0.99,
+  };
+  if (kind === 'exclamation') return {
+    tailPitchSemitones: 0.08 * strength,
+    durationScale: 0.965,
+    energyScale: 1.07 * Math.min(1.08, strength),
+    breathAdd: 0.004,
+    restartPitchSemitones: 0.18,
+    restartEnergyScale: 1.055,
+    restartRateScale: 1.015,
+  };
+  if (kind === 'ellipsis') return {
+    tailPitchSemitones: -0.12 * strength,
+    durationScale: 1.1 * Math.min(1.06, strength),
+    energyScale: 0.9,
+    breathAdd: 0.052 * strength,
+    restartPitchSemitones: -0.04,
+    restartEnergyScale: 0.93,
+    restartRateScale: 0.955,
+  };
+  if (kind === 'dash') return {
+    tailPitchSemitones: 0.02,
+    durationScale: 1.025,
+    energyScale: 0.955,
+    breathAdd: 0.018,
+    restartPitchSemitones: 0.2 * strength,
+    restartEnergyScale: 1.06,
+    restartRateScale: 1.02,
+  };
+  if (kind === 'middle') return {
+    ...neutral,
+    durationScale: 1.012,
+    energyScale: 0.985,
+    restartPitchSemitones: 0.035,
+  };
+  return neutral;
+}
+
 export interface SpeechEmphasisProfile {
   pitchSemitones: number;
   durationScale: number;
@@ -2120,11 +2217,16 @@ export class VoiceSynth {
       const phraseEnergyScale = clamp(edits.phraseEnergyScales?.[index] ?? 1, 0.65, 1.45);
       const phraseEmphasis = clamp(edits.phraseEmphasisScales?.[index] ?? 0, 0, 1.5);
       const contextDelivery = speechContextDeliveryFor(unit, expression);
+      const previousPunctuation = speechPunctuationProsodyFor(
+        script.units[index - 1]?.punctuationAfter ?? 'none',
+        script.units[index - 1]?.punctuationCount ?? 0,
+      );
       const effectiveRate = settings.rate
         * phraseRateScale
         * unit.autoRateScale
         * contextDelivery.rateScale
-        * eventTransition.rateScale;
+        * eventTransition.rateScale
+        * (index > 0 ? previousPunctuation.restartRateScale : 1);
       const emphasisProfile = speechEmphasisProfileFor(
         unit,
         script.units[index + 1],
@@ -2132,6 +2234,10 @@ export class VoiceSynth {
       );
       const finality = speechFinalityProfileFor(expression, resolvedIntonation);
       const attitude = speechAttitudeProfileFor(unit);
+      const punctuationProsody = speechPunctuationProsodyFor(
+        unit.punctuationAfter,
+        unit.punctuationCount,
+      );
       const finalPitchOffset = unit.phraseEnd
         ? finality.pitchSemitones + attitude.pitchSemitones
         : 0;
@@ -2150,6 +2256,8 @@ export class VoiceSynth {
           + emphasisProfile.pitchSemitones
           + eventTransition.pitchSemitones
           + finalPitchOffset
+          + punctuationProsody.tailPitchSemitones
+          + (index > 0 ? previousPunctuation.restartPitchSemitones : 0)
           + manualPitchOffset,
         40,
         82,
@@ -2159,6 +2267,7 @@ export class VoiceSynth {
           * expressionUnit.durationScale
           * emphasisProfile.durationScale
           * finalDurationScale
+          * punctuationProsody.durationScale
           * manualDurationScale,
         0.05,
         0.58,
@@ -2171,6 +2280,8 @@ export class VoiceSynth {
           * phraseEnergyScale
           * emphasisProfile.energyScale
           * finalEnergyScale
+          * punctuationProsody.energyScale
+          * (index > 0 ? previousPunctuation.restartEnergyScale : 1)
           * manualEnergyScale,
         0.22,
         1.8,
@@ -2493,7 +2604,7 @@ export class VoiceSynth {
           ? finality.creak * documentFinalityScale
           : 0,
         speechFinalBreath: unit.phraseEnd
-          ? finality.breath * documentFinalityScale
+          ? (finality.breath + punctuationProsody.breathAdd) * documentFinalityScale
           : unit.breathAfter
             ? 0.09
             : unit.hesitationAfter
