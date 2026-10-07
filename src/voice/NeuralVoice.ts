@@ -109,6 +109,96 @@ export function neuralSpeedForSettings(
   return clamp(rate / control.durationScale, 0.62, 1.55);
 }
 
+/** Exact output identity: no stale PCM when the speaker or VOICE LAB edits change. */
+export function neuralPlaybackCacheKey(
+  plan: NeuralProsodyPlan,
+  options: NeuralVoicePlaybackOptions,
+): string {
+  return JSON.stringify([
+    'kokoro-neural-pcm-v1',
+    KOKORO_JP_CDN,
+    'q8',
+    neuralVoiceIdForCharacter(options.character),
+    options.rate,
+    options.energy,
+    options.pitch,
+    options.tone,
+    options.expression.preset,
+    options.expression.intensity,
+    plan.edited,
+    plan.segments.map((segment) => [
+      segment.text,
+      segment.startUnit,
+      segment.endUnit,
+      segment.rateScale,
+      segment.energyScale,
+      segment.pitchSemitones,
+      segment.pauseAfter,
+      segment.expression.preset,
+      segment.expression.intensity,
+    ]),
+  ]);
+}
+
+export interface CachedNeuralAudio {
+  audio: Float32Array;
+  sampleRate: number;
+}
+
+/** Session-only LRU cache. PCM is kept in RAM, never in localStorage. */
+export class NeuralAudioCache {
+  private readonly entries = new Map<string, CachedNeuralAudio>();
+  private usedBytes = 0;
+
+  constructor(
+    private readonly maxBytes = 24 * 1024 * 1024,
+    private readonly maxEntries = 8,
+  ) {}
+
+  get size(): number {
+    return this.entries.size;
+  }
+
+  get bytes(): number {
+    return this.usedBytes;
+  }
+
+  get(key: string): CachedNeuralAudio | null {
+    const found = this.entries.get(key);
+    if (!found) return null;
+    // Refresh recency without allocating another PCM copy.
+    this.entries.delete(key);
+    this.entries.set(key, found);
+    return found;
+  }
+
+  set(key: string, value: CachedNeuralAudio): void {
+    if (
+      value.audio.length === 0
+      || !Number.isFinite(value.sampleRate)
+      || value.sampleRate <= 0
+      || value.audio.byteLength > this.maxBytes
+      || this.maxEntries < 1
+    ) return;
+
+    const previous = this.entries.get(key);
+    if (previous) {
+      this.usedBytes -= previous.audio.byteLength;
+      this.entries.delete(key);
+    }
+    this.entries.set(key, value);
+    this.usedBytes += value.audio.byteLength;
+
+    while (this.usedBytes > this.maxBytes || this.entries.size > this.maxEntries) {
+      const oldest = this.entries.keys().next().value;
+      if (oldest === undefined) break;
+      const removed = this.entries.get(oldest)!;
+      this.usedBytes -= removed.audio.byteLength;
+      this.entries.delete(oldest);
+    }
+  }
+}
+
 function punctuationText(kind: VoicePunctuationKind): string {
   switch (kind) {
     case 'comma': return '、';
@@ -460,6 +550,7 @@ function mergeRenderedSegments(
  */
 export class BrowserNeuralVoice {
   private modelPromise: Promise<KokoroJPInstance> | null = null;
+  private readonly audioCache = new NeuralAudioCache();
   private context: AudioContext | null = null;
   private source: AudioBufferSourceNode | null = null;
   private gain: GainNode | null = null;
@@ -615,22 +706,35 @@ export class BrowserNeuralVoice {
     if (context.state !== 'running') await context.resume();
     if (generation !== this.generation) return;
 
-    const wasLoaded = this.loaded;
-    options.onStatus?.(
-      wasLoaded
-        ? plan.edited
-          ? 'NEURAL HQ · APPLYING VOICE LAB EDITS'
-          : 'NEURAL HQ · PREPARING JAPANESE'
-        : 'NEURAL HQ · LOADING KOKORO 82M Q8 · FIRST USE',
-    );
+    const cacheKey = neuralPlaybackCacheKey(plan, options);
+    let rendered = this.audioCache.get(cacheKey);
 
-    const tts = await this.loadModel();
-    if (generation !== this.generation) return;
+    if (rendered) {
+      // Do not await the model at all. The same edited phrase can play on the
+      // next touch even if the model has since been suspended/released.
+      options.onStatus?.('NEURAL HQ · CACHED · INSTANT REPLAY');
+    } else {
+      const wasLoaded = this.loaded;
+      options.onStatus?.(
+        wasLoaded
+          ? plan.edited
+            ? 'NEURAL HQ · APPLYING VOICE LAB EDITS'
+            : 'NEURAL HQ · PREPARING JAPANESE'
+          : 'NEURAL HQ · LOADING KOKORO 82M Q8 · FIRST USE',
+      );
+
+      const tts = await this.loadModel();
+      if (generation !== this.generation) return;
+
+      rendered = await this.renderPlan(tts, plan, options, generation);
+      if (generation !== this.generation || rendered.audio.length === 0) return;
+
+      // Store the final, already-edited PCM, preserving exactly the original
+      // voice quality, crossfades and pauses on every subsequent replay.
+      this.audioCache.set(cacheKey, rendered);
+    }
 
     const voiceId = neuralVoiceIdForCharacter(options.character);
-    const rendered = await this.renderPlan(tts, plan, options, generation);
-    if (generation !== this.generation || rendered.audio.length === 0) return;
-
     const buffer = context.createBuffer(
       1,
       rendered.audio.length,

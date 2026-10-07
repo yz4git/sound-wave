@@ -1177,3 +1177,18 @@ The segmentation policy is now quality-first:
 - Synthetic comma cues are limited to user or language-visible phrase boundaries.
 
 This restores more of Kokoro's native phrase planning while keeping VOICE LAB controls useful.
+
+
+### 52. Instant same-sentence Neural HQ replay
+
+Neural HQ previously called `tts.speak()` every time the user pressed SPEAK, even when replaying the same text with unchanged settings. The q8 ONNX inference cost dominated replay latency.
+
+- After a successful first render, final edited/un-edited mono PCM and its sample rate are stored in a **session-only LRU cache**.
+- A replay of the same voice, text, rate, energy, global pitch/tone, global delivery, and every neural prosody segment uses the cached waveform immediately, skipping both model loading and Kokoro inference.
+- The cache key incorporates Kokoro integration version, speaker, full segment text and order, rate/energy/pitch/pause, and local expression. Changing edits automatically misses the cache; restoring settings can hit an older entry.
+- Because the **final waveform** is cached, repeat playback preserves the original neural timbre, pitch compensation, edited pause timing, and crossfades exactly.
+- A conservative **24 MiB / 8 recordings** LRU limit bounds Float32 PCM memory on iPhone. Oldest unused recordings are evicted; oversized clips simply use the uncached path.
+- Cache survives STOP, engine switches and VOICE LAB deactivation while the app remains open, but is intentionally not persisted into localStorage, IndexedDB or a service worker.
+- The first synthesis still requires the model and Japanese dictionary. Repeat playback avoids inference, but AudioContext may need a fast `resume()` after iOS suspension.
+
+No additional TTS model, post-processing effect, network transfer or voice-quality change was introduced.

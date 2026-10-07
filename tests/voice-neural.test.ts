@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   KOKORO_JP_CDN,
+  NeuralAudioCache,
   buildNeuralProsodyPlan,
+  neuralPlaybackCacheKey,
   neuralSpeedForSettings,
   neuralVoiceIdForCharacter,
 } from '../src/voice/NeuralVoice';
@@ -319,5 +321,87 @@ describe('Neural HQ natural segmentation', () => {
     expect(plan.segments.length).toBe(2);
     expect(plan.segments[0]!.endUnit).toBe(33);
     expect(plan.segments[0]!.text.endsWith('、')).toBe(false);
+  });
+});
+
+
+describe('Neural HQ instant replay cache', () => {
+  const expression = { preset: 'neutral' as const, intensity: 1 };
+  const options = {
+    character: 'natural' as const,
+    rate: 1,
+    energy: 1,
+    pitch: 60,
+    tone: 0,
+    expression,
+  };
+  const plan = {
+    edited: false,
+    segments: [{
+      text: 'こんにちは。',
+      startUnit: 0,
+      endUnit: 4,
+      rateScale: 1,
+      energyScale: 1,
+      pitchSemitones: 0,
+      pauseAfter: 0,
+      expression,
+    }],
+  };
+
+  it('reuses the exact same key when text and voice settings are unchanged', () => {
+    expect(neuralPlaybackCacheKey(plan, options)).toBe(
+      neuralPlaybackCacheKey(structuredClone(plan), { ...options }),
+    );
+  });
+
+  it('invalidates on text, voice, rate, energy, pitch, delivery and edited pause', () => {
+    const base = neuralPlaybackCacheKey(plan, options);
+    const different = [
+      neuralPlaybackCacheKey({ ...plan, segments: [{ ...plan.segments[0]!, text: 'こんばんは。' }] }, options),
+      neuralPlaybackCacheKey(plan, { ...options, character: 'soft' as const }),
+      neuralPlaybackCacheKey(plan, { ...options, rate: 1.1 }),
+      neuralPlaybackCacheKey(plan, { ...options, energy: 0.9 }),
+      neuralPlaybackCacheKey(plan, { ...options, pitch: 61 }),
+      neuralPlaybackCacheKey(plan, { ...options, tone: 0.2 }),
+      neuralPlaybackCacheKey(plan, { ...options, expression: { preset: 'calm' as const, intensity: 1 } }),
+      neuralPlaybackCacheKey({ ...plan, edited: true, segments: [{ ...plan.segments[0]!, pauseAfter: 0.14 }] }, options),
+      neuralPlaybackCacheKey({ ...plan, edited: true, segments: [{ ...plan.segments[0]!, pitchSemitones: 0.3 }] }, options),
+    ];
+    expect(new Set(different).size).toBe(different.length);
+    expect(different.every((key) => key !== base)).toBe(true);
+  });
+
+  it('evicts least recently used recordings but keeps the recently replayed one', () => {
+    const cache = new NeuralAudioCache(1024, 2);
+    const record = (count: number) => ({ audio: new Float32Array(count), sampleRate: 24000 });
+    cache.set('a', record(12));
+    cache.set('b', record(12));
+    expect(cache.get('a')).not.toBeNull();
+    cache.set('c', record(12));
+    expect(cache.get('a')).not.toBeNull();
+    expect(cache.get('b')).toBeNull();
+    expect(cache.get('c')).not.toBeNull();
+    expect(cache.size).toBe(2);
+    expect(cache.bytes).toBe(96);
+  });
+
+  it('keeps total stored PCM under the iPhone memory limit and skips oversized audio', () => {
+    const cache = new NeuralAudioCache(80, 4);
+    const record = (count: number) => ({ audio: new Float32Array(count), sampleRate: 24000 });
+    cache.set('a', record(12));
+    cache.set('b', record(12));
+    expect(cache.bytes).toBeLessThanOrEqual(80);
+    expect(cache.get('a')).toBeNull();
+    cache.set('too-long', record(21));
+    expect(cache.get('too-long')).toBeNull();
+    expect(cache.bytes).toBeLessThanOrEqual(80);
+  });
+
+  it('does not retain empty or invalid PCM entries', () => {
+    const cache = new NeuralAudioCache();
+    cache.set('empty', { audio: new Float32Array(), sampleRate: 24000 });
+    cache.set('invalid', { audio: new Float32Array(2), sampleRate: Number.NaN });
+    expect(cache.size).toBe(0);
   });
 });
