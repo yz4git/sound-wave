@@ -69,7 +69,10 @@ import {
   validVoiceIdentityImprint,
   type VoiceIdentityImprint,
 } from './VoiceImprint';
-import { BrowserNeuralVoice } from './NeuralVoice';
+import {
+  BrowserNeuralVoice,
+  buildNeuralProsodyPlan,
+} from './NeuralVoice';
 
 type VoiceEngine = 'local' | 'neural' | 'system';
 type ProsodyLane = 'pitch' | 'energy' | 'duration';
@@ -437,7 +440,7 @@ export class VoiceMode {
 
     const contour = this.required<HTMLElement>('#voice-contour');
     contour.addEventListener('pointerdown', (event) => {
-      if (this.settings.engine !== 'local') return;
+      if (this.settings.engine === 'system') return;
       event.preventDefault();
       this.drawingProsody = true;
       this.lastDrawIndex = null;
@@ -720,7 +723,7 @@ export class VoiceMode {
     const imprintFile = this.required<HTMLInputElement>('#voice-imprint-file');
     this.required<HTMLButtonElement>('#voice-imprint-load').addEventListener('pointerdown', (event) => {
       event.preventDefault();
-      if (this.settings.engine !== 'local') return;
+      if (this.settings.engine === 'system') return;
       imprintFile.click();
     }, { passive: false });
     imprintFile.addEventListener('change', () => {
@@ -856,8 +859,9 @@ export class VoiceMode {
       button.classList.toggle('active', button.dataset.voiceQuality === this.settings.quality);
       button.disabled = this.settings.engine !== 'local';
     }
+    const editableEngine = this.settings.engine !== 'system';
     this.required<HTMLButtonElement>('#voice-analyze-japanese').disabled =
-      this.settings.engine !== 'local' || this.japaneseAnalyzing;
+      !editableEngine || this.japaneseAnalyzing;
     this.required<HTMLButtonElement>('#voice-export-wav').disabled = this.settings.engine !== 'local';
     this.required<HTMLButtonElement>('#voice-imprint-load').disabled = this.settings.engine !== 'local';
     this.required<HTMLButtonElement>('#voice-imprint-clear').disabled =
@@ -867,11 +871,13 @@ export class VoiceMode {
     imprintStatus.textContent = imprint
       ? `IMPRINT · ${imprint.quality?.label.toUpperCase() ?? 'LEGACY'} · ${imprint.medianF0Hz.toFixed(0)} Hz · CONF ${Math.round(imprint.confidence * 100)}% · ${imprint.analyzedSeconds.toFixed(1)} s`
       : 'NO IMPRINT · 3–10 s clear single voice · normalized to 48 kHz mono';
-    this.required<HTMLButtonElement>('#voice-reset-prosody').disabled = this.settings.engine !== 'local';
+    this.required<HTMLButtonElement>('#voice-reset-prosody').disabled = !editableEngine;
     for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-prosody-lane]')) {
-      button.disabled = this.settings.engine !== 'local';
+      button.disabled = !editableEngine;
     }
-    this.required<HTMLElement>('#voice-contour').classList.toggle('disabled', this.settings.engine !== 'local');
+    this.required<HTMLElement>('#voice-contour').classList.toggle('disabled', !editableEngine);
+    this.required<HTMLInputElement>('#voice-vtl').disabled = this.settings.engine === 'neural';
+    this.required<HTMLSelectElement>('#voice-style').disabled = this.settings.engine === 'neural';
     this.syncProsodyLaneUi();
     this.syncLabels();
   }
@@ -1173,8 +1179,9 @@ export class VoiceMode {
     pageLabel.textContent = `${window.page + 1} / ${window.pageCount}`;
     const prevPage = this.required<HTMLButtonElement>('#voice-prosody-prev');
     const nextPage = this.required<HTMLButtonElement>('#voice-prosody-next');
-    prevPage.disabled = this.settings.engine !== 'local' || window.page <= 0;
-    nextPage.disabled = this.settings.engine !== 'local' || window.page >= window.pageCount - 1;
+    const prosodyEditable = this.settings.engine !== 'system';
+    prevPage.disabled = !prosodyEditable || window.page <= 0;
+    nextPage.disabled = !prosodyEditable || window.page >= window.pageCount - 1;
     const preview = plan.units.slice(window.start, window.end);
     const previewDuration = Math.max(
       0.1,
@@ -1245,7 +1252,7 @@ export class VoiceMode {
               : 'ENTER KANA OR ROMAJI',
       );
     } else if (this.settings.engine === 'neural') {
-      note.textContent = 'NEURAL HQ · Kokoro 82M q8 · Japanese Open JTalk · client-side after download · first Japanese use also loads dictionary assets · VOICE maps to five Kokoro Japanese speakers · RATE / DELIVERY / ENERGY applied';
+      note.textContent = 'NEURAL HQ · model-native quality + VOICE LAB adapter · PITCH(draw/phrase, safe ±0.75 st) · ENERGY · TIMING/RATE · EMPHASIS · SPLIT/JOIN/PAUSE · LOCAL DELIVERY · accent edits · VTL/IMPRINT remain DSP-only';
       this.setStatus(this.neural.loaded ? 'READY · NEURAL HQ · MODEL CACHED IN SESSION' : 'READY · NEURAL HQ · MODEL LOADS ON FIRST SPEAK');
     } else {
       note.textContent = 'SYSTEM TTS · device/browser voice · kanji and general text supported · availability varies by OS';
@@ -1509,7 +1516,7 @@ export class VoiceMode {
   ): void {
     const editor = this.required<HTMLElement>('#voice-accent-editor');
     editor.replaceChildren();
-    editor.hidden = !analyzed || this.settings.engine !== 'local';
+    editor.hidden = !analyzed || this.settings.engine === 'system';
     if (editor.hidden) return;
 
     this.ensureAccentOverrides(plainText);
@@ -2059,18 +2066,39 @@ export class VoiceMode {
     }
   }
 
-  private async playNeural(script: VoiceMarkupScript): Promise<void> {
-    const plainText = script.plainText.trim();
+  private async playNeural(markup: VoiceMarkupScript): Promise<void> {
+    const rawText = this.required<HTMLTextAreaElement>('#voice-text').value.trim();
+    const plainText = markup.plainText.trim();
     if (!plainText) {
       this.setStatus('ENTER TEXT');
       return;
     }
 
+    const resolved = this.resolveLocalScript(rawText);
+    const script = resolved.script;
+    this.restoreProsodyEdits(rawText, script.units.length);
+    this.ensureProsodyEditLength(script.units.length);
+    const edits = this.getProsodyEdits(script, resolved.localExpressions);
+    const localPlan = this.synth.plan(script, this.settings, edits);
+    const neuralPlan = buildNeuralProsodyPlan({
+      originalText: plainText,
+      script,
+      timedUnits: localPlan.units,
+      edits,
+      phraseBoundaries: this.phraseBoundaries,
+      hasPhraseEdits: this.phraseBoundaries.length > 0 || this.phraseShapes.length > 0,
+      hasAccentEdits: this.accentOverrides.length > 0,
+      markupUsed: markup.markupUsed,
+      globalExpression: this.settings.expression,
+    });
+
     try {
-      await this.neural.play(plainText, {
+      await this.neural.playPlan(neuralPlan, {
         character: this.settings.character,
         rate: this.settings.rate,
         energy: this.settings.energy,
+        pitch: this.settings.pitch,
+        tone: this.settings.tone,
         expression: this.settings.expression,
         onStatus: (message) => {
           if (!this.active || this.settings.engine !== 'neural') return;
@@ -2080,7 +2108,9 @@ export class VoiceMode {
         onStart: (voiceId) => {
           if (!this.active || this.settings.engine !== 'neural') return;
           this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
-          this.setStatus(`NEURAL HQ · ${voiceId.toUpperCase()} · LOCAL ONNX`);
+          this.setStatus(
+            `NEURAL HQ · ${voiceId.toUpperCase()} · ${neuralPlan.edited ? `VOICE LAB EDITS · ${neuralPlan.segments.length} SEG` : 'MODEL-NATIVE'}`,
+          );
         },
         onEnd: () => {
           if (!this.active || this.settings.engine !== 'neural') return;
@@ -2176,7 +2206,7 @@ export class VoiceMode {
   }
 
   private async exportWav(): Promise<void> {
-    if (this.settings.engine !== 'local') return;
+    if (this.settings.engine === 'system') return;
     const text = this.required<HTMLTextAreaElement>('#voice-text').value.trim();
     const markup = parseVoiceMarkup(text);
     let resolved = this.resolveLocalScript(text);

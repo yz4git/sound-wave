@@ -1139,3 +1139,23 @@ Current control mapping:
 This is a true dual-renderer architecture: DSP remains immediate/editable and lightweight; Neural HQ is the higher-naturalness final-listen path. Future work can pass the structured phrase/accent/punctuation representation into a neural conditioning or post-render alignment layer rather than discarding the editor.
 
 MOSS-TTS-Nano was also reviewed as a technically strong ~100M multilingual ONNX/browser candidate, but its upstream repository explicitly says to treat it as not licensed for redistribution until a root LICENSE is published. It is therefore not bundled or dynamically integrated at this stage.
+
+
+### 50. VOICE LAB controls on Neural HQ without discarding model quality
+
+Neural HQ now consumes the existing VOICE LAB editor through a conservative adapter instead of treating Kokoro as an opaque text box.
+
+Quality-first rules:
+- **Unedited speech stays exactly model-native.** If no VOICE LAB edit is active, the original text is sent to Kokoro in one utterance exactly as before.
+- **Editing creates the fewest practical neural segments.** Natural sentence boundaries, explicit SPLIT/PAUSE, local-delivery changes, or materially different control regions can create segments. Minor frame/mora differences are averaged rather than generating every mora independently.
+- **RATE / TIMING are model-native.** Per-region timing is converted into Kokoro speed before inference.
+- **ENERGY / EMPHASIS are model-native + clean gain staging.** Expression and phrase energy feed segment gain, with final peak normalization rather than clipping.
+- **LOCAL DELIVERY is preserved.** Different tagged expression spans can use different neural speed/energy behavior while keeping the selected Kokoro speaker identity.
+- **PITCH DRAW / phrase pitch use a safe adapter.** Kokoro exposes no direct F0 conditioning. Large DSP-style pitch shifting would damage the neural timbre, so manual/phrase pitch is compressed through a tanh curve to about ±0.65 semitone. Global PITCH/TONE plus local edits are finally bounded to ±0.75 semitone.
+- **Pitch duration compensation.** The tiny pitch shift is performed with cubic PCM resampling, while model speaking speed is changed inversely before synthesis so edited pitch does not unintentionally stretch/compress the phrase.
+- **Accent nucleus edits affect a subtle neural pitch envelope.** They can create a bounded H/L bias and, when necessary, one quality-safe boundary around a user-edited H→L nucleus. They do not attempt to force Kokoro with unsupported hidden model controls.
+- **SPLIT/JOIN/PAUSE map to real neural phrase boundaries.** A split can add a Japanese comma cue plus an explicit residual silence; JOIN removes that artificial boundary.
+- **Independent segments use an 8 ms equal-power crossfade** when no pause is requested, avoiding clicks and hard seams.
+- **VTL and Voice Imprint remain DSP-only.** Kokoro 82M has fixed speaker embeddings and no supported tract-length or arbitrary reference-speaker conditioning API. Faking either with heavy formant processing would defeat the goal of preserving Neural HQ quality.
+
+The adapter therefore moves the controls that can be represented cleanly, and deliberately refuses destructive approximations for controls the model does not expose.
