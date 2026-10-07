@@ -428,7 +428,9 @@ function mergeRenderedSegments(
   }
   if (peak > 0.985) {
     const scale = 0.985 / peak;
-    for (let index = 0; index < output.length; index += 1) output[index] *= scale;
+    for (let index = 0; index < output.length; index += 1) {
+      output[index] = (output[index] ?? 0) * scale;
+    }
   }
 
   return { audio: output, sampleRate };
