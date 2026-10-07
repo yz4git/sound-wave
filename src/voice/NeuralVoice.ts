@@ -253,6 +253,8 @@ export function buildNeuralProsodyPlan(
       && !punctuationText(last.unit.punctuationAfter)
       && last.unit.boundaryAfter === 'accent'
     ) {
+      // Only real/user-visible phrase boundaries receive a punctuation cue.
+      // Internal safety cuts intentionally stay punctuation-free.
       spokenText += '、';
     } else if (
       last.unit.boundaryAfter === 'sentence'
@@ -308,33 +310,45 @@ export function buildNeuralProsodyPlan(
     const expressionChange = Boolean(
       nextControl && !expressionEqual(control.expression, nextControl.expression),
     );
-    const controlChange = Boolean(
-      nextControl
-      && (
-        Math.abs(control.pitch - nextControl.pitch) > 0.42
-        || Math.abs(Math.log(control.rate / nextControl.rate)) > 0.085
-        || Math.abs(Math.log(control.energy / nextControl.energy)) > 0.11
-      ),
-    );
-    const accentNucleusSplit = Boolean(
-      input.hasAccentEdits
-      && next
-      && timed.unit.pitchAccent === 'high'
-      && next.unit.pitchAccent === 'low'
-      && count >= 3,
-    );
-    const maxLength = count >= 16;
-    const enoughForControlSplit = count >= 4 && (controlChange || expressionChange);
+
+    // Neural segmentation must follow language structure, not every control
+    // discontinuity. Small PITCH/ENERGY/TIMING changes are averaged inside the
+    // current neural phrase; otherwise Kokoro repeatedly restarts prosody in
+    // the middle of Japanese bunsetsu and sounds "chopped".
+    const punctuationBoundary = timed.unit.punctuationAfter !== 'none'
+      && timed.unit.punctuationAfter !== 'middle';
+    const discourseBoundary = timed.unit.continuationAfter !== 'none'
+      || timed.unit.discourseAfter !== 'none'
+      || timed.unit.expressivePauseAfter >= 0.07
+      || timed.unit.pauseAfter >= 0.1;
+    const naturalBoundary = timed.unit.boundaryAfter === 'accent'
+      && (punctuationBoundary || discourseBoundary);
+
+    // LOCAL DELIVERY is an explicit user request and needs a new model pass,
+    // but defer it until at least a short phrase has formed when possible.
+    const deliveryBoundary = expressionChange && count >= 5;
+
+    // Long utterances are allowed to stay intact much longer than before.
+    // Prefer a linguistic boundary after ~18 mora; only use a hard safety cut
+    // at 34 mora, and never insert an artificial comma for that safety cut.
+    const longNaturalBreak = count >= 18 && naturalBoundary;
+    const hardSafetyBreak = count >= 34;
 
     if (
       !next
       || sentenceEnd
       || userSplit
-      || accentNucleusSplit
-      || enoughForControlSplit
-      || maxLength
+      || naturalBoundary
+      || deliveryBoundary
+      || longNaturalBreak
+      || hardSafetyBreak
     ) {
-      flush(index, Boolean(userSplit || accentNucleusSplit || enoughForControlSplit || maxLength));
+      const commaCue = Boolean(
+        userSplit
+        || naturalBoundary
+        || deliveryBoundary && timed.unit.boundaryAfter === 'accent',
+      );
+      flush(index, commaCue);
     }
   }
 

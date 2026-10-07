@@ -176,3 +176,148 @@ describe('Neural HQ VOICE LAB adapter', () => {
     expect(Math.max(...plan.segments.map((segment) => Math.abs(segment.pitchSemitones)))).toBeLessThanOrEqual(0.65);
   });
 });
+
+
+describe('Neural HQ natural segmentation', () => {
+  const makeUnit = (index: number, overrides: Record<string, unknown> = {}) => ({
+    index,
+    display: ['こ','れ','は','と','て','も','し','ぜ','ん','な','お','ん','せ','い','で','す','よ','ね','ま','だ'][index % 20]!,
+    syllable: 'a',
+    vowel: 'a',
+    phraseStart: index === 0,
+    phraseEnd: false,
+    phraseIndex: index,
+    phraseCount: 40,
+    accentStart: false,
+    accentEnd: false,
+    accentIndex: index,
+    accentCount: 40,
+    accentPhraseIndex: 0,
+    accentPhraseCount: 1,
+    boundaryAfter: 'none',
+    pauseAfter: 0,
+    boundaryBefore: 'none',
+    pauseBefore: 0,
+    questionKind: 'none',
+    questionFocus: false,
+    sentenceAttitude: 'none',
+    sentenceHesitation: false,
+    attitudeFocus: false,
+    suppressAttitudeInference: false,
+    continuationAfter: 'none',
+    continuationBefore: 'none',
+    suppressContinuationInference: false,
+    discourseAfter: 'none',
+    discourseBefore: 'none',
+    focusStrength: 0,
+    quoted: false,
+    parenthetical: false,
+    breathBefore: 0,
+    breathAfter: false,
+    expressivePauseAfter: 0,
+    hesitationAfter: false,
+    punctuationAfter: 'none',
+    punctuationCount: 0,
+    filledPause: false,
+    pitchAccent: index < 7 ? 'high' : 'low',
+    autoRateScale: 1,
+    devoiced: false,
+    geminateBefore: false,
+    longVowel: false,
+    terminalAfter: 'none',
+    ...overrides,
+  }) as any;
+
+  const makeTimed = (unit: any, overrides: Record<string, unknown> = {}) => ({
+    unit,
+    start: unit.index * 0.13,
+    duration: 0.13,
+    pitchMidi: 60,
+    energyScale: 1,
+    manualPitchOffset: 0,
+    manualEnergyScale: 1,
+    manualDurationScale: 1,
+    phrasePitchOffset: 0,
+    phraseRateScale: 1,
+    phraseEnergyScale: 1,
+    phraseEmphasis: 0,
+    phraseF0Offset: 0,
+    accentF0Offset: 0,
+    expression: { preset: 'neutral', intensity: 1 },
+    ...overrides,
+  }) as any;
+
+  it('does not cut at an edited H-to-L accent nucleus by itself', () => {
+    const units = Array.from({ length: 14 }, (_, index) =>
+      makeUnit(index, index === 13 ? { boundaryAfter: 'sentence', punctuationAfter: 'period' } : {}),
+    );
+    const plan = buildNeuralProsodyPlan({
+      originalText: 'これはとてもしぜんなおんせいです。',
+      script: { units, unsupported: [], events: [] },
+      timedUnits: units.map((unit) => makeTimed(unit)),
+      edits: {},
+      hasAccentEdits: true,
+      globalExpression: { preset: 'neutral', intensity: 1 },
+    });
+    expect(plan.segments).toHaveLength(1);
+  });
+
+  it('keeps small neighboring control changes inside one neural phrase', () => {
+    const units = Array.from({ length: 12 }, (_, index) =>
+      makeUnit(index, index === 11 ? { boundaryAfter: 'sentence', punctuationAfter: 'period' } : {}),
+    );
+    const timedUnits = units.map((unit, index) => makeTimed(unit, {
+      manualPitchOffset: index % 2 === 0 ? 0.5 : 0,
+      manualEnergyScale: index % 3 === 0 ? 1.08 : 1,
+      manualDurationScale: index % 4 === 0 ? 1.08 : 1,
+    }));
+    const plan = buildNeuralProsodyPlan({
+      originalText: 'これはとてもしぜんなおんせい。',
+      script: { units, unsupported: [], events: [] },
+      timedUnits,
+      edits: { pitchOffsets: timedUnits.map((item) => item.manualPitchOffset) },
+      globalExpression: { preset: 'neutral', intensity: 1 },
+    });
+    expect(plan.segments).toHaveLength(1);
+  });
+
+  it('prefers a natural comma boundary for long edited speech', () => {
+    const units = Array.from({ length: 24 }, (_, index) =>
+      makeUnit(index, index === 18
+        ? {
+            boundaryAfter: 'accent',
+            pauseAfter: 0.16,
+            punctuationAfter: 'comma',
+          }
+        : index === 23
+          ? { boundaryAfter: 'sentence', punctuationAfter: 'period' }
+          : {}),
+    );
+    const plan = buildNeuralProsodyPlan({
+      originalText: 'ながいぶんしょうですが、ここでしぜんにくぎります。',
+      script: { units, unsupported: [], events: [] },
+      timedUnits: units.map((unit) => makeTimed(unit, { manualPitchOffset: 0.25 })),
+      edits: { pitchOffsets: units.map(() => 0.25) },
+      globalExpression: { preset: 'neutral', intensity: 1 },
+    });
+    expect(plan.segments.length).toBe(2);
+    expect(plan.segments[0]!.endUnit).toBe(18);
+    expect(plan.segments[0]!.text.endsWith('、')).toBe(true);
+  });
+
+  it('does not inject a comma on the hard safety cut', () => {
+    const units = Array.from({ length: 38 }, (_, index) =>
+      makeUnit(index, index === 37 ? { boundaryAfter: 'sentence', punctuationAfter: 'period' } : {}),
+    );
+    const plan = buildNeuralProsodyPlan({
+      originalText: 'かなりながいれんぞくしたぶんしょうをそのままよませるためのてすとです。',
+      script: { units, unsupported: [], events: [] },
+      timedUnits: units.map((unit) => makeTimed(unit, { manualEnergyScale: 1.05 })),
+      edits: { energyScales: units.map(() => 1.05) },
+      globalExpression: { preset: 'neutral', intensity: 1 },
+    });
+    expect(plan.segments.length).toBe(2);
+    expect(plan.segments[0]!.endUnit).toBe(33);
+    expect(plan.segments[0]!.text.endsWith('、')).toBe(false);
+  });
+});

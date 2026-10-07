@@ -1159,3 +1159,21 @@ Quality-first rules:
 - **VTL and Voice Imprint remain DSP-only.** Kokoro 82M has fixed speaker embeddings and no supported tract-length or arbitrary reference-speaker conditioning API. Faking either with heavy formant processing would defeat the goal of preserving Neural HQ quality.
 
 The adapter therefore moves the controls that can be represented cleanly, and deliberately refuses destructive approximations for controls the model does not expose.
+
+
+### 51. Natural Neural HQ segmentation: linguistic boundaries before control changes
+
+The first VOICE LAB-to-Neural adapter over-segmented edited speech. It could start a new Kokoro inference pass at an edited H→L accent nucleus, at a small PITCH/ENERGY/TIMING discontinuity, or after only 16 mora. Each restart is acoustically clean, but repeated model prosody resets can sound like unnatural phrase chopping.
+
+The segmentation policy is now quality-first:
+
+- H→L accent nuclei **never split by themselves**.
+- Small neighboring PITCH, ENERGY, TIMING, and phrase-control differences are averaged inside the current neural phrase.
+- Natural boundaries are preferred: explicit comma/punctuation, connective/discourse boundaries, sufficiently long linguistic pauses, sentence ends, and user SPLIT.
+- LOCAL DELIVERY changes remain explicit boundaries because they request a different delivery style, but short fragments are avoided when possible.
+- Long edited speech is allowed to continue for roughly 18+ mora and waits for a natural boundary.
+- A hard safety cut is delayed to 34 mora.
+- Hard safety cuts receive **no synthetic Japanese comma**, preventing an audible comma where the writer did not put one.
+- Synthetic comma cues are limited to user or language-visible phrase boundaries.
+
+This restores more of Kokoro's native phrase planning while keeping VOICE LAB controls useful.
