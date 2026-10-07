@@ -4,6 +4,7 @@ import {
   NeuralAudioCache,
   buildNeuralProsodyPlan,
   neuralPlaybackCacheKey,
+  neuralSegmentInferenceKey,
   neuralSpeedForSettings,
   neuralVoiceIdForCharacter,
 } from '../src/voice/NeuralVoice';
@@ -403,5 +404,38 @@ describe('Neural HQ instant replay cache', () => {
     cache.set('empty', { audio: new Float32Array(), sampleRate: 24000 });
     cache.set('invalid', { audio: new Float32Array(2), sampleRate: Number.NaN });
     expect(cache.size).toBe(0);
+  });
+});
+
+
+describe('Neural HQ generation acceleration', () => {
+  it('reuses model inference when only playback gain or pause changes', () => {
+    const first = neuralSegmentInferenceKey('こんにちは。', 'jf_alpha', 1);
+    const same = neuralSegmentInferenceKey('こんにちは。', 'jf_alpha', 1);
+    expect(same).toBe(first);
+    // No ENERGY or PAUSE argument is present in the key by design.
+    const finalA = ['こんにちは。', 0.1, 0.92];
+    const finalB = ['こんにちは。', 0.25, 1.13];
+    expect(finalA).not.toEqual(finalB);
+    expect(neuralSegmentInferenceKey(finalA[0] as string, 'jf_alpha', 1))
+      .toBe(neuralSegmentInferenceKey(finalB[0] as string, 'jf_alpha', 1));
+  });
+
+  it('rerenders when phonetic text, speaker or actual model speed changes', () => {
+    const base = neuralSegmentInferenceKey('こんにちは。', 'jf_alpha', 1);
+    expect(neuralSegmentInferenceKey('こんばんは。', 'jf_alpha', 1)).not.toBe(base);
+    expect(neuralSegmentInferenceKey('こんにちは。', 'jf_nezumi', 1)).not.toBe(base);
+    expect(neuralSegmentInferenceKey('こんにちは。', 'jf_alpha', 1.08)).not.toBe(base);
+  });
+
+  it('keeps the segment LRU constrained to a small iPhone-friendly footprint', () => {
+    const cache = new NeuralAudioCache(256, 2);
+    cache.set('one', { audio: new Float32Array(24), sampleRate: 24_000 });
+    cache.set('two', { audio: new Float32Array(24), sampleRate: 24_000 });
+    cache.get('one');
+    cache.set('three', { audio: new Float32Array(24), sampleRate: 24_000 });
+    expect(cache.get('one')).not.toBeNull();
+    expect(cache.get('two')).toBeNull();
+    expect(cache.get('three')).not.toBeNull();
   });
 });

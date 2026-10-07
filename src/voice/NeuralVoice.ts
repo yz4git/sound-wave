@@ -145,6 +145,25 @@ export interface CachedNeuralAudio {
   sampleRate: number;
 }
 
+/**
+ * The Kokoro inference input identity excludes playback-only ENERGY, PAUSE
+ * and gain. Editing those controls can reuse the expensive generated voice.
+ * Effective model speed includes pitch duration-compensation by design.
+ */
+export function neuralSegmentInferenceKey(
+  text: string,
+  voiceId: NeuralVoiceId,
+  modelSpeed: number,
+): string {
+  return JSON.stringify([
+    'kokoro-jp-segment-q8-v1',
+    KOKORO_JP_CDN,
+    voiceId,
+    text,
+    modelSpeed,
+  ]);
+}
+
 /** Session-only LRU cache. PCM is kept in RAM, never in localStorage. */
 export class NeuralAudioCache {
   private readonly entries = new Map<string, CachedNeuralAudio>();
@@ -550,7 +569,11 @@ function mergeRenderedSegments(
  */
 export class BrowserNeuralVoice {
   private modelPromise: Promise<KokoroJPInstance> | null = null;
+  private modelReady = false;
   private readonly audioCache = new NeuralAudioCache();
+  // Raw Kokoro segments: 12 MiB / 24 entries, separate from the 24 MiB
+  // final-waveform replay cache. Avoid retaining a second full session.
+  private readonly segmentCache = new NeuralAudioCache(12 * 1024 * 1024, 24);
   private context: AudioContext | null = null;
   private source: AudioBufferSourceNode | null = null;
   private gain: GainNode | null = null;
@@ -558,7 +581,18 @@ export class BrowserNeuralVoice {
   private finishPlayback: (() => void) | null = null;
 
   get loaded(): boolean {
-    return this.modelPromise !== null;
+    return this.modelReady;
+  }
+
+  /** Pre-load model weights as soon as NEURAL HQ is explicitly selected. */
+  async preload(): Promise<boolean> {
+    try {
+      await this.loadModel();
+      return true;
+    } catch (error) {
+      console.warn('Neural HQ background model preload unavailable.', error);
+      return false;
+    }
   }
 
   private ensureContext(): AudioContext {
@@ -573,11 +607,14 @@ export class BrowserNeuralVoice {
       this.modelPromise = (async () => {
         const moduleUrl = KOKORO_JP_CDN;
         const module = await import(/* @vite-ignore */ moduleUrl) as unknown as KokoroJPModule;
-        return module.KokoroJP.load({
+        const model = await module.KokoroJP.load({
           dtype: 'q8',
           device: 'wasm',
         });
+        this.modelReady = true;
+        return model;
       })().catch((error) => {
+        this.modelReady = false;
         this.modelPromise = null;
         throw error;
       });
@@ -649,19 +686,38 @@ export class BrowserNeuralVoice {
           : 'NEURAL HQ · GENERATING',
       );
 
-      const rendered = await tts.speak(segment.text, voiceId, modelSpeed);
-      if (generation !== this.generation) {
-        return { audio: new Float32Array(0), sampleRate: 24_000 };
-      }
-      if (!(rendered.audio instanceof Float32Array) || rendered.audio.length === 0) {
-        throw new Error('Kokoro returned no PCM audio.');
+      const segmentKey = neuralSegmentInferenceKey(
+        segment.text,
+        voiceId,
+        modelSpeed,
+      );
+      let rendered = this.segmentCache.get(segmentKey);
+      if (rendered) {
+        options.onStatus?.(
+          plan.segments.length > 1
+            ? `NEURAL HQ · REUSING PHRASE ${index + 1}/${plan.segments.length}`
+            : 'NEURAL HQ · REUSING GENERATED VOICE',
+        );
+      } else {
+        const result = await tts.speak(segment.text, voiceId, modelSpeed);
+        if (generation !== this.generation) {
+          return { audio: new Float32Array(0), sampleRate: 24_000 };
+        }
+        if (!(result.audio instanceof Float32Array) || result.audio.length === 0) {
+          throw new Error('Kokoro returned no PCM audio.');
+        }
+        rendered = {
+          audio: result.audio,
+          sampleRate: Number.isFinite(result.sampling_rate)
+            ? clamp(result.sampling_rate, 8_000, 96_000)
+            : 24_000,
+        };
+        this.segmentCache.set(segmentKey, rendered);
       }
       const expressionControl = voiceExpressionControl(segment.expression);
       renderedSegments.push({
         audio: resampleForPitch(rendered.audio, pitchFactor),
-        sampleRate: Number.isFinite(rendered.sampling_rate)
-          ? clamp(rendered.sampling_rate, 8_000, 96_000)
-          : 24_000,
+        sampleRate: rendered.sampleRate,
         gain: clamp(
           options.energy
             * segment.energyScale

@@ -1192,3 +1192,17 @@ Neural HQ previously called `tts.speak()` every time the user pressed SPEAK, eve
 - The first synthesis still requires the model and Japanese dictionary. Repeat playback avoids inference, but AudioContext may need a fast `resume()` after iOS suspension.
 
 No additional TTS model, post-processing effect, network transfer or voice-quality change was introduced.
+
+
+### 53. Faster Neural HQ generation without changing q8 quality
+
+Neural HQ now reduces both cold perceived delay and repeat inference cost while preserving the exact Kokoro q8 / WASM sound.
+
+- **Start loading on engine selection.** When the user activates/selects NEURAL HQ, the model fetch/initialization begins immediately rather than waiting for SPEAK. This overlaps model preparation with user text editing. Persistent NEURAL HQ selection also warms when opening VOICE LAB. The Japanese Open JTalk dictionary remains lazy until first Japanese speech, avoiding an unrequested ~100MB memory cost.
+- **Second-level segment inference cache.** Beyond the existing full-waveform instant replay cache (24 MiB), raw neural segments use a 12 MiB / 24-entry LRU. The key includes model/version, speaker, exact text and effective model speed.
+- **Reuse unaffected phrases.** When a user changes a local pause, energy, emphasis or edits one phrase, unchanged Kokoro segments can bypass ONNX inference. Pitch or rate adjustments properly invalidate segments only when they change effective model speed.
+- **No extra model.** This retains q8 WASM as the stable iPhone baseline. In particular, loading fp32 WebGPU and a second model automatically on iPhone was rejected for now due to larger weights, browser backend differences and quality/memory risks.
+- **Same audio quality.** Cached raw PCM is reused before the existing tiny pitch compensation, clean gain, and click-safe merge. A full replay still short-circuits at the final waveform cache.
+- **Memory bound.** Two capped RAM-only caches use up to 36 MiB of retained final + raw PCM. No IndexedDB, network uploads or server execution.
+
+An architectural opportunity for further improvement is live incremental per-sentence playback (time-to-first-sound) or a manually controlled WebGPU experiment with verified audio output and memory budget; neither should replace the stable q8 iPhone path without device A/B testing.

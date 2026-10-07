@@ -207,6 +207,7 @@ export class VoiceMode {
     this.root.scrollTop = 0;
     if (this.settings.engine === 'local') await this.synth.unlock();
     this.refreshPlan();
+    if (this.settings.engine === 'neural') this.preloadNeuralModel();
   }
 
   deactivate(): void {
@@ -314,7 +315,7 @@ export class VoiceMode {
             <button type="button" data-voice-quality="fast">FAST DSP</button>
             <button type="button" data-voice-quality="hq">HQ REFINE</button>
           </div>
-          <p class="voice-engine-note">DSP HQ · editable source/filter renderer · NEURAL HQ · Kokoro 82M q8 + Open JTalk, loaded only on first use</p>
+          <p class="voice-engine-note">DSP HQ · editable renderer · NEURAL HQ · q8 model preloads on selection, Japanese G2P loads on first speech · reusable phrase inference</p>
           <div class="voice-japanese-tools">
             <button type="button" id="voice-analyze-japanese">JAPANESE G2P</button>
             <span id="voice-japanese-status">Open JTalk reading + pitch accent · kanji / おう / えい · first use ~24MB dictionary</span>
@@ -752,6 +753,7 @@ export class VoiceMode {
         this.stop();
         this.syncControls();
         this.refreshPlan();
+        if (engine === 'neural') this.preloadNeuralModel();
       }, { passive: false });
     }
 
@@ -1252,7 +1254,7 @@ export class VoiceMode {
               : 'ENTER KANA OR ROMAJI',
       );
     } else if (this.settings.engine === 'neural') {
-      note.textContent = 'NEURAL HQ · model-native quality + VOICE LAB adapter · PITCH(draw/phrase, safe ±0.75 st) · ENERGY · TIMING/RATE · EMPHASIS · SPLIT/JOIN/PAUSE · LOCAL DELIVERY · accent edits · VTL/IMPRINT remain DSP-only';
+      note.textContent = 'NEURAL HQ · q8 model prepares on selection · unchanged phrases reuse generated PCM · model-native quality + VOICE LAB edits · safe PITCH · ENERGY · TIMING/RATE · SPLIT/JOIN/PAUSE · VTL/IMPRINT DSP-only';
       this.setStatus(this.neural.loaded ? 'READY · NEURAL HQ · MODEL CACHED IN SESSION' : 'READY · NEURAL HQ · MODEL LOADS ON FIRST SPEAK');
     } else {
       note.textContent = 'SYSTEM TTS · device/browser voice · kanji and general text supported · availability varies by OS';
@@ -2064,6 +2066,22 @@ export class VoiceMode {
       console.warn('VOICE LAB local synthesis failed.', error);
       this.setStatus('LOCAL VOICE ENGINE UNAVAILABLE');
     }
+  }
+
+  private preloadNeuralModel(): void {
+    if (this.neural.loaded) return;
+    if (this.active && this.settings.engine === 'neural') {
+      this.setStatus('NEURAL HQ · PREPARING MODEL IN ADVANCE');
+    }
+    void this.neural.preload().then((ready) => {
+      if (!this.active || this.settings.engine !== 'neural') return;
+      // Do not interrupt active speech or rendering status.
+      const current = this.required<HTMLElement>('#voice-status').textContent ?? '';
+      if (!current.includes('PREPARING MODEL')) return;
+      this.setStatus(ready
+        ? 'NEURAL HQ · MODEL READY · SPEAK TO GENERATE'
+        : 'NEURAL HQ · MODEL PRELOAD FAILED · RETRY ON SPEAK');
+    });
   }
 
   private async playNeural(markup: VoiceMarkupScript): Promise<void> {
