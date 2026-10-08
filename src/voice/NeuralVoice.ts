@@ -101,6 +101,74 @@ export function neuralWebGPUAvailable(): boolean {
     && Boolean((navigator as Navigator & { gpu?: unknown }).gpu);
 }
 
+export interface NeuralGPUEnvironment {
+  userAgent: string;
+  platform: string;
+  maxTouchPoints: number;
+  deviceMemory?: number;
+  hasWebGPU: boolean;
+}
+
+/** The experimental fp32 vocoder needs much more memory than mobile Safari
+ * can reliably grant. Detect iPadOS in desktop-browser mode too. */
+export function neuralGPUDeviceBlockReason(env: NeuralGPUEnvironment): string | null {
+  if (
+    /iPhone|iPad|iPod/i.test(env.userAgent)
+    || (/Mac/i.test(env.platform) && env.maxTouchPoints > 1)
+  ) return 'GPU BETA DISABLED ON IPHONE/IPAD · USE NEURAL HQ CPU';
+  if (env.deviceMemory !== undefined && env.deviceMemory < 8) {
+    return 'GPU BETA REQUIRES MORE MEMORY · USE NEURAL HQ CPU';
+  }
+  if (!env.hasWebGPU) return 'WEBGPU NOT AVAILABLE · USE NEURAL HQ CPU';
+  return null;
+}
+
+const GPU_PENDING_KEY = 'sound-wave-neural-gpu-incomplete-v1';
+const GPU_QUARANTINE_KEY = 'sound-wave-neural-gpu-quarantined-v1';
+let gpuRecoveryChecked = false;
+let gpuQuarantined = false;
+
+/** An incomplete marker survives a renderer/page crash in the same tab. */
+function checkGPURecovery(): boolean {
+  if (!gpuRecoveryChecked) {
+    gpuRecoveryChecked = true;
+    try {
+      gpuQuarantined = sessionStorage.getItem(GPU_QUARANTINE_KEY) === '1';
+      if (sessionStorage.getItem(GPU_PENDING_KEY) === '1') {
+        sessionStorage.removeItem(GPU_PENDING_KEY);
+        sessionStorage.setItem(GPU_QUARANTINE_KEY, '1');
+        gpuQuarantined = true;
+      }
+    } catch { /* Safari private storage may be restricted */ }
+  }
+  return gpuQuarantined;
+}
+
+export function neuralGPUBlockReason(): string | null {
+  if (checkGPURecovery()) {
+    return 'GPU BETA RECOVERY · PRIOR GPU SESSION STOPPED UNEXPECTEDLY';
+  }
+  if (typeof navigator === 'undefined') {
+    return 'WEBGPU NOT AVAILABLE · USE NEURAL HQ CPU';
+  }
+  const device = navigator as Navigator & { deviceMemory?: number };
+  return neuralGPUDeviceBlockReason({
+    userAgent: device.userAgent,
+    platform: device.platform,
+    maxTouchPoints: device.maxTouchPoints ?? 0,
+    deviceMemory: device.deviceMemory,
+    hasWebGPU: neuralWebGPUAvailable(),
+  });
+}
+
+/** Set only for live GPU inference/load, not cached replay. */
+function markGPUAttempt(active: boolean): void {
+  try {
+    if (active) sessionStorage.setItem(GPU_PENDING_KEY, '1');
+    else sessionStorage.removeItem(GPU_PENDING_KEY);
+  } catch { /* Nonpersistent session, still device gated */ }
+}
+
 /** Reject corrupt GPU PCM *before* caching or playing it. */
 export function neuralPCMQualityGate(audio: Float32Array): boolean {
   if (audio.length < 128) return false;
@@ -648,8 +716,9 @@ export class BrowserNeuralVoice {
   }
 
   private async loadModel(backend: NeuralComputeBackend = 'wasm'): Promise<KokoroJPInstance> {
-    if (backend === 'webgpu' && !neuralWebGPUAvailable()) {
-      throw new Error('Safari WebGPU unavailable');
+    if (backend === 'webgpu') {
+      const block = neuralGPUBlockReason();
+      if (block) throw new Error(block);
     }
     if (this.modelBackend !== backend) {
       // Avoid intentionally retaining two 82M models when switching backends.
@@ -818,15 +887,21 @@ export class BrowserNeuralVoice {
     this.stop();
     const generation = this.generation;
     const context = this.ensureContext();
+    const requestedGPU = options.backend === 'webgpu';
+    const gpuBlock = requestedGPU ? neuralGPUBlockReason() : null;
+    const effectiveOptions = gpuBlock
+      ? { ...options, backend: 'wasm' as const }
+      : options;
+    if (gpuBlock) options.onStatus?.(gpuBlock);
 
     if (context.state !== 'running') await context.resume();
     if (generation !== this.generation) return;
 
-    const cacheKey = neuralPlaybackCacheKey(plan, options);
+    const cacheKey = neuralPlaybackCacheKey(plan, effectiveOptions);
     let rendered = this.audioCache.get(cacheKey);
-    let backendUsed: NeuralComputeBackend = options.backend ?? 'wasm';
+    let backendUsed: NeuralComputeBackend = effectiveOptions.backend ?? 'wasm';
     let inferenceMs = 0;
-    let fallback = false;
+    let fallback = Boolean(gpuBlock);
 
     if (rendered) {
       // Do not await the model at all. The same edited phrase can play on the
@@ -843,6 +918,8 @@ export class BrowserNeuralVoice {
       );
 
       const inferenceStart = performance.now();
+      const attemptingGPU = backendUsed === 'webgpu';
+      if (attemptingGPU && !neuralGPUBlockReason()) markGPUAttempt(true);
       try {
         const tts = await this.loadModel(backendUsed);
         if (generation !== this.generation) return;
@@ -857,6 +934,8 @@ export class BrowserNeuralVoice {
         const tts = await this.loadModel('wasm');
         if (generation !== this.generation) return;
         rendered = await this.renderPlan(tts, plan, options, generation, 'wasm');
+      } finally {
+        if (attemptingGPU) markGPUAttempt(false);
       }
       if (generation !== this.generation || !rendered || rendered.audio.length === 0) return;
       inferenceMs = performance.now() - inferenceStart;

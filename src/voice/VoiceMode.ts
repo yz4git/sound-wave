@@ -72,6 +72,7 @@ import {
 import {
   BrowserNeuralVoice,
   buildNeuralProsodyPlan,
+  neuralGPUBlockReason,
 } from './NeuralVoice';
 
 type VoiceEngine = 'local' | 'neural' | 'neural-gpu' | 'system';
@@ -247,7 +248,9 @@ export class VoiceMode {
       if (!raw) return fallback;
       const parsed = JSON.parse(raw) as Partial<VoiceLabSettings>;
       return {
-        engine: validEngine(parsed.engine) ? parsed.engine : fallback.engine,
+        engine: parsed.engine === 'neural-gpu' && neuralGPUBlockReason()
+          ? 'neural'
+          : validEngine(parsed.engine) ? parsed.engine : fallback.engine,
         quality: validQuality(parsed.quality) ? parsed.quality : fallback.quality,
         style: validStyle(parsed.style) ? parsed.style : fallback.style,
         character: validVoiceCharacterPreset(parsed.character) ? parsed.character : fallback.character,
@@ -750,6 +753,19 @@ export class VoiceMode {
         event.preventDefault();
         const engine = button.dataset.voiceEngine;
         if (!validEngine(engine)) return;
+        if (engine === 'neural-gpu') {
+          const blocked = neuralGPUBlockReason();
+          if (blocked) {
+            this.settings.engine = 'neural';
+            this.saveSettings();
+            this.stop();
+            this.syncControls();
+            this.refreshPlan();
+            this.setStatus(blocked);
+            this.preloadNeuralModel();
+            return;
+          }
+        }
         this.settings.engine = engine;
         this.saveSettings();
         this.stop();
@@ -863,6 +879,12 @@ export class VoiceMode {
 
     for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-voice-engine]')) {
       button.classList.toggle('active', button.dataset.voiceEngine === this.settings.engine);
+      if (button.dataset.voiceEngine === 'neural-gpu') {
+        const blocked = neuralGPUBlockReason();
+        button.disabled = Boolean(blocked);
+        button.title = blocked ?? 'Experimental FP32 WebGPU, high memory requirement';
+        button.setAttribute('aria-label', blocked ?? 'GPU Beta');
+      }
     }
     for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-voice-quality]')) {
       button.classList.toggle('active', button.dataset.voiceQuality === this.settings.quality);
@@ -1267,9 +1289,13 @@ export class VoiceMode {
       note.textContent = gpu
         ? 'GPU BETA · WebGPU patched Kokoro fp32 ~326MB · experimental on iPhone · audio output safety gate · automatic CPU q8 fallback · compare RTF to NEURAL HQ'
         : 'NEURAL HQ · q8 model prepares on selection · unchanged phrases reuse generated PCM · model-native quality + VOICE LAB edits · safe PITCH · ENERGY · TIMING/RATE · SPLIT/JOIN/PAUSE · VTL/IMPRINT DSP-only';
+      const blocked = neuralGPUBlockReason();
       this.setStatus(gpu
-        ? 'READY · GPU BETA · 326MB DOWNLOAD ON FIRST SPEAK'
+        ? blocked ?? 'READY · GPU BETA · 326MB DOWNLOAD ON FIRST SPEAK'
         : this.neural.loaded ? 'READY · NEURAL HQ · MODEL CACHED IN SESSION' : 'READY · NEURAL HQ · MODEL LOADS ON FIRST SPEAK');
+      if (!gpu && blocked) {
+        note.textContent += ' · GPU BETA IS BLOCKED ON THIS DEVICE TO PREVENT MEMORY CRASHES';
+      }
     } else {
       note.textContent = 'SYSTEM TTS · device/browser voice · kanji and general text supported · availability varies by OS';
       this.setStatus('READY · SYSTEM TTS');
@@ -2128,6 +2154,15 @@ export class VoiceMode {
 
     try {
       this.lastNeuralMetric = '';
+      const gpuBlocked = this.settings.engine === 'neural-gpu'
+        ? neuralGPUBlockReason()
+        : null;
+      if (gpuBlocked) {
+        this.settings.engine = 'neural';
+        this.saveSettings();
+        this.syncControls();
+        this.setStatus(gpuBlocked);
+      }
       await this.neural.playPlan(neuralPlan, {
         backend: this.settings.engine === 'neural-gpu' ? 'webgpu' : 'wasm',
         character: this.settings.character,

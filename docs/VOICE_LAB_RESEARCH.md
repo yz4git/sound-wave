@@ -1220,3 +1220,20 @@ iOS Safari 26 supports WebGPU, but stock Kokoro fp32 exhibits catastrophic incor
 - Safari JavaScript cannot directly invoke Apple's Core ML / Neural Engine in a GitHub Pages app. A native iOS host is required for that hardware provider.
 
 Do not replace the stable CPU q8 default until an actual iPhone A/B test verifies sound quality, latency, memory and thermal behavior.
+
+
+### 55. Crash prevention after GPU BETA release
+
+A reported iPhone Safari tab/process crash followed introduction of experimental fp32 WebGPU rendering. Root cause cannot be proved from browser-free CI or without iOS crash logs, but a high-memory OOM is plausible because the patched ONNX graph (~326 MB) requires GPU buffers, activations and concurrent Open JTalk resources. This is not catchable as a JavaScript exception if WebKit terminates the process.
+
+Safe mitigation:
+- iPhone/iPadOS are now blocked **before** loading the large fp32 graph. Detect iPadOS desktop mode through `MacIntel + maxTouchPoints > 1`.
+- WebGPU-unavailable devices and browsers reporting less than 8 GB available device memory are blocked too.
+- The GPU BETA switch stays visible but disabled, with a reason in its accessible title, while the stable CPU q8 NEURAL HQ remains playable.
+- Previously saved `neural-gpu` selection is automatically migrated to `neural` on affected devices.
+- Renderer validates GPU permission again before allocating and routes blocked requests to CPU q8.
+- On capable desktops, a tab-local `sessionStorage` in-flight marker records GPU model load/inference. If the tab reloads while this marker remains, the GPU Beta engine is quarantined for the rest of that tab session and saved selection is restored to CPU. This is a best-effort crash marker, not diagnostic proof.
+- The old CPU fallback remains for catchable GPU errors; the preventative memory gate is required for the uncatchable mobile termination case.
+- Normal q8 CPU sound, editing, caches and DSP remain unchanged.
+
+Future iOS acceleration should use a purpose-built native Core ML/Metal/MLX execution path or a verified lower-memory WebGPU graph. Current fp16/q4f16 GPU variants of this Kokoro vocoder have reported NaNs, so blindly switching precision is not a safety fix.

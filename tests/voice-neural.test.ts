@@ -4,6 +4,7 @@ import {
   KOKORO_GPU_MODEL_ID,
   neuralPCMQualityGate,
   neuralWebGPUAvailable,
+  neuralGPUDeviceBlockReason,
   NeuralAudioCache,
   buildNeuralProsodyPlan,
   neuralPlaybackCacheKey,
@@ -485,5 +486,37 @@ describe('WebGPU Kokoro experimentation', () => {
     );
     expect(neuralSegmentInferenceKey('こんにちは。', 'jf_alpha', 1, 'wasm'))
       .not.toBe(neuralSegmentInferenceKey('こんにちは。', 'jf_alpha', 1, 'webgpu'));
+  });
+});
+
+
+describe('Mobile GPU crash prevention', () => {
+  const baseline = {
+    userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/605.1.15',
+    platform: 'MacIntel',
+    maxTouchPoints: 0,
+    deviceMemory: 16,
+    hasWebGPU: true,
+  };
+
+  it('blocks iPhone and iPad including iPadOS masquerading as desktop Safari', () => {
+    expect(neuralGPUDeviceBlockReason({
+      ...baseline,
+      userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 26_0 like Mac OS X)',
+      platform: 'iPhone',
+    })).toContain('IPHONE');
+    expect(neuralGPUDeviceBlockReason({
+      ...baseline,
+      userAgent: 'Mozilla/5.0 (iPad; CPU OS 26_0 like Mac OS X)',
+      platform: 'iPad',
+    })).toContain('IPAD');
+    expect(neuralGPUDeviceBlockReason({ ...baseline, maxTouchPoints: 5 }))
+      .toContain('IPHONE');
+  });
+
+  it('blocks low-memory and WebGPU-unavailable devices before model allocation', () => {
+    expect(neuralGPUDeviceBlockReason({ ...baseline, deviceMemory: 4 })).toContain('MEMORY');
+    expect(neuralGPUDeviceBlockReason({ ...baseline, hasWebGPU: false })).toContain('NOT AVAILABLE');
+    expect(neuralGPUDeviceBlockReason(baseline)).toBeNull();
   });
 });
