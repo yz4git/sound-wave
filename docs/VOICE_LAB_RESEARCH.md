@@ -1254,3 +1254,16 @@ The browser Neural HQ path separates stable expensive work from cheap per-edit/p
 Trade-off: Different expression/rate settings may alter Kokoro's actual generated acoustic style or speed, so those may still require fresh model inference. The model does not expose an officially supported "phonemes + prosody tensor" direct conditioning interface through kokoro-js-jp. Persisting fake reusable model internals would risk quality/stability. Storing raw model-native waveform segments is the safe practical reusable intermediate representation.
 
 A cached full take after restarting Voice Lab is not contingent on loading the model. If the browser evicts cached storage, normal Kokoro synthesis remains the fallback.
+
+
+### 57. Persistent Open JTalk reading/accent intermediate data
+
+VOICE LAB now saves the exact output of Japanese pronunciation parsing separately from neural PCM and ONNX weights. This makes the first expensive language stage reusable across reopens.
+
+- **Cache contents:** script mora structure, frontend token readings, source ranges, accent phrases, full-context labels and match flag. All of these are produced by Open JTalk and are necessary to reconstruct VOICE LAB's accent/prosody editor faithfully.
+- **Versioned identity:** original plain text + pinned Open JTalk dictionary/frontend version + VOICE LAB mapping version. A different sentence or future mapper version cannot accidentally receive the old pronunciation.
+- **Cache before worker:** `analyzeJapaneseText` probes a persistent analysis store before downloading or initializing Open JTalk WASM and before executing `runFrontend` / `extractFullContext`. Exact cache hits return without starting any Japanese-analysis worker.
+- **Restore editing:** When VOICE LAB opens or matching text is re-entered, its analysis can be restored asynchronously, guarded against outdated text edits. The existing phrase/accessory accent overrides are rebuilt from the restored original analysis.
+- **Size:** IndexedDB cap 2 MiB / 64 analysis items / 200 KiB per item, with disk LRU and a small 400 KiB / 12-item RAM LRU. This is separate from the 24 MiB PCM limit.
+- **Fallback:** If IndexedDB is blocked/private/evicted, RAM still works for the session and the existing Open JTalk worker can run normally.
+- **Critical limitation:** Kokoro's `kokoro-js-jp@0.2.0` `speak(text)` publicly performs its own G2P/tokenization internally; it does not accept VOICE LAB's saved intermediate phonetic tensors through that API. This update speeds **VOICE LAB's G2P/analysis and editor restoration**, not the first unseen Kokoro ONNX inference. Existing raw/final PCM caching remains the primary neural latency reduction. Passing phoneme tensors into the neural model requires a verified library/model interface, not an unsafe fabricated mapping.

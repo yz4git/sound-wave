@@ -63,6 +63,7 @@ import {
   voiceExpressionControl,
   type VoiceExpressionSettings,
 } from './VoiceExpression';
+import { loadCachedJapaneseAnalysis } from './JapaneseAnalysisCache';
 import {
   analyzeVoiceImprint,
   resampleVoiceReference,
@@ -143,6 +144,7 @@ export class VoiceMode {
   private japaneseAnalysis: JapaneseG2PAnalysis | null = null;
   private japaneseAnalysisSource = '';
   private japaneseAnalyzing = false;
+  private japaneseRestoreEpoch = 0;
   private prosodyLoadedSignature = '';
   private accentOverrides: VoiceAccentOverride[] = [];
   private accentOverrideSource = '';
@@ -210,6 +212,9 @@ export class VoiceMode {
     this.root.scrollTop = 0;
     if (this.settings.engine === 'local') await this.synth.unlock();
     this.refreshPlan();
+    void this.restoreCachedJapanese(
+      this.required<HTMLTextAreaElement>('#voice-text').value.trim(),
+    );
     if (this.settings.engine === 'neural') this.preloadNeuralModel();
   }
 
@@ -421,6 +426,7 @@ export class VoiceMode {
       this.prosodyLoadedSignature = '';
       this.clearJapaneseAnalysis();
       this.refreshPlan();
+      void this.restoreCachedJapanese(text.value.trim());
     });
 
     for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-local-delivery]')) {
@@ -1073,6 +1079,7 @@ export class VoiceMode {
   }
 
   private clearJapaneseAnalysis(): void {
+    this.japaneseRestoreEpoch += 1;
     this.japaneseAnalysis = null;
     this.japaneseAnalysisSource = '';
     this.prosodyLoadedSignature = '';
@@ -1084,6 +1091,32 @@ export class VoiceMode {
     const status = this.root.querySelector<HTMLElement>('#voice-japanese-status');
     if (status) {
       status.textContent = 'Open JTalk reading + pitch accent · kanji / おう / えい · first use ~24MB dictionary';
+    }
+  }
+
+  /** Restore previously analyzed phonemes and accent without Open JTalk WASM.
+   * Guards prevent stale async IndexedDB lookups replacing newer text edits. */
+  private async restoreCachedJapanese(rawText: string): Promise<void> {
+    if (!this.active || this.japaneseAnalyzing || !rawText) return;
+    if (this.japaneseAnalysisSource === rawText && this.japaneseAnalysis) return;
+    const markup = parseVoiceMarkup(rawText);
+    if (!needsJapanesePronunciationAnalysis(markup.plainText)) return;
+    const epoch = ++this.japaneseRestoreEpoch;
+    try {
+      const result = await loadCachedJapaneseAnalysis(markup.plainText);
+      if (!result || epoch !== this.japaneseRestoreEpoch || !this.active || this.japaneseAnalyzing) return;
+      const text = this.required<HTMLTextAreaElement>('#voice-text');
+      if (text.value.trim() !== rawText) return;
+      this.japaneseAnalysis = result;
+      this.japaneseAnalysisSource = rawText;
+      this.accentOverrideSource = '';
+      this.phraseEditSource = '';
+      this.prosodyLoadedSignature = '';
+      this.refreshPlan();
+      const status = this.required<HTMLElement>('#voice-japanese-status');
+      status.textContent = `SAVED G2P · ${result.script.units.length} morae · ${result.fullContextMatched ? 'FULL CONTEXT · ' : ''}${result.reading.slice(0, 45)}`;
+    } catch {
+      // Storage denial must never prevent speaking or editing in Safari.
     }
   }
 

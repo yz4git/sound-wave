@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+  JapaneseAnalysisCache,
+  JapaneseAnalysisMemoryCache,
+  japaneseAnalysisCacheKey,
+  loadCachedJapaneseAnalysis,
+  rememberJapaneseAnalysis,
+  validJapaneseAnalysis,
+} from '../src/voice/JapaneseAnalysisCache';
+import {
+  analyzeJapaneseText,
   applyOpenJTalkFullContext,
   buildScriptFromJapaneseFrontend,
   containsAmbiguousJapaneseLongVowel,
@@ -608,5 +617,78 @@ describe('VOICE LAB Japanese G2P mapping', () => {
   it('detects kanji without treating kana as kanji', () => {
     expect(containsKanji('音声合成です')).toBe(true);
     expect(containsKanji('おんせいごうせいです')).toBe(false);
+  });
+});
+
+
+describe('Persistent Japanese reading and accent analysis', () => {
+  const makeAnalysis = () => {
+    const nodes: JapaneseFrontendNode[] = [
+      {
+        string: '音声',
+        read: 'オンセイ',
+        pron: 'オンセイ',
+        acc: 2,
+        mora_size: 4,
+        chain_flag: -1,
+      },
+    ];
+    const built = buildScriptFromJapaneseFrontend(nodes, '音声');
+    return {
+      ...built,
+      nodes,
+      labels: ['sil-k+o'],
+      fullContextMatched: false,
+      source: 'open-jtalk' as const,
+    };
+  };
+
+  it('uses an exact, versioned text identity', () => {
+    expect(japaneseAnalysisCacheKey('音声')).not.toBe(japaneseAnalysisCacheKey('音声。'));
+    expect(japaneseAnalysisCacheKey('音声')).toBe(japaneseAnalysisCacheKey('音声'));
+    expect(japaneseAnalysisCacheKey('音声')).toContain('open-jtalk');
+  });
+
+  it('accepts complete analysis, rejects malformed or oversized snapshots', () => {
+    const example = makeAnalysis();
+    expect(validJapaneseAnalysis(example)).toBe(true);
+    expect(validJapaneseAnalysis({ ...example, labels: null })).toBe(false);
+    expect(validJapaneseAnalysis({ ...example, source: 'unknown' })).toBe(false);
+    expect(validJapaneseAnalysis(example, 10)).toBe(false);
+  });
+
+  it('returns defensive copies, evicts least recently used entries and limits RAM', () => {
+    const cache = new JapaneseAnalysisMemoryCache(32 * 1024, 2);
+    const example = makeAnalysis();
+    expect(cache.put('a', example)).toBe(true);
+    expect(cache.put('b', example)).toBe(true);
+    const first = cache.get('a')!;
+    first.script.units[0]!.display = 'CHANGED';
+    expect(cache.get('a')!.script.units[0]!.display).not.toBe('CHANGED');
+    cache.put('c', example);
+    expect(cache.get('b')).toBeNull();
+    expect(cache.size).toBe(2);
+    expect(cache.bytes).toBeGreaterThan(0);
+  });
+
+  it('works without IndexedDB and never blocks analysis for storage denial', async () => {
+    const cache = new JapaneseAnalysisCache(null);
+    const analysis = makeAnalysis();
+    expect(await cache.put('音声', analysis)).toBe(false); // RAM cache still warm
+    expect(await cache.get('音声')).toEqual(analysis);
+    expect(await cache.get('別の文')).toBeNull();
+  });
+
+  it('skips the worker/dictionary for a cached exact sentence', async () => {
+    const text = '解析の永続キャッシュ検証用';
+    const analysis = makeAnalysis();
+    await rememberJapaneseAnalysis(text, analysis);
+    const progress: string[] = [];
+    const restored = await analyzeJapaneseText(text, (event) => {
+      progress.push(event.message);
+    });
+    expect(restored).toEqual(analysis);
+    expect(progress).toEqual(['JAPANESE G2P · SAVED READING + ACCENT RESTORED']);
+    expect(await loadCachedJapaneseAnalysis(text)).toEqual(analysis);
   });
 });

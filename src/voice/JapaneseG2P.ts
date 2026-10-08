@@ -1,4 +1,8 @@
 import {
+  loadCachedJapaneseAnalysis,
+  rememberJapaneseAnalysis,
+} from './JapaneseAnalysisCache';
+import {
   applyVoiceContinuationBoundary,
   applyVoiceDiscourseMarker,
   applyVoicePreFocusPause,
@@ -620,6 +624,17 @@ export async function analyzeJapaneseText(
   text: string,
   onProgress?: (progress: JapaneseG2PProgress) => void,
 ): Promise<JapaneseG2PAnalysis> {
+  // Look up persistent analysis BEFORE loading the Open JTalk dictionary,
+  // starting a Web Worker or touching WASM. A cache hit is usable offline.
+  const cached = await loadCachedJapaneseAnalysis(text);
+  if (cached) {
+    onProgress?.({
+      stage: 'ready',
+      progress: 1,
+      message: 'JAPANESE G2P · SAVED READING + ACCENT RESTORED',
+    });
+    return cached;
+  }
   await initializeJapaneseG2P(onProgress);
   onProgress?.({ stage: 'analyze', progress: 0.96, message: 'ANALYZING READING + PITCH ACCENT' });
   const nodes = await callWorker<JapaneseFrontendNode[]>('runFrontend', [text]);
@@ -633,7 +648,7 @@ export async function analyzeJapaneseText(
       ? 'JAPANESE G2P + FULL CONTEXT READY'
       : 'JAPANESE G2P READY',
   });
-  return {
+  const analysis: JapaneseG2PAnalysis = {
     script,
     reading,
     nodes,
@@ -643,6 +658,10 @@ export async function analyzeJapaneseText(
     accentPhrases,
     source: 'open-jtalk',
   };
+  // Persist in the background so the current SPEAK/analysis UI isn't delayed
+  // by Safari IndexedDB transactions or quota negotiation.
+  void rememberJapaneseAnalysis(text, analysis);
+  return analysis;
 }
 
 export function containsKanji(text: string): boolean {
