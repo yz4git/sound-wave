@@ -666,7 +666,7 @@ describe('Kokoro phoneme reuse diagnostics and safe fallback', () => {
     const calls: string[] = [];
     const kokoro = {
       tokenizer: (text: string) => ({ input_ids: { text } }),
-      generate_from_ids: async () => ({
+      generate_from_ids: async (_ids: unknown) => ({
         audio: new Float32Array(900).fill(0.13),
         sampling_rate: 24000,
       }),
