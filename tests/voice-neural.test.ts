@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { NeuralInferenceSingleFlight } from '../src/voice/NeuralInferenceSingleFlight';
+import { splitLongNeuralText, NEURAL_MAX_UNEDITED_CHARS } from '../src/voice/NeuralLongText';
 import {
   NeuralPhonemeCache,
   NeuralPhonemeMemoryCache,
@@ -753,5 +754,68 @@ describe('Neural HQ shared in-flight model inference', () => {
     })).rejects.toThrow('offline');
     expect(pending.size).toBe(0);
     expect(await pending.run('failed', async () => 7)).toBe(7);
+  });
+});
+
+
+describe('Natural long-text neural segmentation for reusable inference', () => {
+  it('preserves normal short sentences as exactly one model-native input', () => {
+    const line = 'こんにちは。自然な声を維持します。';
+    expect(splitLongNeuralText(line)).toEqual([line]);
+    expect(splitLongNeuralText('')).toEqual([]);
+  });
+
+  it('only splits long text at full sentence boundaries when possible', () => {
+    const first = '長い文章を自然に読み上げるための第一文です。'.repeat(3);
+    const second = '次の文章もそのまま保持して再利用できます。'.repeat(2);
+    const text = first + second;
+    const chunks = splitLongNeuralText(text);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.every(x => Array.from(x).length <= NEURAL_MAX_UNEDITED_CHARS)).toBe(true);
+    expect(chunks.join('')).toBe(text);
+    expect(chunks[0]!.endsWith('。')).toBe(true);
+  });
+
+  it('avoids tiny remainders and respects Japanese comma boundaries', () => {
+    const text = '新しい文章を読み上げます、'.repeat(14) + 'おしまい。';
+    const chunks = splitLongNeuralText(text);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.slice(0, -1).every(x => x.endsWith('、'))).toBe(true);
+    expect(chunks.join('')).toBe(text);
+  });
+
+  it('does not truncate a very long text without punctuation', () => {
+    const text = 'かきくけこ'.repeat(75);
+    const chunks = splitLongNeuralText(text);
+    expect(chunks.length).toBeGreaterThan(2);
+    expect(chunks.join('')).toBe(text);
+    expect(chunks.every(x => Array.from(x).length <= NEURAL_MAX_UNEDITED_CHARS)).toBe(true);
+  });
+
+  it('retains one native generation for an ordinary unedited plan', () => {
+    const text = '自然な短い文です。';
+    const plan = buildNeuralProsodyPlan({
+      originalText: text,
+      script: { units: [], unsupported: [], events: [] },
+      timedUnits: [],
+      edits: {},
+      globalExpression: { preset: 'neutral', intensity: 1 },
+    });
+    expect(plan.edited).toBe(false);
+    expect(plan.segments).toHaveLength(1);
+    expect(plan.segments[0]!.text).toBe(text);
+  });
+
+  it('divides long unedited plans into cacheable complete sentences', () => {
+    const text = '文末を保持した日本語の長い文章です。'.repeat(16);
+    const plan = buildNeuralProsodyPlan({
+      originalText: text,
+      script: { units: [], unsupported: [], events: [] },
+      timedUnits: [],
+      edits: {},
+      globalExpression: { preset: 'neutral', intensity: 1 },
+    });
+    expect(plan.segments.length).toBeGreaterThan(1);
+    expect(plan.segments.map(x => x.text).join('')).toBe(text);
   });
 });

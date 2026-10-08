@@ -1295,3 +1295,12 @@ A rapid second SPEAK while Kokoro ONNX was still inferring previously cancelled 
 A per-segment `NeuralInferenceSingleFlight` now maps an exact model+speaker+text+speed identity to its in-flight inference promise. New matching playback subscribes to the existing work instead of running a second ONNX call. The shared promise caches validated raw PCM *before* checking whether the initiating playback was stopped. Playback still observes the generation token so stale requests never speak unexpectedly. The map holds only pending jobs, and errors are removed for clean retry. Actual synthesizer calls remain serial to avoid overlapping tokenizer hooks and CPU/memory pressure on iPhone.
 
 This does not make a genuinely new ONNX inference faster; it eliminates a particularly expensive duplicate-work path during repeated SPEAK, cancellations and quick setting reversions.
+
+
+### 60. Natural long-text segmentation and PCM reuse
+
+Long *unedited* text was previously always submitted to Kokoro as one inference pass. The pinned upstream tokenizer uses `truncation: true`; sufficiently long Japanese speech can silently lose its ending. It also invalidated the entire saved PCM when even one sentence was changed.
+
+For text over 112 Unicode code points, a conservative splitter now groups complete Japanese sentences to stay below a safe token budget while minimizing Kokoro prosody resets. Prefer natural `。！？` and newline boundaries; exceptionally long uninterrupted sentences use commas, spaces, then `Intl.Segmenter('ja', word)` before a last-resort split without inserting punctuation. The original short-text neural path is unchanged. Every new segment uses the existing raw-PCM, persistent phoneme and shared inference caches; editing one long sentence can reuse the others. Segment boundaries are added only when the text is long enough to risk truncation, preserving the previously prioritized natural sound of short utterances.
+
+The change improves correctness and **subsequent** latency for long passages. Total first-generation ONNX computation is not claimed to be faster on iPhone; the main objective is avoiding lost text and wasted re-generation.

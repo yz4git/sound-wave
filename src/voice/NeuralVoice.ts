@@ -1,6 +1,7 @@
 import type { VoiceCharacterPreset } from '../compose/VoiceCharacter';
 import { NeuralRenderStore, neuralPersistentKey } from './NeuralRenderStore';
 import { NeuralInferenceSingleFlight } from './NeuralInferenceSingleFlight';
+import { splitLongNeuralText } from './NeuralLongText';
 import {
   NeuralPhonemeCache,
   speakWithReusablePhonemes,
@@ -445,18 +446,22 @@ export function buildNeuralProsodyPlan(
   // has not changed anything. This is the highest-quality baseline and avoids
   // needless phrase resets.
   if (!edited || units.length === 0) {
+    // The model-native single-utterance path stays byte-for-byte identical
+    // for short text. Long text uses a few natural sentence-sized passes
+    // instead of silently truncating at Kokoro's tokenizer token limit.
+    const chunks = splitLongNeuralText(input.originalText);
     return {
       edited: false,
-      segments: [{
-        text: input.originalText.trim(),
-        startUnit: 0,
-        endUnit: Math.max(0, units.length - 1),
+      segments: chunks.map((text, index) => ({
+        text,
+        startUnit: chunks.length === 1 ? 0 : index,
+        endUnit: chunks.length === 1 ? Math.max(0, units.length - 1) : index,
         rateScale: 1,
         energyScale: 1,
         pitchSemitones: 0,
         pauseAfter: 0,
         expression: input.globalExpression,
-      }],
+      })),
     };
   }
 
