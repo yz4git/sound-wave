@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  NeuralRenderStore,
+  neuralPersistentKey,
+  validNeuralStoredPCM,
+  NEURAL_PERSISTENT_CACHE_LIMIT_BYTES,
+} from '../src/voice/NeuralRenderStore';
+import {
   KOKORO_JP_CDN,
   KOKORO_GPU_MODEL_ID,
   neuralPCMQualityGate,
@@ -518,5 +524,39 @@ describe('Mobile GPU crash prevention', () => {
     expect(neuralGPUDeviceBlockReason({ ...baseline, deviceMemory: 4 })).toContain('MEMORY');
     expect(neuralGPUDeviceBlockReason({ ...baseline, hasWebGPU: false })).toContain('NOT AVAILABLE');
     expect(neuralGPUDeviceBlockReason(baseline)).toBeNull();
+  });
+});
+
+
+describe('Neural HQ reusable persistent stages', () => {
+  it('distinguishes versioned completed-take data and raw generated phrase data', () => {
+    const key = neuralSegmentInferenceKey('こんにちは。', 'jf_alpha', 1);
+    expect(neuralPersistentKey('segment', key)).not.toBe(neuralPersistentKey('final', key));
+    expect(neuralPersistentKey('segment', key)).toBe(neuralPersistentKey('segment', key));
+    expect(NEURAL_PERSISTENT_CACHE_LIMIT_BYTES).toBe(24 * 1024 * 1024);
+  });
+
+  it('rejects empty/huge/malformed waveform data before persistent writes', () => {
+    expect(validNeuralStoredPCM({
+      audio: new Float32Array(24000), sampleRate: 24000,
+    })).toBe(true);
+    expect(validNeuralStoredPCM({
+      audio: new Float32Array(0), sampleRate: 24000,
+    })).toBe(false);
+    expect(validNeuralStoredPCM({
+      audio: new Float32Array(24000), sampleRate: 0,
+    })).toBe(false);
+    expect(validNeuralStoredPCM({
+      audio: new Float32Array(512), sampleRate: 24000,
+    }, 2047)).toBe(false);
+  });
+
+  it('degrades safely to memory-only caching when IndexedDB is unavailable', async () => {
+    const store = new NeuralRenderStore(1024, 2, undefined);
+    expect(store.available).toBe(false);
+    expect(await store.get('missing')).toBeNull();
+    expect(await store.put('x', {
+      audio: new Float32Array(8), sampleRate: 24000,
+    })).toBe(false);
   });
 });

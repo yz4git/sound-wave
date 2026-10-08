@@ -1237,3 +1237,20 @@ Safe mitigation:
 - Normal q8 CPU sound, editing, caches and DSP remain unchanged.
 
 Future iOS acceleration should use a purpose-built native Core ML/Metal/MLX execution path or a verified lower-memory WebGPU graph. Current fp16/q4f16 GPU variants of this Kokoro vocoder have reported NaNs, so blindly switching precision is not a safety fix.
+
+
+### 56. Reusable Neural HQ render stages with device-local persistent PCM
+
+The browser Neural HQ path separates stable expensive work from cheap per-edit/per-play operations:
+
+1. **Model + Japanese dictionary:** Transformers.js/Kokoro/Open JTalk manage their own browser asset cache; these assets are not duplicated into Sound Wave's local DB. Loading an ONNX session and Japanese dictionaries after a cold app restart still has runtime costs.
+2. **Model-native inference by segment:** The immutable identifier includes the pinned model/frontend version, execution backend, character/voice, exact utterance text and effective Kokoro model speed. A raw Float32 segment is cached both in a capped RAM LRU and a **new IndexedDB persistent LRU**. Returning to the app after a reload can therefore skip Japanese G2P, tokenizer and ONNX inference for saved material.
+3. **Cheap post-render adjustments:** Volume, emphasis gain, explicit pause, safe pitch resampling, crossfade and merge are reapplied from raw generated PCM. Changing only such settings does not require running neural inference. Model speed really changes neural acoustic timing and still requires inference when no matching generated segment exists.
+4. **Finished voice:** The complete waveform also has an exact settings/plan key and is stored in IndexedDB. The next open can play it without initializing the heavyweight Kokoro model at all.
+5. **Resource bounds:** Persistent store is maximum 24 MiB, 24 waveform entries, 8 MiB per clip, with accessed-time LRU eviction. RAM caches remain independently bounded. IndexedDB failures (including Safari private-mode or quota restrictions) silently fall back to RAM only. No speech text or waveform is uploaded to our server.
+6. **Only stable CPU q8 persists:** Experimental GPU Beta is deliberately excluded from persistent speech storage on iPhone (and remains device-blocked) to avoid additional high-memory interactions. Backend/version identity prevents PCM mix-ups.
+7. **Responsiveness:** IDB reads are async; writes are queued and do not delay playback. STOP interrupts stale work safely.
+
+Trade-off: Different expression/rate settings may alter Kokoro's actual generated acoustic style or speed, so those may still require fresh model inference. The model does not expose an officially supported "phonemes + prosody tensor" direct conditioning interface through kokoro-js-jp. Persisting fake reusable model internals would risk quality/stability. Storing raw model-native waveform segments is the safe practical reusable intermediate representation.
+
+A cached full take after restarting Voice Lab is not contingent on loading the model. If the browser evicts cached storage, normal Kokoro synthesis remains the fallback.

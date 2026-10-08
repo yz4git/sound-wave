@@ -164,7 +164,7 @@ export class NeuralRenderStore {
           && pcm.audio.buffer instanceof ArrayBuffer;
         const buffer = exactBuffer
           ? pcm.audio.buffer as ArrayBuffer
-          : pcm.audio.slice().buffer;
+          : pcm.audio.slice().buffer as ArrayBuffer;
         tx.objectStore('waveforms').put({
           key, pcm: buffer, sampleRate: pcm.sampleRate,
         } satisfies StoredWaveform);

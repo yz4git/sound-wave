@@ -1,4 +1,5 @@
 import type { VoiceCharacterPreset } from '../compose/VoiceCharacter';
+import { NeuralRenderStore, neuralPersistentKey } from './NeuralRenderStore';
 import { voiceExpressionControl, type VoiceExpressionSettings } from './VoiceExpression';
 import type { VoicePhraseBoundaryOverride } from './VoicePhraseEditor';
 import type { VoiceProsodyEdits, VoiceTimedUnit } from './VoiceSynth';
@@ -687,6 +688,7 @@ export class BrowserNeuralVoice {
   // Raw Kokoro segments: 12 MiB / 24 entries, separate from the 24 MiB
   // final-waveform replay cache. Avoid retaining a second full session.
   private readonly segmentCache = new NeuralAudioCache(12 * 1024 * 1024, 24);
+  private readonly savedAudio = new NeuralRenderStore();
   private context: AudioContext | null = null;
   private source: AudioBufferSourceNode | null = null;
   private gain: GainNode | null = null;
@@ -778,14 +780,16 @@ export class BrowserNeuralVoice {
   }
 
   private async renderPlan(
-    tts: KokoroJPInstance,
+    initialModel: KokoroJPInstance | null,
     plan: NeuralProsodyPlan,
     options: NeuralVoicePlaybackOptions,
     generation: number,
     backend: NeuralComputeBackend,
-  ): Promise<{ audio: Float32Array; sampleRate: number }> {
+  ): Promise<{ audio: Float32Array; sampleRate: number; generatedNew: boolean }> {
     const voiceId = neuralVoiceIdForCharacter(options.character);
     const renderedSegments: RenderedNeuralSegment[] = [];
+    let tts = initialModel;
+    let generatedNew = false;
     const globalPitch = clamp(
       (options.pitch - 60) * 0.03 + options.tone * 0.32,
       -0.55,
@@ -794,7 +798,7 @@ export class BrowserNeuralVoice {
 
     for (let index = 0; index < plan.segments.length; index += 1) {
       if (generation !== this.generation) {
-        return { audio: new Float32Array(0), sampleRate: 24_000 };
+        return { audio: new Float32Array(0), sampleRate: 24_000, generatedNew };
       }
       const segment = plan.segments[index]!;
       const pitchSemitones = clamp(
@@ -821,20 +825,35 @@ export class BrowserNeuralVoice {
         backend,
       );
       let rendered = this.segmentCache.get(segmentKey);
+      if (!rendered && backend === 'wasm') {
+        // Persistent phonetic+acoustic result from an earlier visit: no model,
+        // tokenizer, Open JTalk, or ONNX inference needed for this phrase.
+        rendered = await this.savedAudio.get(neuralPersistentKey('segment', segmentKey));
+        if (generation !== this.generation) {
+          return { audio: new Float32Array(0), sampleRate: 24_000, generatedNew };
+        }
+        if (rendered) this.segmentCache.set(segmentKey, rendered);
+      }
       if (rendered) {
         options.onStatus?.(
           plan.segments.length > 1
-            ? `NEURAL HQ · REUSING PHRASE ${index + 1}/${plan.segments.length}`
-            : 'NEURAL HQ · REUSING GENERATED VOICE',
+            ? `NEURAL HQ · REUSING SAVED PHRASE ${index + 1}/${plan.segments.length}`
+            : 'NEURAL HQ · REUSING SAVED VOICE',
         );
       } else {
+        // Only an actual uncached phrase pays the model initialization cost.
+        tts ??= await this.loadModel(backend);
+        if (generation !== this.generation) {
+          return { audio: new Float32Array(0), sampleRate: 24_000, generatedNew };
+        }
         const result = await tts.speak(segment.text, voiceId, modelSpeed);
         if (generation !== this.generation) {
-          return { audio: new Float32Array(0), sampleRate: 24_000 };
+          return { audio: new Float32Array(0), sampleRate: 24_000, generatedNew };
         }
         if (!(result.audio instanceof Float32Array) || !neuralPCMQualityGate(result.audio)) {
           throw new Error('Kokoro produced invalid PCM.');
         }
+        generatedNew = true;
         rendered = {
           audio: result.audio,
           sampleRate: Number.isFinite(result.sampling_rate)
@@ -842,6 +861,9 @@ export class BrowserNeuralVoice {
             : 24_000,
         };
         this.segmentCache.set(segmentKey, rendered);
+        if (backend === 'wasm') {
+          void this.savedAudio.put(neuralPersistentKey('segment', segmentKey), rendered);
+        }
       }
       const expressionControl = voiceExpressionControl(segment.expression);
       renderedSegments.push({
@@ -858,7 +880,7 @@ export class BrowserNeuralVoice {
       });
     }
 
-    return mergeRenderedSegments(renderedSegments);
+    return { ...mergeRenderedSegments(renderedSegments), generatedNew };
   }
 
   async play(
@@ -903,6 +925,12 @@ export class BrowserNeuralVoice {
     let inferenceMs = 0;
     let fallback = Boolean(gpuBlock);
 
+    if (!rendered && backendUsed === 'wasm') {
+      options.onStatus?.('NEURAL HQ · CHECKING SAVED AUDIO');
+      rendered = await this.savedAudio.get(neuralPersistentKey('final', cacheKey));
+      if (generation !== this.generation) return;
+      if (rendered) this.audioCache.set(cacheKey, rendered);
+    }
     if (rendered) {
       // Do not await the model at all. The same edited phrase can play on the
       // next touch even if the model has since been suspended/released.
@@ -920,10 +948,11 @@ export class BrowserNeuralVoice {
       const inferenceStart = performance.now();
       const attemptingGPU = backendUsed === 'webgpu';
       if (attemptingGPU && !neuralGPUBlockReason()) markGPUAttempt(true);
+      let generatedNew = false;
       try {
-        const tts = await this.loadModel(backendUsed);
-        if (generation !== this.generation) return;
-        rendered = await this.renderPlan(tts, plan, options, generation, backendUsed);
+        const result = await this.renderPlan(null, plan, options, generation, backendUsed);
+        rendered = { audio: result.audio, sampleRate: result.sampleRate };
+        generatedNew = result.generatedNew;
       } catch (error) {
         if (generation !== this.generation) return;
         if (backendUsed !== 'webgpu') throw error;
@@ -931,17 +960,21 @@ export class BrowserNeuralVoice {
         options.onStatus?.('WEBGPU FAILED / INVALID AUDIO · CPU FALLBACK');
         backendUsed = 'wasm';
         fallback = true;
-        const tts = await this.loadModel('wasm');
-        if (generation !== this.generation) return;
-        rendered = await this.renderPlan(tts, plan, options, generation, 'wasm');
+        const result = await this.renderPlan(null, plan, options, generation, 'wasm');
+        rendered = { audio: result.audio, sampleRate: result.sampleRate };
+        generatedNew = result.generatedNew;
       } finally {
         if (attemptingGPU) markGPUAttempt(false);
       }
       if (generation !== this.generation || !rendered || rendered.audio.length === 0) return;
-      inferenceMs = performance.now() - inferenceStart;
-      // Cache the fallback under the requested GPU identity, so a replay
-      // cannot repeat a failed GPU attempt.
+      // Formatting, pitch, energy and merge are cheap. Cache-only edits should
+      // show as re-composition, not falsely as neural generation time.
+      inferenceMs = generatedNew ? performance.now() - inferenceStart : 0;
       this.audioCache.set(cacheKey, rendered);
+      if (effectiveOptions.backend === 'wasm') {
+        // Do not block first playback on an IndexedDB write.
+        void this.savedAudio.put(neuralPersistentKey('final', cacheKey), rendered);
+      }
     }
 
     if (!rendered) return;
