@@ -555,6 +555,7 @@ describe('Neural HQ reusable persistent stages', () => {
     const store = new NeuralRenderStore(1024, 2, undefined);
     expect(store.available).toBe(false);
     expect(await store.get('missing')).toBeNull();
+    expect(await store.has('missing')).toBe(false);
     expect(await store.put('x', {
       audio: new Float32Array(8), sampleRate: 24000,
     })).toBe(false);

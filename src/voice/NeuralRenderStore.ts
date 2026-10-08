@@ -90,6 +90,23 @@ export class NeuralRenderStore {
     return this.connection;
   }
 
+  /** Check metadata without allocating or cloning a potentially large PCM. */
+  async has(key: string): Promise<boolean> {
+    const db = await this.open();
+    if (!db) return false;
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction('metadata', 'readonly');
+        const request = tx.objectStore('metadata').get(key);
+        request.onsuccess = () => resolve(Boolean(request.result));
+        request.onerror = () => resolve(false);
+        tx.onabort = () => resolve(false);
+      } catch {
+        resolve(false);
+      }
+    });
+  }
+
   async get(key: string): Promise<NeuralStoredPCM | null> {
     const db = await this.open();
     if (!db) return null;

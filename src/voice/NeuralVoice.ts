@@ -699,7 +699,17 @@ export class BrowserNeuralVoice {
     return this.modelReady;
   }
 
-  /** Pre-load model weights as soon as NEURAL HQ is explicitly selected. */
+  /** Avoid warming a 90MB ONNX model for an already rendered exact take. */
+  async hasSavedTake(
+    plan: NeuralProsodyPlan,
+    options: NeuralVoicePlaybackOptions,
+  ): Promise<boolean> {
+    const key = neuralPlaybackCacheKey(plan, options);
+    if (this.audioCache.get(key)) return true;
+    return this.savedAudio.has(neuralPersistentKey('final', key));
+  }
+
+  /** Pre-load model weights only when the exact current take is not saved. */
   async preload(backend: NeuralComputeBackend = 'wasm'): Promise<boolean> {
     try {
       await this.loadModel(backend);

@@ -72,6 +72,7 @@ import {
 import {
   BrowserNeuralVoice,
   buildNeuralProsodyPlan,
+  type NeuralProsodyPlan,
   neuralGPUBlockReason,
 } from './NeuralVoice';
 
@@ -2110,38 +2111,15 @@ export class VoiceMode {
     }
   }
 
-  private preloadNeuralModel(): void {
-    if (this.neural.loaded) return;
-    if (this.active && this.settings.engine === 'neural') {
-      this.setStatus('NEURAL HQ · PREPARING MODEL IN ADVANCE');
-    }
-    void this.neural.preload().then((ready) => {
-      if (!this.active || this.settings.engine !== 'neural') return;
-      // Do not interrupt active speech or rendering status.
-      const current = this.required<HTMLElement>('#voice-status').textContent ?? '';
-      if (!current.includes('PREPARING MODEL')) return;
-      this.setStatus(ready
-        ? 'NEURAL HQ · MODEL READY · SPEAK TO GENERATE'
-        : 'NEURAL HQ · MODEL PRELOAD FAILED · RETRY ON SPEAK');
-    });
-  }
-
-  private async playNeural(markup: VoiceMarkupScript): Promise<void> {
-    const rawText = this.required<HTMLTextAreaElement>('#voice-text').value.trim();
-    const plainText = markup.plainText.trim();
-    if (!plainText) {
-      this.setStatus('ENTER TEXT');
-      return;
-    }
-
+  private prepareNeuralPlan(markup: VoiceMarkupScript, rawText: string): NeuralProsodyPlan {
     const resolved = this.resolveLocalScript(rawText);
     const script = resolved.script;
     this.restoreProsodyEdits(rawText, script.units.length);
     this.ensureProsodyEditLength(script.units.length);
     const edits = this.getProsodyEdits(script, resolved.localExpressions);
     const localPlan = this.synth.plan(script, this.settings, edits);
-    const neuralPlan = buildNeuralProsodyPlan({
-      originalText: plainText,
+    return buildNeuralProsodyPlan({
+      originalText: markup.plainText.trim(),
       script,
       timedUnits: localPlan.units,
       edits,
@@ -2151,6 +2129,56 @@ export class VoiceMode {
       markupUsed: markup.markupUsed,
       globalExpression: this.settings.expression,
     });
+  }
+
+  private preloadNeuralModel(): void {
+    if (this.neural.loaded) return;
+    if (this.active && this.settings.engine === 'neural') {
+      this.setStatus('NEURAL HQ · CHECKING SAVED AUDIO');
+    }
+    const rawText = this.required<HTMLTextAreaElement>('#voice-text').value.trim();
+    const markup = parseVoiceMarkup(rawText);
+    const plan = this.prepareNeuralPlan(markup, rawText);
+    const options = {
+      character: this.settings.character,
+      rate: this.settings.rate,
+      energy: this.settings.energy,
+      pitch: this.settings.pitch,
+      tone: this.settings.tone,
+      expression: { ...this.settings.expression },
+      backend: 'wasm' as const,
+    };
+
+    void this.neural.hasSavedTake(plan, options).then((saved) => {
+      if (!this.active || this.settings.engine !== 'neural') return;
+      if (this.required<HTMLTextAreaElement>('#voice-text').value.trim() !== rawText) return;
+      const status = this.required<HTMLElement>('#voice-status').textContent ?? '';
+      if (!status.includes('CHECKING SAVED AUDIO')) return;
+
+      if (saved) {
+        this.setStatus('NEURAL HQ · SAVED TAKE READY · NO MODEL LOAD');
+        return;
+      }
+
+      this.setStatus('NEURAL HQ · PREPARING MODEL IN ADVANCE');
+      void this.neural.preload().then((ready) => {
+        if (!this.active || this.settings.engine !== 'neural') return;
+        const current = this.required<HTMLElement>('#voice-status').textContent ?? '';
+        if (!current.includes('PREPARING MODEL')) return;
+        this.setStatus(ready
+          ? 'NEURAL HQ · MODEL READY · SPEAK TO GENERATE'
+          : 'NEURAL HQ · MODEL PRELOAD FAILED · RETRY ON SPEAK');
+      });
+    });
+  }
+
+  private async playNeural(markup: VoiceMarkupScript): Promise<void> {
+    const rawText = this.required<HTMLTextAreaElement>('#voice-text').value.trim();
+    if (!markup.plainText.trim()) {
+      this.setStatus('ENTER TEXT');
+      return;
+    }
+    const neuralPlan = this.prepareNeuralPlan(markup, rawText);
 
     try {
       this.lastNeuralMetric = '';
