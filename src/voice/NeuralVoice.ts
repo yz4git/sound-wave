@@ -4,6 +4,7 @@ import type { VoicePhraseBoundaryOverride } from './VoicePhraseEditor';
 import type { VoiceProsodyEdits, VoiceTimedUnit } from './VoiceSynth';
 import type { VoicePunctuationKind, VoiceScript } from './VoiceScript';
 
+export type NeuralComputeBackend = 'wasm' | 'webgpu';
 export type NeuralVoiceId =
   | 'jf_alpha'
   | 'jf_gongitsune'
@@ -18,7 +19,16 @@ export interface NeuralVoicePlaybackOptions {
   pitch: number;
   tone: number;
   expression: VoiceExpressionSettings;
+  backend?: NeuralComputeBackend;
   onStatus?: (message: string) => void;
+  onMetrics?: (metric: {
+    backend: NeuralComputeBackend;
+    inferenceMs: number;
+    audioSeconds: number;
+    realTimeFactor: number;
+    cached: boolean;
+    fallback: boolean;
+  }) => void;
   onStart?: (voiceId: NeuralVoiceId) => void;
   onEnd?: () => void;
 }
@@ -67,6 +77,7 @@ interface KokoroJPModule {
     load(options?: {
       dtype?: 'fp32' | 'fp16' | 'q8' | 'q4' | 'q4f16';
       device?: 'wasm' | 'webgpu' | 'cpu';
+      modelId?: string;
     }): Promise<KokoroJPInstance>;
   };
 }
@@ -80,6 +91,34 @@ interface RenderedNeuralSegment {
 
 export const KOKORO_JP_CDN =
   'https://cdn.jsdelivr.net/npm/kokoro-js-jp@0.2.0/dist/kokoro-jp.web.js';
+
+/** ONNX FP32 vocoder with broken WebGPU ConvTranspose layers rewritten. */
+export const KOKORO_GPU_MODEL_ID = 'DevAmarnadhCG/Kokoro-82M-v1.0-ONNX-webgpu';
+
+export function neuralWebGPUAvailable(): boolean {
+  return typeof navigator !== 'undefined'
+    && 'gpu' in navigator
+    && Boolean((navigator as Navigator & { gpu?: unknown }).gpu);
+}
+
+/** Reject corrupt GPU PCM *before* caching or playing it. */
+export function neuralPCMQualityGate(audio: Float32Array): boolean {
+  if (audio.length < 128) return false;
+  let peak = 0;
+  let squaredSum = 0;
+  let samples = 0;
+  for (let index = 0; index < audio.length; index += 1) {
+    const value = audio[index]!;
+    if (!Number.isFinite(value)) return false;
+    peak = Math.max(peak, Math.abs(value));
+    if (index % 32 === 0) {
+      squaredSum += value * value;
+      samples += 1;
+    }
+  }
+  const rms = Math.sqrt(squaredSum / Math.max(1, samples));
+  return peak >= 0.003 && peak < 2.5 && rms >= 0.0001 && rms < 0.85;
+}
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
 
@@ -117,7 +156,9 @@ export function neuralPlaybackCacheKey(
   return JSON.stringify([
     'kokoro-neural-pcm-v1',
     KOKORO_JP_CDN,
-    'q8',
+    options.backend === 'webgpu'
+      ? ['webgpu', 'fp32', KOKORO_GPU_MODEL_ID]
+      : ['wasm', 'q8'],
     neuralVoiceIdForCharacter(options.character),
     options.rate,
     options.energy,
@@ -154,10 +195,12 @@ export function neuralSegmentInferenceKey(
   text: string,
   voiceId: NeuralVoiceId,
   modelSpeed: number,
+  backend: NeuralComputeBackend = 'wasm',
 ): string {
   return JSON.stringify([
-    'kokoro-jp-segment-q8-v1',
+    'kokoro-jp-segment-v2',
     KOKORO_JP_CDN,
+    backend === 'webgpu' ? ['webgpu', KOKORO_GPU_MODEL_ID] : ['wasm', 'q8'],
     voiceId,
     text,
     modelSpeed,
@@ -570,6 +613,8 @@ function mergeRenderedSegments(
 export class BrowserNeuralVoice {
   private modelPromise: Promise<KokoroJPInstance> | null = null;
   private modelReady = false;
+  private modelBackend: NeuralComputeBackend = 'wasm';
+  private modelEpoch = 0;
   private readonly audioCache = new NeuralAudioCache();
   // Raw Kokoro segments: 12 MiB / 24 entries, separate from the 24 MiB
   // final-waveform replay cache. Avoid retaining a second full session.
@@ -585,9 +630,9 @@ export class BrowserNeuralVoice {
   }
 
   /** Pre-load model weights as soon as NEURAL HQ is explicitly selected. */
-  async preload(): Promise<boolean> {
+  async preload(backend: NeuralComputeBackend = 'wasm'): Promise<boolean> {
     try {
-      await this.loadModel();
+      await this.loadModel(backend);
       return true;
     } catch (error) {
       console.warn('Neural HQ background model preload unavailable.', error);
@@ -602,20 +647,33 @@ export class BrowserNeuralVoice {
     return this.context;
   }
 
-  private async loadModel(): Promise<KokoroJPInstance> {
+  private async loadModel(backend: NeuralComputeBackend = 'wasm'): Promise<KokoroJPInstance> {
+    if (backend === 'webgpu' && !neuralWebGPUAvailable()) {
+      throw new Error('Safari WebGPU unavailable');
+    }
+    if (this.modelBackend !== backend) {
+      // Avoid intentionally retaining two 82M models when switching backends.
+      this.modelBackend = backend;
+      this.modelPromise = null;
+      this.modelReady = false;
+      this.modelEpoch += 1;
+    }
     if (!this.modelPromise) {
+      const epoch = ++this.modelEpoch;
       this.modelPromise = (async () => {
         const moduleUrl = KOKORO_JP_CDN;
         const module = await import(/* @vite-ignore */ moduleUrl) as unknown as KokoroJPModule;
-        const model = await module.KokoroJP.load({
-          dtype: 'q8',
-          device: 'wasm',
-        });
-        this.modelReady = true;
+        const config = backend === 'webgpu'
+          ? { modelId: KOKORO_GPU_MODEL_ID, dtype: 'fp32' as const, device: 'webgpu' as const }
+          : { dtype: 'q8' as const, device: 'wasm' as const };
+        const model = await module.KokoroJP.load(config);
+        if (epoch === this.modelEpoch) this.modelReady = true;
         return model;
       })().catch((error) => {
-        this.modelReady = false;
-        this.modelPromise = null;
+        if (epoch === this.modelEpoch) {
+          this.modelReady = false;
+          this.modelPromise = null;
+        }
         throw error;
       });
     }
@@ -655,6 +713,7 @@ export class BrowserNeuralVoice {
     plan: NeuralProsodyPlan,
     options: NeuralVoicePlaybackOptions,
     generation: number,
+    backend: NeuralComputeBackend,
   ): Promise<{ audio: Float32Array; sampleRate: number }> {
     const voiceId = neuralVoiceIdForCharacter(options.character);
     const renderedSegments: RenderedNeuralSegment[] = [];
@@ -690,6 +749,7 @@ export class BrowserNeuralVoice {
         segment.text,
         voiceId,
         modelSpeed,
+        backend,
       );
       let rendered = this.segmentCache.get(segmentKey);
       if (rendered) {
@@ -703,8 +763,8 @@ export class BrowserNeuralVoice {
         if (generation !== this.generation) {
           return { audio: new Float32Array(0), sampleRate: 24_000 };
         }
-        if (!(result.audio instanceof Float32Array) || result.audio.length === 0) {
-          throw new Error('Kokoro returned no PCM audio.');
+        if (!(result.audio instanceof Float32Array) || !neuralPCMQualityGate(result.audio)) {
+          throw new Error('Kokoro produced invalid PCM.');
         }
         rendered = {
           audio: result.audio,
@@ -764,6 +824,9 @@ export class BrowserNeuralVoice {
 
     const cacheKey = neuralPlaybackCacheKey(plan, options);
     let rendered = this.audioCache.get(cacheKey);
+    let backendUsed: NeuralComputeBackend = options.backend ?? 'wasm';
+    let inferenceMs = 0;
+    let fallback = false;
 
     if (rendered) {
       // Do not await the model at all. The same edited phrase can play on the
@@ -779,16 +842,39 @@ export class BrowserNeuralVoice {
           : 'NEURAL HQ · LOADING KOKORO 82M Q8 · FIRST USE',
       );
 
-      const tts = await this.loadModel();
-      if (generation !== this.generation) return;
-
-      rendered = await this.renderPlan(tts, plan, options, generation);
-      if (generation !== this.generation || rendered.audio.length === 0) return;
-
-      // Store the final, already-edited PCM, preserving exactly the original
-      // voice quality, crossfades and pauses on every subsequent replay.
+      const inferenceStart = performance.now();
+      try {
+        const tts = await this.loadModel(backendUsed);
+        if (generation !== this.generation) return;
+        rendered = await this.renderPlan(tts, plan, options, generation, backendUsed);
+      } catch (error) {
+        if (generation !== this.generation) return;
+        if (backendUsed !== 'webgpu') throw error;
+        console.warn('Experimental WebGPU failed; retrying with stable WASM.', error);
+        options.onStatus?.('WEBGPU FAILED / INVALID AUDIO · CPU FALLBACK');
+        backendUsed = 'wasm';
+        fallback = true;
+        const tts = await this.loadModel('wasm');
+        if (generation !== this.generation) return;
+        rendered = await this.renderPlan(tts, plan, options, generation, 'wasm');
+      }
+      if (generation !== this.generation || !rendered || rendered.audio.length === 0) return;
+      inferenceMs = performance.now() - inferenceStart;
+      // Cache the fallback under the requested GPU identity, so a replay
+      // cannot repeat a failed GPU attempt.
       this.audioCache.set(cacheKey, rendered);
     }
+
+    if (!rendered) return;
+    const audioSeconds = rendered.audio.length / rendered.sampleRate;
+    options.onMetrics?.({
+      backend: backendUsed,
+      inferenceMs,
+      audioSeconds,
+      realTimeFactor: audioSeconds > 0 ? inferenceMs / (audioSeconds * 1000) : 0,
+      cached: inferenceMs === 0,
+      fallback,
+    });
 
     const voiceId = neuralVoiceIdForCharacter(options.character);
     const buffer = context.createBuffer(

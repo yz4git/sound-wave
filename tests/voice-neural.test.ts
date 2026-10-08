@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   KOKORO_JP_CDN,
+  KOKORO_GPU_MODEL_ID,
+  neuralPCMQualityGate,
+  neuralWebGPUAvailable,
   NeuralAudioCache,
   buildNeuralProsodyPlan,
   neuralPlaybackCacheKey,
@@ -437,5 +440,50 @@ describe('Neural HQ generation acceleration', () => {
     expect(cache.get('one')).not.toBeNull();
     expect(cache.get('two')).toBeNull();
     expect(cache.get('three')).not.toBeNull();
+  });
+});
+
+
+describe('WebGPU Kokoro experimentation', () => {
+  it('uses the patched fp32 model, not the known-broken stock WebGPU graph', () => {
+    expect(KOKORO_GPU_MODEL_ID).toContain('Kokoro-82M-v1.0-ONNX-webgpu');
+    expect(KOKORO_GPU_MODEL_ID).not.toContain('onnx-community/');
+    expect(neuralWebGPUAvailable()).toBe(false);
+  });
+
+  it('detects nonsensical ONNX GPU output before playback', () => {
+    const good = new Float32Array(4096);
+    for (let i = 0; i < good.length; i += 1) good[i] = Math.sin(i * 0.3) * 0.15;
+    expect(neuralPCMQualityGate(good)).toBe(true);
+    const nan = good.slice();
+    nan[0] = NaN;
+    expect(neuralPCMQualityGate(nan)).toBe(false);
+    const exploding = good.slice();
+    exploding[0] = 300000;
+    expect(neuralPCMQualityGate(exploding)).toBe(false);
+    expect(neuralPCMQualityGate(new Float32Array(4096))).toBe(false);
+    expect(neuralPCMQualityGate(new Float32Array(4))).toBe(false);
+  });
+
+  it('separates GPU fp32 and CPU q8 cache identities', () => {
+    const options = {
+      character: 'natural' as const,
+      rate: 1,
+      energy: 0.9,
+      pitch: 60,
+      tone: 0,
+      expression: { preset: 'neutral' as const, intensity: 1 },
+    };
+    const plan = {
+      edited: false,
+      segments: [{ text: 'こんにちは。', startUnit: 0, endUnit: 3,
+        rateScale: 1, energyScale: 1, pitchSemitones: 0, pauseAfter: 0,
+        expression: options.expression }],
+    };
+    expect(neuralPlaybackCacheKey(plan, options)).not.toBe(
+      neuralPlaybackCacheKey(plan, { ...options, backend: 'webgpu' }),
+    );
+    expect(neuralSegmentInferenceKey('こんにちは。', 'jf_alpha', 1, 'wasm'))
+      .not.toBe(neuralSegmentInferenceKey('こんにちは。', 'jf_alpha', 1, 'webgpu'));
   });
 });

@@ -1206,3 +1206,17 @@ Neural HQ now reduces both cold perceived delay and repeat inference cost while 
 - **Memory bound.** Two capped RAM-only caches use up to 36 MiB of retained final + raw PCM. No IndexedDB, network uploads or server execution.
 
 An architectural opportunity for further improvement is live incremental per-sentence playback (time-to-first-sound) or a manually controlled WebGPU experiment with verified audio output and memory budget; neither should replace the stable q8 iPhone path without device A/B testing.
+
+
+### 54. Hardware accelerated Neural HQ: WebGPU opt-in
+
+iOS Safari 26 supports WebGPU, but stock Kokoro fp32 exhibits catastrophic incorrect amplitudes in ONNX Runtime WebGPU's vocoder ConvTranspose. Thus the default SOUND WAVE Neural HQ remains q8 WASM.
+
+- The new GPU BETA path explicitly requests an Apache-2.0 model with the vocoder transposed-convolution operators rewritten to match regular convolutions (`DevAmarnadhCG/Kokoro-82M-v1.0-ONNX-webgpu`), and loads it using `kokoro-js-jp@0.2.0` with `{dtype:'fp32',device:'webgpu',modelId:...}`.
+- No GPU weights download happens unless the user explicitly selects and plays with GPU BETA. Full-precision weights are ~326 MB and browser GPU memory may need substantially more than that.
+- A fail-closed numeric PCM validation rejects NaN/Infinity, abnormally large peaks and degenerate silence; an error switches the request to the stable CPU q8 path rather than playing corrupt noise.
+- Cached final and per-segment speech for GPU and CPU have separate keys. GPU-fallback speech remains cached under its requested GPU identity to avoid repeating a failed inference.
+- Synthesis metrics report backend, generated audio duration, elapsed time, and real-time factor (RTF). Only on-device measurement can show whether this is actually faster on the user's iPhone.
+- Safari JavaScript cannot directly invoke Apple's Core ML / Neural Engine in a GitHub Pages app. A native iOS host is required for that hardware provider.
+
+Do not replace the stable CPU q8 default until an actual iPhone A/B test verifies sound quality, latency, memory and thermal behavior.
