@@ -1,5 +1,9 @@
 import type { VoiceCharacterPreset } from '../compose/VoiceCharacter';
 import { NeuralRenderStore, neuralPersistentKey } from './NeuralRenderStore';
+import {
+  NeuralPhonemeCache,
+  speakWithReusablePhonemes,
+} from './NeuralPhonemeCache';
 import { voiceExpressionControl, type VoiceExpressionSettings } from './VoiceExpression';
 import type { VoicePhraseBoundaryOverride } from './VoicePhraseEditor';
 import type { VoiceProsodyEdits, VoiceTimedUnit } from './VoiceSynth';
@@ -689,6 +693,9 @@ export class BrowserNeuralVoice {
   // final-waveform replay cache. Avoid retaining a second full session.
   private readonly segmentCache = new NeuralAudioCache(12 * 1024 * 1024, 24);
   private readonly savedAudio = new NeuralRenderStore();
+  private readonly japanesePhonemes = new NeuralPhonemeCache();
+  /** The upstream tokenizer hook is transient and must never overlap. */
+  private inferenceTail: Promise<void> = Promise.resolve();
   private context: AudioContext | null = null;
   private source: AudioBufferSourceNode | null = null;
   private gain: GainNode | null = null;
@@ -789,6 +796,30 @@ export class BrowserNeuralVoice {
     if (this.context?.state === 'running') void this.context.suspend();
   }
 
+  private async speakSerially(
+    tts: KokoroJPInstance,
+    text: string,
+    voiceId: NeuralVoiceId,
+    speed: number,
+    generation: number,
+  ): Promise<{ audio: Float32Array; sampling_rate: number } | null> {
+    // Serialize only uncached inference calls, not instant PCM replay.
+    // An old stopped request may still be running inside ONNX; wait for its
+    // tokenizer interception to finish before installing our next hook.
+    const result = this.inferenceTail.then(async () => {
+      if (generation !== this.generation) return null;
+      return speakWithReusablePhonemes(
+        tts,
+        this.japanesePhonemes,
+        text,
+        voiceId,
+        speed,
+      );
+    });
+    this.inferenceTail = result.then(() => {}, () => {});
+    return result;
+  }
+
   private async renderPlan(
     initialModel: KokoroJPInstance | null,
     plan: NeuralProsodyPlan,
@@ -856,11 +887,13 @@ export class BrowserNeuralVoice {
         if (generation !== this.generation) {
           return { audio: new Float32Array(0), sampleRate: 24_000, generatedNew };
         }
-        const result = await tts.speak(segment.text, voiceId, modelSpeed);
+        const result = await this.speakSerially(
+          tts, segment.text, voiceId, modelSpeed, generation,
+        );
         if (generation !== this.generation) {
           return { audio: new Float32Array(0), sampleRate: 24_000, generatedNew };
         }
-        if (!(result.audio instanceof Float32Array) || !neuralPCMQualityGate(result.audio)) {
+        if (!result || !(result.audio instanceof Float32Array) || !neuralPCMQualityGate(result.audio)) {
           throw new Error('Kokoro produced invalid PCM.');
         }
         generatedNew = true;

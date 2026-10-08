@@ -231,6 +231,33 @@ export function lowLevelKokoro(client: KokoroSpeechClient): KokoroLowLevel | nul
     : null;
 }
 
+/** In-memory token tensors are safe only for the KokoroTTS instance which
+ * constructed them; never persist model/runtime-specific Tensor objects. */
+const sessionTokenIDs = new WeakMap<object, Map<string, unknown>>();
+const SESSION_TOKEN_LIMIT = 48;
+
+function tokenMap(api: KokoroLowLevel): Map<string, unknown> {
+  let map = sessionTokenIDs.get(api);
+  if (!map) {
+    map = new Map<string, unknown>();
+    sessionTokenIDs.set(api, map);
+  }
+  return map;
+}
+
+function memoizeIDs(api: KokoroLowLevel, text: string, ids: unknown): void {
+  if (ids === undefined || ids === null) return;
+  const map = tokenMap(api);
+  const key = neuralPhonemeKey(text);
+  map.delete(key);
+  map.set(key, ids);
+  while (map.size > SESSION_TOKEN_LIMIT) {
+    const oldest = map.keys().next().value;
+    if (oldest === undefined) break;
+    map.delete(oldest);
+  }
+}
+
 export interface FastJapaneseSpeechResult {
   audio: Float32Array;
   sampling_rate: number;
@@ -253,14 +280,26 @@ export async function speakWithReusablePhonemes(
     return { ...result, reusedPhonemes: false, capturedPhonemes: false };
   }
 
+  const map = tokenMap(lowLevel);
+  const cachedTokens = map.get(neuralPhonemeKey(text));
+  if (cachedTokens) {
+    try {
+      const result = await lowLevel.generate_from_ids(cachedTokens, { voice, speed });
+      return { ...result, reusedPhonemes: true, capturedPhonemes: false };
+    } catch {
+      map.delete(neuralPhonemeKey(text));
+    }
+  }
+
   const saved = await cache.get(text);
   if (saved !== null) {
     try {
-      // The original Kokoro tokenizer is used here; no hand-written Japanese
-      // phoneme mappings or model-incompatible token IDs.
+      // Use Kokoro's own tokenizer, not a reimplementation of Japanese
+      // phonemization. Subsequent speaking rates/voices reuse these IDs.
       const tokenized = lowLevel.tokenizer(saved, { truncation: true });
       if (!tokenized || !tokenized.input_ids) throw new Error('tokenizer returned no token IDs');
       const result = await lowLevel.generate_from_ids(tokenized.input_ids, { voice, speed });
+      memoizeIDs(lowLevel, text, tokenized.input_ids);
       return { ...result, reusedPhonemes: true, capturedPhonemes: false };
     } catch {
       // A changed low-level contract must not break Neural HQ or its quality.
@@ -270,11 +309,14 @@ export async function speakWithReusablePhonemes(
 
   const tokenizer = lowLevel.tokenizer;
   let captured: string | null = null;
+  let capturedIDs: unknown = null;
   let intercepted = false;
   try {
     lowLevel.tokenizer = (phonemes, settings) => {
       if (typeof phonemes === 'string') captured = phonemes;
-      return tokenizer.call(lowLevel, phonemes, settings);
+      const tokens = tokenizer.call(lowLevel, phonemes, settings);
+      capturedIDs = tokens?.input_ids;
+      return tokens;
     };
     intercepted = lowLevel.tokenizer !== tokenizer;
   } catch { /* read-only version of tokenizer; use unmodified speak() */ }
@@ -282,6 +324,7 @@ export async function speakWithReusablePhonemes(
   try {
     const result = await client.speak(text, voice, speed);
     if (intercepted && captured !== null && validNeuralPhonemes(text, captured)) {
+      memoizeIDs(lowLevel, text, capturedIDs);
       // Do not delay speech playback with a nonessential IndexedDB write.
       void cache.put(text, captured);
     }

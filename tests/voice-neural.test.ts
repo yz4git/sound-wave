@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
+  NeuralPhonemeCache,
+  NeuralPhonemeMemoryCache,
+  neuralPhonemeKey,
+  speakWithReusablePhonemes,
+  validNeuralPhonemes,
+} from '../src/voice/NeuralPhonemeCache';
+import {
   NeuralRenderStore,
   neuralPersistentKey,
   validNeuralStoredPCM,
@@ -559,5 +566,95 @@ describe('Neural HQ reusable persistent stages', () => {
     expect(await store.put('x', {
       audio: new Float32Array(8), sampleRate: 24000,
     })).toBe(false);
+  });
+});
+
+
+describe('Neural HQ Kokoro-internal phoneme / token reuse', () => {
+  function testSynthesis() {
+    const calls = { speak: 0, tokenize: 0, infer: 0 };
+    const privateKokoro = {
+      tokenizer(phonemes: string) {
+        calls.tokenize += 1;
+        return { input_ids: { phonemes, dims: [1, phonemes.length + 2] } };
+      },
+      async generate_from_ids(ids: { phonemes: string }, options: { voice: string; speed: number }) {
+        calls.infer += 1;
+        expect(ids.phonemes).toBe('koɴ niʨiwa');
+        expect(options.speed).toBeGreaterThan(0);
+        return { audio: new Float32Array(2400).fill(0.15), sampling_rate: 24000 };
+      },
+    };
+    const client = {
+      tts: privateKokoro,
+      async speak(_text: string, voice: string, speed: number) {
+        calls.speak += 1;
+        const ids = privateKokoro.tokenizer('koɴ niʨiwa', { truncation: true });
+        return privateKokoro.generate_from_ids(ids.input_ids, { voice, speed });
+      },
+    };
+    return { client, calls };
+  }
+
+  it('captures exactly the Kokoro tokenizer phonemes on first pass', async () => {
+    const cache = new NeuralPhonemeCache(null);
+    const { client, calls } = testSynthesis();
+    const first = await speakWithReusablePhonemes(client, cache, 'こんにちは。', 'jf_alpha', 1);
+    expect(first.reusedPhonemes).toBe(false);
+    expect(first.capturedPhonemes).toBe(true);
+    expect(calls.speak).toBe(1);
+    expect(calls.tokenize).toBe(1);
+
+    // Changing speaker and speed still reuses the identical phoneme+ID tensor.
+    const second = await speakWithReusablePhonemes(client, cache, 'こんにちは。', 'jm_kumo', 1.18);
+    expect(second.reusedPhonemes).toBe(true);
+    expect(calls.speak).toBe(1);
+    expect(calls.tokenize).toBe(1);
+    expect(calls.infer).toBe(2);
+    expect(await cache.get('こんにちは。')).toBe('koɴ niʨiwa');
+  });
+
+  it('restores saved phonemes into a newly loaded model without Open JTalk', async () => {
+    const cache = new NeuralPhonemeCache(null);
+    const first = testSynthesis();
+    await speakWithReusablePhonemes(first.client, cache, 'こんにちは。', 'jf_alpha', 1);
+    const restarted = testSynthesis();
+    const result = await speakWithReusablePhonemes(restarted.client, cache, 'こんにちは。', 'jf_alpha', 0.9);
+    expect(result.reusedPhonemes).toBe(true);
+    expect(restarted.calls.speak).toBe(0);
+    expect(restarted.calls.tokenize).toBe(1);
+  });
+
+  it('falls back to the stable official speak API when internals are absent', async () => {
+    const cache = new NeuralPhonemeCache(null);
+    let calls = 0;
+    const client = { async speak() {
+      calls++;
+      return { audio: new Float32Array(2048).fill(0.2), sampling_rate: 24000 };
+    } };
+    const result = await speakWithReusablePhonemes(client, cache, '音声です。', 'jf_alpha', 1);
+    expect(result.reusedPhonemes).toBe(false);
+    expect(calls).toBe(1);
+  });
+
+  it('ignores malformed values and version-separates persistent keys', async () => {
+    const cache = new NeuralPhonemeCache(null);
+    expect(validNeuralPhonemes('こんにちは。', 'koɴ niʨiwa')).toBe(true);
+    expect(validNeuralPhonemes('こんにちは。', '')).toBe(false);
+    expect(validNeuralPhonemes('こんにちは。', '\\u0000')).toBe(false);
+    expect(neuralPhonemeKey('こんにちは')).not.toBe(neuralPhonemeKey('こんにちは。'));
+    expect(await cache.put('こんにちは。', 'koɴ niʨiwa')).toBe(false);
+    expect(await cache.get('こんにちは。')).toBe('koɴ niʨiwa');
+  });
+
+  it('keeps a bounded in-memory LRU for phonemes', () => {
+    const memory = new NeuralPhonemeMemoryCache(512, 2);
+    memory.put('a', 'a');
+    memory.put('b', 'b');
+    expect(memory.get('a')).toBe('a');
+    memory.put('c', 'c');
+    expect(memory.get('b')).toBeNull();
+    expect(memory.size).toBe(2);
+    expect(memory.bytes).toBeLessThanOrEqual(512);
   });
 });

@@ -1267,3 +1267,22 @@ VOICE LAB now saves the exact output of Japanese pronunciation parsing separatel
 - **Size:** IndexedDB cap 2 MiB / 64 analysis items / 200 KiB per item, with disk LRU and a small 400 KiB / 12-item RAM LRU. This is separate from the 24 MiB PCM limit.
 - **Fallback:** If IndexedDB is blocked/private/evicted, RAM still works for the session and the existing Open JTalk worker can run normally.
 - **Critical limitation:** Kokoro's `kokoro-js-jp@0.2.0` `speak(text)` publicly performs its own G2P/tokenization internally; it does not accept VOICE LAB's saved intermediate phonetic tensors through that API. This update speeds **VOICE LAB's G2P/analysis and editor restoration**, not the first unseen Kokoro ONNX inference. Existing raw/final PCM caching remains the primary neural latency reduction. Passing phoneme tensors into the neural model requires a verified library/model interface, not an unsafe fabricated mapping.
+
+
+### 58. Kokoro-native phoneme and token caching across edits (iPhone-safe)
+
+Inspection of pinned `kokoro-js-jp@0.2.0` source revealed that its Japanese implementation calls its own Open JTalk frontend to produce a phoneme string, then `KokoroTTS.tokenizer(phonemes)` and `generate_from_ids(input_ids)`. These phonemes are **different** from the independently stored VOICE LAB accent/prosody metadata. The upstream package has no public `speakFromPhonemes` API.
+
+A guarded adapter now observes (without changing) the phoneme string and returned tokenizer IDs on the **first normal Kokoro `speak()`** for a phrase. It stores the exact Kokoro-native phonemes in a separate, versioned IndexedDB LRU (512 KiB / 128 phrases) and caches the runtime's original Tensor IDs in a per-model WeakMap (48 items). On the next request for the same phrase with a *different* speaker or generation speed, it uses the cached IDs and calls Kokoro's own `generate_from_ids`, skipping Open JTalk, the dictionary's frontend call and tokenizer. Following a page reload, the saved phoneme string is re-tokenized using Kokoro's own tokenizer, still skipping Japanese WASM G2P. The normal full-PCM and segment-PCM caches continue to take priority and avoid all inference where possible.
+
+Safety:
+- No handwritten phoneme table or guessed token IDs are used. Only actual outputs from the pinned Kokoro runtime enter this adapter.
+- If `client.tts.tokenizer` or `generate_from_ids` is unavailable, the code falls back to the official `speak()` method.
+- If a saved-phoneme direct invocation fails, normal Kokoro `speak()` is used for the current request.
+- Serialization ensures interception of the library tokenizer cannot overlap between interrupted/repeated speech generations.
+- Only phonemes, **not live tensors, runtime state, models or weights**, are persisted; ONNX Tensor objects are cached in RAM strictly per corresponding model instance.
+- Disk write is asynchronous and bounded. Storage failures keep the regular TTS path available.
+- The stable iPhone q8/WASM backend is unchanged. GPU BETA stays blocked on iOS.
+- This reduces preprocessing/re-tokenization latency on new acoustic variants, **not the ONNX inference cost itself**. The most dramatic speed wins for identical parameters are still the persisted final/segment PCM caches.
+
+The temporary tokenizer interception is coupled to the pinned library internals and must be removed if the upstream library exposes a documented token-cache API.
