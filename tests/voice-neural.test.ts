@@ -766,7 +766,7 @@ describe('Natural long-text neural segmentation for reusable inference', () => {
   });
 
   it('only splits long text at full sentence boundaries when possible', () => {
-    const first = '長い文章を自然に読み上げるための第一文です。'.repeat(3);
+    const first = '長い文章を自然に読み上げるための第一文です。'.repeat(5);
     const second = '次の文章もそのまま保持して再利用できます。'.repeat(2);
     const text = first + second;
     const chunks = splitLongNeuralText(text);
@@ -782,6 +782,14 @@ describe('Natural long-text neural segmentation for reusable inference', () => {
     expect(chunks.length).toBeGreaterThan(1);
     expect(chunks.slice(0, -1).every(x => x.endsWith('、'))).toBe(true);
     expect(chunks.join('')).toBe(text);
+  });
+
+  it('keeps spaces and line breaks intact across long-text chunks', () => {
+    const text = ('これから読む長い文章です。  次の行へ移ります。\n').repeat(12).trim();
+    const chunks = splitLongNeuralText(text);
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(chunks.join('')).toBe(text);
+    expect(chunks.every(x => Array.from(x).length <= NEURAL_MAX_UNEDITED_CHARS)).toBe(true);
   });
 
   it('does not truncate a very long text without punctuation', () => {
