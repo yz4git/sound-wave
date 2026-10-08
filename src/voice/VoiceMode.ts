@@ -74,7 +74,7 @@ import {
   buildNeuralProsodyPlan,
 } from './NeuralVoice';
 
-type VoiceEngine = 'local' | 'neural' | 'system';
+type VoiceEngine = 'local' | 'neural' | 'neural-gpu' | 'system';
 type ProsodyLane = 'pitch' | 'energy' | 'duration';
 
 interface VoiceLabSettings extends VoiceSynthSettings {
@@ -108,7 +108,7 @@ function validIntonation(value: unknown): value is VoiceIntonation {
 }
 
 function validEngine(value: unknown): value is VoiceEngine {
-  return value === 'local' || value === 'neural' || value === 'system';
+  return value === 'local' || value === 'neural' || value === 'neural-gpu' || value === 'system';
 }
 
 function validQuality(value: unknown): value is VoiceRenderQuality {
@@ -124,6 +124,7 @@ export class VoiceMode {
   private readonly root: HTMLElement;
   private readonly synth = new VoiceSynth();
   private readonly neural = new BrowserNeuralVoice();
+  private lastNeuralMetric = '';
   private settings: VoiceLabSettings;
   private active = false;
   private playbackTimer = 0;
@@ -309,13 +310,14 @@ export class VoiceMode {
           <div class="voice-engine voice-engine-source" role="group" aria-label="Voice engine">
             <button type="button" data-voice-engine="local">SOUND WAVE DSP</button>
             <button type="button" data-voice-engine="neural">NEURAL HQ</button>
+            <button type="button" data-voice-engine="neural-gpu">GPU BETA</button>
             <button type="button" data-voice-engine="system">SYSTEM TTS</button>
           </div>
           <div class="voice-engine" role="group" aria-label="Local render quality">
             <button type="button" data-voice-quality="fast">FAST DSP</button>
             <button type="button" data-voice-quality="hq">HQ REFINE</button>
           </div>
-          <p class="voice-engine-note">DSP HQ · editable renderer · NEURAL HQ · q8 model preloads on selection, Japanese G2P loads on first speech · reusable phrase inference</p>
+          <p class="voice-engine-note">NEURAL HQ CPU q8 · GPU BETA: WebGPU fp32 (~326MB), optional experimental hardware inference · RTF lower means faster · GPU failure falls back to CPU</p>
           <div class="voice-japanese-tools">
             <button type="button" id="voice-analyze-japanese">JAPANESE G2P</button>
             <span id="voice-japanese-status">Open JTalk reading + pitch accent · kanji / おう / えい · first use ~24MB dictionary</span>
@@ -754,6 +756,11 @@ export class VoiceMode {
         this.syncControls();
         this.refreshPlan();
         if (engine === 'neural') this.preloadNeuralModel();
+        // GPU Beta is deliberately not auto-preloaded: its first download
+        // is much larger than the normal q8 model and must be opt-in at SPEAK.
+        if (engine === 'neural-gpu') {
+          this.setStatus('GPU BETA · ~326MB MODEL · TAP SPEAK TO TEST');
+        }
       }, { passive: false });
     }
 
@@ -878,8 +885,10 @@ export class VoiceMode {
       button.disabled = !editableEngine;
     }
     this.required<HTMLElement>('#voice-contour').classList.toggle('disabled', !editableEngine);
-    this.required<HTMLInputElement>('#voice-vtl').disabled = this.settings.engine === 'neural';
-    this.required<HTMLSelectElement>('#voice-style').disabled = this.settings.engine === 'neural';
+    this.required<HTMLInputElement>('#voice-vtl').disabled =
+      this.settings.engine === 'neural' || this.settings.engine === 'neural-gpu';
+    this.required<HTMLSelectElement>('#voice-style').disabled =
+      this.settings.engine === 'neural' || this.settings.engine === 'neural-gpu';
     this.syncProsodyLaneUi();
     this.syncLabels();
   }
@@ -1253,9 +1262,14 @@ export class VoiceMode {
               ? 'READY · LOCAL DSP'
               : 'ENTER KANA OR ROMAJI',
       );
-    } else if (this.settings.engine === 'neural') {
-      note.textContent = 'NEURAL HQ · q8 model prepares on selection · unchanged phrases reuse generated PCM · model-native quality + VOICE LAB edits · safe PITCH · ENERGY · TIMING/RATE · SPLIT/JOIN/PAUSE · VTL/IMPRINT DSP-only';
-      this.setStatus(this.neural.loaded ? 'READY · NEURAL HQ · MODEL CACHED IN SESSION' : 'READY · NEURAL HQ · MODEL LOADS ON FIRST SPEAK');
+    } else if (this.settings.engine === 'neural' || this.settings.engine === 'neural-gpu') {
+      const gpu = this.settings.engine === 'neural-gpu';
+      note.textContent = gpu
+        ? 'GPU BETA · WebGPU patched Kokoro fp32 ~326MB · experimental on iPhone · audio output safety gate · automatic CPU q8 fallback · compare RTF to NEURAL HQ'
+        : 'NEURAL HQ · q8 model prepares on selection · unchanged phrases reuse generated PCM · model-native quality + VOICE LAB edits · safe PITCH · ENERGY · TIMING/RATE · SPLIT/JOIN/PAUSE · VTL/IMPRINT DSP-only';
+      this.setStatus(gpu
+        ? 'READY · GPU BETA · 326MB DOWNLOAD ON FIRST SPEAK'
+        : this.neural.loaded ? 'READY · NEURAL HQ · MODEL CACHED IN SESSION' : 'READY · NEURAL HQ · MODEL LOADS ON FIRST SPEAK');
     } else {
       note.textContent = 'SYSTEM TTS · device/browser voice · kanji and general text supported · availability varies by OS';
       this.setStatus('READY · SYSTEM TTS');
@@ -1976,7 +1990,9 @@ export class VoiceMode {
             : 'READY · FAST DSP'
           : this.settings.engine === 'neural'
             ? 'READY · NEURAL HQ'
-            : 'READY · SYSTEM TTS',
+            : this.settings.engine === 'neural-gpu'
+              ? 'READY · GPU BETA'
+              : 'READY · SYSTEM TTS',
       );
     }
   }
@@ -1994,7 +2010,7 @@ export class VoiceMode {
       this.playSystem(markup);
       return;
     }
-    if (this.settings.engine === 'neural') {
+    if (this.settings.engine === 'neural' || this.settings.engine === 'neural-gpu') {
       await this.playNeural(markup);
       return;
     }
@@ -2111,29 +2127,36 @@ export class VoiceMode {
     });
 
     try {
+      this.lastNeuralMetric = '';
       await this.neural.playPlan(neuralPlan, {
+        backend: this.settings.engine === 'neural-gpu' ? 'webgpu' : 'wasm',
         character: this.settings.character,
         rate: this.settings.rate,
         energy: this.settings.energy,
         pitch: this.settings.pitch,
         tone: this.settings.tone,
         expression: this.settings.expression,
+        onMetrics: (metric) => {
+          this.lastNeuralMetric = metric.cached
+            ? 'INSTANT CACHE'
+            : `${metric.backend.toUpperCase()}${metric.fallback ? ' FALLBACK' : ''} · ${(metric.inferenceMs / 1000).toFixed(1)}s / ${metric.audioSeconds.toFixed(1)}s AUDIO · RTF ${metric.realTimeFactor.toFixed(2)}`;
+        },
         onStatus: (message) => {
-          if (!this.active || this.settings.engine !== 'neural') return;
+          if (!this.active || (this.settings.engine !== 'neural' && this.settings.engine !== 'neural-gpu')) return;
           this.setStatus(message);
           this.required<HTMLButtonElement>('#voice-play').textContent = '… NEURAL HQ';
         },
         onStart: (voiceId) => {
-          if (!this.active || this.settings.engine !== 'neural') return;
+          if (!this.active || (this.settings.engine !== 'neural' && this.settings.engine !== 'neural-gpu')) return;
           this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
           this.setStatus(
-            `NEURAL HQ · ${voiceId.toUpperCase()} · ${neuralPlan.edited ? `VOICE LAB EDITS · ${neuralPlan.segments.length} SEG` : 'MODEL-NATIVE'}`,
+            `NEURAL · ${voiceId.toUpperCase()} · ${this.lastNeuralMetric} · ${neuralPlan.edited ? `${neuralPlan.segments.length} SEG` : 'MODEL-NATIVE'}`,
           );
         },
         onEnd: () => {
-          if (!this.active || this.settings.engine !== 'neural') return;
+          if (!this.active || (this.settings.engine !== 'neural' && this.settings.engine !== 'neural-gpu')) return;
           this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
-          this.setStatus('READY · NEURAL HQ');
+          this.setStatus(`READY · ${this.lastNeuralMetric}`);
         },
       });
     } catch (error) {

@@ -1458,3 +1458,26 @@
     letter-spacing: .025em;
   }
 }
+
+
+/* Optional GPU BETA inference: four sources in two rows on iPhone portrait. */
+.voice-engine-source {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.voice-engine-source button[data-voice-engine="neural-gpu"] {
+  border-color: rgba(122, 215, 255, .37);
+  background: linear-gradient(180deg, rgba(40, 109, 143, .24), rgba(22, 49, 71, .23));
+}
+.voice-engine-source button[data-voice-engine="neural-gpu"].active {
+  border-color: rgba(113, 221, 255, .88);
+  background: rgba(26, 135, 185, .28);
+}
+@media (orientation: portrait) and (max-width: 560px) {
+  .voice-engine-source {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .voice-engine-source button {
+    min-height: 44px;
+    font-size: 10px;
+  }
+}
