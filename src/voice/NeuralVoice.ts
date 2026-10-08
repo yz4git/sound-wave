@@ -802,6 +802,7 @@ export class BrowserNeuralVoice {
     voiceId: NeuralVoiceId,
     speed: number,
     generation: number,
+    onStatus?: (message: string) => void,
   ): Promise<{ audio: Float32Array; sampling_rate: number } | null> {
     // Serialize only uncached inference calls, not instant PCM replay.
     // An old stopped request may still be running inside ONNX; wait for its
@@ -814,6 +815,12 @@ export class BrowserNeuralVoice {
         text,
         voiceId,
         speed,
+        (source) => {
+          if (generation !== this.generation) return;
+          onStatus?.(source === 'token-ids'
+            ? 'NEURAL HQ · REUSING TOKEN IDS · SKIPPING JAPANESE G2P'
+            : 'NEURAL HQ · RESTORING PHONEMES · SKIPPING JAPANESE G2P');
+        },
       );
     });
     this.inferenceTail = result.then(() => {}, () => {});
@@ -889,6 +896,7 @@ export class BrowserNeuralVoice {
         }
         const result = await this.speakSerially(
           tts, segment.text, voiceId, modelSpeed, generation,
+          options.onStatus,
         );
         if (generation !== this.generation) {
           return { audio: new Float32Array(0), sampleRate: 24_000, generatedNew };

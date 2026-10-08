@@ -273,6 +273,7 @@ export async function speakWithReusablePhonemes(
   text: string,
   voice: string,
   speed: number,
+  onReuse?: (source: 'token-ids' | 'phonemes') => void,
 ): Promise<FastJapaneseSpeechResult> {
   const lowLevel = lowLevelKokoro(client);
   if (!lowLevel) {
@@ -284,6 +285,7 @@ export async function speakWithReusablePhonemes(
   const cachedTokens = map.get(neuralPhonemeKey(text));
   if (cachedTokens) {
     try {
+      onReuse?.('token-ids');
       const result = await lowLevel.generate_from_ids(cachedTokens, { voice, speed });
       return { ...result, reusedPhonemes: true, capturedPhonemes: false };
     } catch {
@@ -298,6 +300,7 @@ export async function speakWithReusablePhonemes(
       // phonemization. Subsequent speaking rates/voices reuse these IDs.
       const tokenized = lowLevel.tokenizer(saved, { truncation: true });
       if (!tokenized || !tokenized.input_ids) throw new Error('tokenizer returned no token IDs');
+      onReuse?.('phonemes');
       const result = await lowLevel.generate_from_ids(tokenized.input_ids, { voice, speed });
       memoizeIDs(lowLevel, text, tokenized.input_ids);
       return { ...result, reusedPhonemes: true, capturedPhonemes: false };

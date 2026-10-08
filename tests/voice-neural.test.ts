@@ -658,3 +658,58 @@ describe('Neural HQ Kokoro-internal phoneme / token reuse', () => {
     expect(memory.bytes).toBeLessThanOrEqual(512);
   });
 });
+
+
+describe('Kokoro phoneme reuse diagnostics and safe fallback', () => {
+  it('reports token-ID reuse for same-text new-speed inference', async () => {
+    const cache = new NeuralPhonemeCache(null);
+    const calls: string[] = [];
+    const kokoro = {
+      tokenizer: (text: string) => ({ input_ids: { text } }),
+      generate_from_ids: async () => ({
+        audio: new Float32Array(900).fill(0.13),
+        sampling_rate: 24000,
+      }),
+    };
+    const model = {
+      tts: kokoro,
+      async speak(text: string) {
+        const input = kokoro.tokenizer(text);
+        return kokoro.generate_from_ids(input.input_ids);
+      },
+    };
+    await speakWithReusablePhonemes(model, cache, 'あいう', 'jf_alpha', 1);
+    const result = await speakWithReusablePhonemes(
+      model, cache, 'あいう', 'jm_kumo', 1.2,
+      (source) => calls.push(source),
+    );
+    expect(result.reusedPhonemes).toBe(true);
+    expect(calls).toEqual(['token-ids']);
+  });
+
+  it('uses official speak if cached direct inference fails', async () => {
+    const cache = new NeuralPhonemeCache(null);
+    await cache.put('音声', 'oɴseː');
+    let directAttempts = 0;
+    let stableAttempts = 0;
+    const client = {
+      tts: {
+        tokenizer: (text: string) => ({ input_ids: { text } }),
+        async generate_from_ids() {
+          directAttempts++;
+          throw new Error('old token interface');
+        },
+      },
+      async speak() {
+        stableAttempts++;
+        return { audio: new Float32Array(500).fill(0.1), sampling_rate: 24000 };
+      },
+    };
+    const result = await speakWithReusablePhonemes(
+      client, cache, '音声', 'jf_alpha', 1,
+    );
+    expect(result.reusedPhonemes).toBe(false);
+    expect(directAttempts).toBe(1);
+    expect(stableAttempts).toBe(1);
+  });
+});

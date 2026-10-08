@@ -326,7 +326,7 @@ export class VoiceMode {
             <button type="button" data-voice-quality="fast">FAST DSP</button>
             <button type="button" data-voice-quality="hq">HQ REFINE</button>
           </div>
-          <p class="voice-engine-note">NEURAL HQ saves finished voice + reusable phrases on this iPhone · replay after reload skips Kokoro when saved · GPU BETA remains disabled on iPhone for safety</p>
+          <p class="voice-engine-note">NEURAL HQ: saved PCM + Japanese phonemes + token IDs · same phrase / new RATE or VOICE skips Japanese G2P · CPU q8 stays default · GPU BETA blocked on iPhone</p>
           <div class="voice-japanese-tools">
             <button type="button" id="voice-analyze-japanese">JAPANESE G2P</button>
             <span id="voice-japanese-status">Open JTalk reading + pitch accent · kanji / おう / えい · first use ~24MB dictionary</span>
@@ -1322,7 +1322,7 @@ export class VoiceMode {
       const gpu = this.settings.engine === 'neural-gpu';
       note.textContent = gpu
         ? 'GPU BETA · WebGPU patched Kokoro fp32 ~326MB · experimental on iPhone · audio output safety gate · automatic CPU q8 fallback · compare RTF to NEURAL HQ'
-        : 'NEURAL HQ · q8 · voice segments + complete takes saved to iPhone IndexedDB (up to 24MB) · restart/revisit reuses audio without inference · ENERGY/PAUSE remix saved segments · VOICE LAB editing remains active';
+        : 'NEURAL HQ · q8 · completed PCM + phrases persisted (24MB) · Kokoro-native phonemes persisted (512KB) · session token IDs reused across RATE / VOICE variants · editor G2P cached separately';
       const blocked = neuralGPUBlockReason();
       this.setStatus(gpu
         ? blocked ?? 'READY · GPU BETA · 326MB DOWNLOAD ON FIRST SPEAK'
