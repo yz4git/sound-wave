@@ -1,5 +1,6 @@
 import type { VoiceCharacterPreset } from '../compose/VoiceCharacter';
 import { NeuralRenderStore, neuralPersistentKey } from './NeuralRenderStore';
+import { NeuralInferenceSingleFlight } from './NeuralInferenceSingleFlight';
 import {
   NeuralPhonemeCache,
   speakWithReusablePhonemes,
@@ -692,6 +693,7 @@ export class BrowserNeuralVoice {
   // Raw Kokoro segments: 12 MiB / 24 entries, separate from the 24 MiB
   // final-waveform replay cache. Avoid retaining a second full session.
   private readonly segmentCache = new NeuralAudioCache(12 * 1024 * 1024, 24);
+  private readonly inferenceJobs = new NeuralInferenceSingleFlight<CachedNeuralAudio>();
   private readonly savedAudio = new NeuralRenderStore();
   private readonly japanesePhonemes = new NeuralPhonemeCache();
   /** The upstream tokenizer hook is transient and must never overlap. */
@@ -808,7 +810,9 @@ export class BrowserNeuralVoice {
     // An old stopped request may still be running inside ONNX; wait for its
     // tokenizer interception to finish before installing our next hook.
     const result = this.inferenceTail.then(async () => {
-      if (generation !== this.generation) return null;
+      // A queued call may outlive the original play request. Finish the
+      // already-requested ONNX work so a newer identical request can reuse it.
+      // Actual playback/callbacks are still gated by generation.
       return speakWithReusablePhonemes(
         tts,
         this.japanesePhonemes,
@@ -894,27 +898,34 @@ export class BrowserNeuralVoice {
         if (generation !== this.generation) {
           return { audio: new Float32Array(0), sampleRate: 24_000, generatedNew };
         }
-        const result = await this.speakSerially(
-          tts, segment.text, voiceId, modelSpeed, generation,
-          options.onStatus,
-        );
+        const reusedPending = this.inferenceJobs.has(segmentKey);
+        // Cache as soon as the shared ONNX call finishes, even when the
+        // initiating playback was stopped in the meantime. A subsequent
+        // SPEAK for the same sentence attaches to exactly this promise.
+        rendered = await this.inferenceJobs.run(segmentKey, async () => {
+          const result = await this.speakSerially(
+            tts!, segment.text, voiceId, modelSpeed, generation,
+            options.onStatus,
+          );
+          if (!result || !(result.audio instanceof Float32Array) || !neuralPCMQualityGate(result.audio)) {
+            throw new Error('Kokoro produced invalid PCM.');
+          }
+          const fresh = {
+            audio: result.audio,
+            sampleRate: Number.isFinite(result.sampling_rate)
+              ? clamp(result.sampling_rate, 8_000, 96_000)
+              : 24_000,
+          };
+          this.segmentCache.set(segmentKey, fresh);
+          if (backend === 'wasm') {
+            void this.savedAudio.put(neuralPersistentKey('segment', segmentKey), fresh);
+          }
+          return fresh;
+        });
         if (generation !== this.generation) {
           return { audio: new Float32Array(0), sampleRate: 24_000, generatedNew };
         }
-        if (!result || !(result.audio instanceof Float32Array) || !neuralPCMQualityGate(result.audio)) {
-          throw new Error('Kokoro produced invalid PCM.');
-        }
-        generatedNew = true;
-        rendered = {
-          audio: result.audio,
-          sampleRate: Number.isFinite(result.sampling_rate)
-            ? clamp(result.sampling_rate, 8_000, 96_000)
-            : 24_000,
-        };
-        this.segmentCache.set(segmentKey, rendered);
-        if (backend === 'wasm') {
-          void this.savedAudio.put(neuralPersistentKey('segment', segmentKey), rendered);
-        }
+        if (!reusedPending) generatedNew = true;
       }
       const expressionControl = voiceExpressionControl(segment.expression);
       renderedSegments.push({

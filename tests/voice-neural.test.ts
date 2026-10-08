@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { NeuralInferenceSingleFlight } from '../src/voice/NeuralInferenceSingleFlight';
 import {
   NeuralPhonemeCache,
   NeuralPhonemeMemoryCache,
@@ -711,5 +712,46 @@ describe('Kokoro phoneme reuse diagnostics and safe fallback', () => {
     expect(result.reusedPhonemes).toBe(false);
     expect(directAttempts).toBe(1);
     expect(stableAttempts).toBe(1);
+  });
+});
+
+
+describe('Neural HQ shared in-flight model inference', () => {
+  it('runs a matching key once even when two requests overlap', async () => {
+    const pending = new NeuralInferenceSingleFlight<number>();
+    let callCount = 0;
+    let finish: (value: number) => void = () => { throw Error('not started'); };
+    const work = () => {
+      callCount++;
+      return new Promise<number>((resolve) => { finish = resolve; });
+    };
+    const a = pending.run('same voice + text + speed', work);
+    const b = pending.run('same voice + text + speed', work);
+    expect(a).toBe(b);
+    expect(pending.has('same voice + text + speed')).toBe(true);
+    await Promise.resolve();
+    expect(callCount).toBe(1);
+    finish(42);
+    expect(await a).toBe(42);
+    expect(await b).toBe(42);
+    expect(pending.size).toBe(0);
+  });
+
+  it('does not merge different speaker or speed keys', async () => {
+    const pending = new NeuralInferenceSingleFlight<number>();
+    const a = pending.run('alpha@1.0', async () => 1);
+    const b = pending.run('kumo@1.0', async () => 2);
+    const c = pending.run('alpha@1.1', async () => 3);
+    expect(await Promise.all([a, b, c])).toEqual([1, 2, 3]);
+    expect(pending.size).toBe(0);
+  });
+
+  it('retries a failed inference and does not keep rejected work', async () => {
+    const pending = new NeuralInferenceSingleFlight<number>();
+    await expect(pending.run('failed', async () => {
+      throw new Error('offline');
+    })).rejects.toThrow('offline');
+    expect(pending.size).toBe(0);
+    expect(await pending.run('failed', async () => 7)).toBe(7);
   });
 });

@@ -1286,3 +1286,12 @@ Safety:
 - This reduces preprocessing/re-tokenization latency on new acoustic variants, **not the ONNX inference cost itself**. The most dramatic speed wins for identical parameters are still the persisted final/segment PCM caches.
 
 The temporary tokenizer interception is coupled to the pinned library internals and must be removed if the upstream library exposes a documented token-cache API.
+
+
+### 59. Coalescing repeated in-flight neural requests
+
+A rapid second SPEAK while Kokoro ONNX was still inferring previously cancelled the first playback and then repeated the same expensive inference: the original result was discarded because playback generation changed.
+
+A per-segment `NeuralInferenceSingleFlight` now maps an exact model+speaker+text+speed identity to its in-flight inference promise. New matching playback subscribes to the existing work instead of running a second ONNX call. The shared promise caches validated raw PCM *before* checking whether the initiating playback was stopped. Playback still observes the generation token so stale requests never speak unexpectedly. The map holds only pending jobs, and errors are removed for clean retry. Actual synthesizer calls remain serial to avoid overlapping tokenizer hooks and CPU/memory pressure on iPhone.
+
+This does not make a genuinely new ONNX inference faster; it eliminates a particularly expensive duplicate-work path during repeated SPEAK, cancellations and quick setting reversions.
