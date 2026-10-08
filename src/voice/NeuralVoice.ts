@@ -105,7 +105,7 @@ export interface NeuralGPUEnvironment {
   userAgent: string;
   platform: string;
   maxTouchPoints: number;
-  deviceMemory?: number;
+  deviceMemory?: number | undefined;
   hasWebGPU: boolean;
 }
 
