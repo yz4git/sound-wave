@@ -1322,7 +1322,7 @@ export class VoiceMode {
       const gpu = this.settings.engine === 'neural-gpu';
       note.textContent = gpu
         ? 'GPU BETA · WebGPU patched Kokoro fp32 ~326MB · experimental on iPhone · audio output safety gate · automatic CPU q8 fallback · compare RTF to NEURAL HQ'
-        : 'NEURAL HQ · q8 · completed PCM + phrases persisted (24MB) · Kokoro-native phonemes persisted (512KB) · session token IDs reused across RATE / VOICE variants · editor G2P cached separately';
+        : 'NEURAL HQ · CPU q8 · completed audio / phrase PCM persisted (24MB) · Kokoro-native phonemes persisted (512KB) · RATE / VOICE variants skip repeated Japanese G2P + tokens · ONNX still renders unsaved voices';
       const blocked = neuralGPUBlockReason();
       this.setStatus(gpu
         ? blocked ?? 'READY · GPU BETA · 326MB DOWNLOAD ON FIRST SPEAK'
