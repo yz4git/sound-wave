@@ -574,7 +574,7 @@ describe('Neural HQ Kokoro-internal phoneme / token reuse', () => {
   function testSynthesis() {
     const calls = { speak: 0, tokenize: 0, infer: 0 };
     const privateKokoro = {
-      tokenizer(phonemes: string) {
+      tokenizer(phonemes: string, _settings: { truncation: boolean }) {
         calls.tokenize += 1;
         return { input_ids: { phonemes, dims: [1, phonemes.length + 2] } };
       },
