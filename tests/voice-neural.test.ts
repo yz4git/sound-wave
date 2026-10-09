@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { NeuralInferenceSingleFlight } from '../src/voice/NeuralInferenceSingleFlight';
+import { nextNeuralChunkTime, streamingChunkGain } from '../src/voice/NeuralChunkPlayer';
 import { splitLongNeuralText, NEURAL_MAX_UNEDITED_CHARS } from '../src/voice/NeuralLongText';
 import {
   NeuralPhonemeCache,
@@ -825,5 +826,39 @@ describe('Natural long-text neural segmentation for reusable inference', () => {
     });
     expect(plan.segments.length).toBeGreaterThan(1);
     expect(plan.segments.map(x => x.text).join('')).toBe(text);
+  });
+});
+
+
+describe('Neural HQ streaming first-sentence audio', () => {
+  it('starts the very first neural chunk immediately rather than waiting for all chunks', () => {
+    expect(nextNeuralChunkTime(3, null, 0)).toBeCloseTo(3.012);
+    expect(nextNeuralChunkTime(6, 5, 0)).toBeCloseTo(6.012);
+  });
+
+  it('schedules an 8ms crossfade when the next phrase is ready early', () => {
+    expect(nextNeuralChunkTime(2, 5, 0)).toBeCloseTo(4.992);
+    expect(nextNeuralChunkTime(2, 5, 0.2)).toBeCloseTo(5.2);
+  });
+
+  it('bounds output gain to prevent streaming PCM from clipping', () => {
+    expect(streamingChunkGain({
+      audio: new Float32Array([0.9, -0.91, 0.2]),
+      sampleRate: 24000,
+      gain: 1.15,
+      pauseAfter: 0,
+    })).toBeCloseTo(0.985 / 0.91);
+    expect(streamingChunkGain({
+      audio: new Float32Array([0.2, -0.2]),
+      sampleRate: 24000,
+      gain: 0.8,
+      pauseAfter: 0,
+    })).toBeCloseTo(0.8);
+    expect(streamingChunkGain({
+      audio: new Float32Array([NaN]),
+      sampleRate: 24000,
+      gain: 1,
+      pauseAfter: 0,
+    })).toBe(0);
   });
 });

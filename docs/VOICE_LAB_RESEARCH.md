@@ -1304,3 +1304,16 @@ Long *unedited* text was previously always submitted to Kokoro as one inference 
 For text over 112 Unicode code points, a conservative splitter now groups complete Japanese sentences to stay below a safe token budget while minimizing Kokoro prosody resets. Prefer natural `。！？` and newline boundaries; exceptionally long uninterrupted sentences use commas, spaces, then `Intl.Segmenter('ja', word)` before a last-resort split without inserting punctuation. The original short-text neural path is unchanged. Every new segment uses the existing raw-PCM, persistent phoneme and shared inference caches; editing one long sentence can reuse the others. Segment boundaries are added only when the text is long enough to risk truncation, preserving the previously prioritized natural sound of short utterances.
 
 The change improves correctness and **subsequent** latency for long passages. Total first-generation ONNX computation is not claimed to be faster on iPhone; the main objective is avoiding lost text and wasted re-generation.
+
+
+### 61. Progressive first-sentence audio for long Neural HQ passages
+
+The previously implemented natural long-text segmentation makes full passages cacheable and lossless, but playback still waited until every segment was inferred and concatenated. With serial WASM ONNX on iPhone, that created substantial time-to-first-sound for several sentences.
+
+The new progressive player starts an AudioBufferSourceNode **immediately after the first natural sentence is rendered**, while the remaining sentences are generated and cached by the same serial inference path. Segments are queued on one AudioContext timeline with 8ms overlaps when ready, short edge fades and conservative per-segment gain ceiling to avoid audible clicks or clipping. Any inference underrun schedules the next segment as soon as it is ready. The final merged PCM is still produced and persisted for future instant replay.
+
+Guardrails:
+- Progressive audio runs only for *new long unedited CPU q8 plans with 2+ segments*. Short speech, edited prosody plans, GPU experiment and saved complete takes stay on the exact original playback path.
+- STOP or replacement speech cancels all scheduled buffers and prevents stale onStart/onEnd callbacks. Generation tokens still gate all playback. No extra ONNX sessions or concurrent model inference are created, avoiding iPhone memory spikes.
+- User-visible metrics distinguish full render time from first-audio latency, when supported.
+- No claim that ONNX itself computes faster. The benefit is faster first audible speech and lower latency before hearing long text.

@@ -1,6 +1,7 @@
 import type { VoiceCharacterPreset } from '../compose/VoiceCharacter';
 import { NeuralRenderStore, neuralPersistentKey } from './NeuralRenderStore';
 import { NeuralInferenceSingleFlight } from './NeuralInferenceSingleFlight';
+import { NeuralChunkPlayer, type NeuralStreamingChunk } from './NeuralChunkPlayer';
 import { splitLongNeuralText } from './NeuralLongText';
 import {
   NeuralPhonemeCache,
@@ -35,6 +36,7 @@ export interface NeuralVoicePlaybackOptions {
     realTimeFactor: number;
     cached: boolean;
     fallback: boolean;
+    firstAudioMs?: number;
   }) => void;
   onStart?: (voiceId: NeuralVoiceId) => void;
   onEnd?: () => void;
@@ -708,6 +710,7 @@ export class BrowserNeuralVoice {
   private gain: GainNode | null = null;
   private generation = 0;
   private finishPlayback: (() => void) | null = null;
+  private activeStream: NeuralChunkPlayer | null = null;
 
   get loaded(): boolean {
     return this.modelReady;
@@ -796,6 +799,8 @@ export class BrowserNeuralVoice {
   stop(): void {
     this.generation += 1;
     this.releaseSource(true);
+    this.activeStream?.stop();
+    this.activeStream = null;
   }
 
   suspend(): void {
@@ -842,6 +847,7 @@ export class BrowserNeuralVoice {
     options: NeuralVoicePlaybackOptions,
     generation: number,
     backend: NeuralComputeBackend,
+    onChunk?: (chunk: NeuralStreamingChunk) => void,
   ): Promise<{ audio: Float32Array; sampleRate: number; generatedNew: boolean }> {
     const voiceId = neuralVoiceIdForCharacter(options.character);
     const renderedSegments: RenderedNeuralSegment[] = [];
@@ -933,7 +939,7 @@ export class BrowserNeuralVoice {
         if (!reusedPending) generatedNew = true;
       }
       const expressionControl = voiceExpressionControl(segment.expression);
-      renderedSegments.push({
+      const chunk: NeuralStreamingChunk = {
         audio: resampleForPitch(rendered.audio, pitchFactor),
         sampleRate: rendered.sampleRate,
         gain: clamp(
@@ -944,7 +950,9 @@ export class BrowserNeuralVoice {
           1.18,
         ),
         pauseAfter: segment.pauseAfter,
-      });
+      };
+      renderedSegments.push(chunk);
+      if (generation === this.generation) onChunk?.(chunk);
     }
 
     return { ...mergeRenderedSegments(renderedSegments), generatedNew };
@@ -974,6 +982,7 @@ export class BrowserNeuralVoice {
     options: NeuralVoicePlaybackOptions,
   ): Promise<void> {
     this.stop();
+    const beginAt = performance.now();
     const generation = this.generation;
     const context = this.ensureContext();
     const requestedGPU = options.backend === 'webgpu';
@@ -991,6 +1000,14 @@ export class BrowserNeuralVoice {
     let backendUsed: NeuralComputeBackend = effectiveOptions.backend ?? 'wasm';
     let inferenceMs = 0;
     let fallback = Boolean(gpuBlock);
+    let firstAudioMs: number | undefined;
+    let startedStream = false;
+    // The progressive path is only for long, unedited CPU speech. All short
+    // takes, explicitly prosody-edited lines and saved complete PCM continue
+    // to use the original model-native single-buffer playback.
+    const stream = !plan.edited && plan.segments.length > 1 && backendUsed === 'wasm'
+      ? new NeuralChunkPlayer(context)
+      : null;
 
     if (!rendered && backendUsed === 'wasm') {
       options.onStatus?.('NEURAL HQ · CHECKING SAVED AUDIO');
@@ -1017,10 +1034,23 @@ export class BrowserNeuralVoice {
       if (attemptingGPU && !neuralGPUBlockReason()) markGPUAttempt(true);
       let generatedNew = false;
       try {
-        const result = await this.renderPlan(null, plan, options, generation, backendUsed);
+        if (stream) this.activeStream = stream;
+        const result = await this.renderPlan(
+          null, plan, options, generation, backendUsed,
+          stream ? (chunk) => {
+            if (generation !== this.generation) return;
+            if (stream.enqueue(chunk) && !startedStream) {
+              startedStream = true;
+              firstAudioMs = performance.now() - beginAt;
+              options.onStart?.(neuralVoiceIdForCharacter(options.character));
+            }
+          } : undefined,
+        );
         rendered = { audio: result.audio, sampleRate: result.sampleRate };
         generatedNew = result.generatedNew;
       } catch (error) {
+        stream?.stop();
+        if (this.activeStream === stream) this.activeStream = null;
         if (generation !== this.generation) return;
         if (backendUsed !== 'webgpu') throw error;
         console.warn('Experimental WebGPU failed; retrying with stable WASM.', error);
@@ -1053,7 +1083,20 @@ export class BrowserNeuralVoice {
       realTimeFactor: audioSeconds > 0 ? inferenceMs / (audioSeconds * 1000) : 0,
       cached: inferenceMs === 0,
       fallback,
+      ...(firstAudioMs !== undefined ? { firstAudioMs } : {}),
     });
+
+    if (stream && startedStream && generation === this.generation) {
+      // Finish generating in the background while previously scheduled
+      // sentence buffers already play. The full validated take has now also
+      // been stored in the normal fast replay cache.
+      await stream.finish();
+      if (generation === this.generation) {
+        this.activeStream = null;
+        options.onEnd?.();
+      }
+      return;
+    }
 
     const voiceId = neuralVoiceIdForCharacter(options.character);
     const buffer = context.createBuffer(
