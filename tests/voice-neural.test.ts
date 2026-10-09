@@ -22,6 +22,9 @@ import {
   neuralWebGPUAvailable,
   neuralGPUDeviceBlockReason,
   NeuralAudioCache,
+  MAX_PROGRESSIVE_FINAL_PCM_BYTES,
+  shouldBuildNeuralFinalTake,
+  neuralSegmentRenderKey,
   buildNeuralProsodyPlan,
   neuralPlaybackCacheKey,
   neuralSegmentInferenceKey,
@@ -957,5 +960,26 @@ describe('Progressive Neural HQ AudioContext lifecycle', () => {
     expect(chunks.length).toBeGreaterThan(2);
     expect(chunks[0]!.length).toBeLessThanOrEqual(56);
     expect(chunks.join('')).toBe(long);
+  });
+});
+
+describe('Streaming memory budget and saved-phrase identity', () => {
+  it('caps concatenated progressive final PCM at three MiB', () => {
+    const cap = MAX_PROGRESSIVE_FINAL_PCM_BYTES / 4;
+    expect(shouldBuildNeuralFinalTake(cap)).toBe(true);
+    expect(shouldBuildNeuralFinalTake(cap + 1)).toBe(false);
+    expect(shouldBuildNeuralFinalTake(Infinity)).toBe(false);
+    expect(shouldBuildNeuralFinalTake(-1)).toBe(false);
+  });
+  it('reuses exactly the original inference key when only volume or pauses change', () => {
+    const expression = { preset: 'neutral' as const, intensity: 1 };
+    const segment = {text: '今日は自然な音声です。', startUnit:0,endUnit:10,
+      rateScale:1,energyScale:1.2,pitchSemitones:0,pauseAfter:0.3,expression};
+    const options = {character:'natural' as const,rate:1,energy:0.8,pitch:60,tone:0,expression};
+    const baseline = neuralSegmentRenderKey(segment,options);
+    expect(baseline).toBe(neuralSegmentInferenceKey(segment.text,'jf_alpha',1));
+    expect(neuralSegmentRenderKey({...segment,energyScale:0.7,pauseAfter:0}, {...options,energy:1.2})).toBe(baseline);
+    expect(neuralSegmentRenderKey(segment,{...options,rate:1.15})).not.toBe(baseline);
+    expect(neuralSegmentRenderKey(segment,{...options,character:'soft'})).not.toBe(baseline);
   });
 });

@@ -38,6 +38,7 @@ export interface NeuralVoicePlaybackOptions {
     fallback: boolean;
     firstAudioMs?: number;
   }) => void;
+  onFirstAudio?: (elapsedMs: number) => void;
   onStart?: (voiceId: NeuralVoiceId) => void;
   onEnd?: () => void;
 }
@@ -261,6 +262,29 @@ export function neuralPlaybackCacheKey(
 export interface CachedNeuralAudio {
   audio: Float32Array;
   sampleRate: number;
+}
+
+/** Avoid concatenating a multi-minute Float32 waveform on memory-limited iOS. */
+export const MAX_PROGRESSIVE_FINAL_PCM_BYTES = 3 * 1024 * 1024;
+export function shouldBuildNeuralFinalTake(samples: number): boolean {
+  return Number.isFinite(samples) && samples >= 0
+    && samples * Float32Array.BYTES_PER_ELEMENT <= MAX_PROGRESSIVE_FINAL_PCM_BYTES;
+}
+
+/** Stable model inference identity: playback-only ENERGY / PAUSE excluded. */
+export function neuralSegmentRenderKey(
+  segment: NeuralProsodySegment,
+  options: NeuralVoicePlaybackOptions,
+  backend: NeuralComputeBackend = 'wasm',
+): string {
+  const globalPitch = clamp((options.pitch - 60) * 0.03 + options.tone * 0.32, -0.55, 0.55);
+  const pitchFactor = 2 ** (clamp(segment.pitchSemitones + globalPitch, -0.75, 0.75) / 12);
+  const modelSpeed = clamp(
+    neuralSpeedForSettings(options.rate * segment.rateScale, segment.expression) / pitchFactor,
+    0.62,
+    1.55,
+  );
+  return neuralSegmentInferenceKey(segment.text, neuralVoiceIdForCharacter(options.character), modelSpeed, backend);
 }
 
 /**
@@ -723,7 +747,16 @@ export class BrowserNeuralVoice {
   ): Promise<boolean> {
     const key = neuralPlaybackCacheKey(plan, options);
     if (this.audioCache.get(key)) return true;
-    return this.savedAudio.has(neuralPersistentKey('final', key));
+    if (await this.savedAudio.has(neuralPersistentKey('final', key))) return true;
+    // Even without a completed take, a fully saved set of phrases can play
+    // without loading the 90MB Kokoro model or running Open JTalk / ONNX.
+    if ((options.backend ?? 'wasm') !== 'wasm' || plan.segments.length === 0) return false;
+    for (const segment of plan.segments) {
+      const segmentKey = neuralSegmentRenderKey(segment, options);
+      if (this.segmentCache.get(segmentKey)) continue;
+      if (!await this.savedAudio.has(neuralPersistentKey('segment', segmentKey))) return false;
+    }
+    return true;
   }
 
   /** Pre-load model weights only when the exact current take is not saved. */
@@ -1042,6 +1075,7 @@ export class BrowserNeuralVoice {
             if (stream.enqueue(chunk) && !startedStream) {
               startedStream = true;
               firstAudioMs = performance.now() - beginAt;
+              options.onFirstAudio?.(firstAudioMs);
               options.onStart?.(neuralVoiceIdForCharacter(options.character));
             }
           } : undefined,
