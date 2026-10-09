@@ -881,11 +881,20 @@ export class BrowserNeuralVoice {
     generation: number,
     backend: NeuralComputeBackend,
     onChunk?: (chunk: NeuralStreamingChunk) => void,
-  ): Promise<{ audio: Float32Array; sampleRate: number; generatedNew: boolean }> {
+  ): Promise<{
+    audio: Float32Array;
+    sampleRate: number;
+    generatedNew: boolean;
+    streamedOnly: boolean;
+    streamAudioSeconds: number;
+  }> {
     const voiceId = neuralVoiceIdForCharacter(options.character);
     const renderedSegments: RenderedNeuralSegment[] = [];
     let tts = initialModel;
     let generatedNew = false;
+    let mergeSamples = 0;
+    let mergeAllowed = true;
+    let streamAudioSeconds = 0;
     const globalPitch = clamp(
       (options.pitch - 60) * 0.03 + options.tone * 0.32,
       -0.55,
@@ -894,7 +903,7 @@ export class BrowserNeuralVoice {
 
     for (let index = 0; index < plan.segments.length; index += 1) {
       if (generation !== this.generation) {
-        return { audio: new Float32Array(0), sampleRate: 24_000, generatedNew };
+        return { audio: new Float32Array(0), sampleRate: 24_000, generatedNew, streamedOnly: false, streamAudioSeconds };
       }
       const segment = plan.segments[index]!;
       const pitchSemitones = clamp(
@@ -926,7 +935,7 @@ export class BrowserNeuralVoice {
         // tokenizer, Open JTalk, or ONNX inference needed for this phrase.
         rendered = await this.savedAudio.get(neuralPersistentKey('segment', segmentKey));
         if (generation !== this.generation) {
-          return { audio: new Float32Array(0), sampleRate: 24_000, generatedNew };
+          return { audio: new Float32Array(0), sampleRate: 24_000, generatedNew, streamedOnly: false, streamAudioSeconds };
         }
         if (rendered) this.segmentCache.set(segmentKey, rendered);
       }
@@ -940,7 +949,7 @@ export class BrowserNeuralVoice {
         // Only an actual uncached phrase pays the model initialization cost.
         tts ??= await this.loadModel(backend);
         if (generation !== this.generation) {
-          return { audio: new Float32Array(0), sampleRate: 24_000, generatedNew };
+          return { audio: new Float32Array(0), sampleRate: 24_000, generatedNew, streamedOnly: false, streamAudioSeconds };
         }
         const reusedPending = this.inferenceJobs.has(segmentKey);
         // Cache as soon as the shared ONNX call finishes, even when the
@@ -967,7 +976,7 @@ export class BrowserNeuralVoice {
           return fresh;
         });
         if (generation !== this.generation) {
-          return { audio: new Float32Array(0), sampleRate: 24_000, generatedNew };
+          return { audio: new Float32Array(0), sampleRate: 24_000, generatedNew, streamedOnly: false, streamAudioSeconds };
         }
         if (!reusedPending) generatedNew = true;
       }
@@ -984,11 +993,37 @@ export class BrowserNeuralVoice {
         ),
         pauseAfter: segment.pauseAfter,
       };
-      renderedSegments.push(chunk);
+      if (onChunk) {
+        streamAudioSeconds += chunk.audio.length / chunk.sampleRate
+          + Math.max(0, chunk.pauseAfter);
+        mergeSamples += chunk.audio.length
+          + Math.max(0, Math.round(chunk.pauseAfter * chunk.sampleRate));
+        if (mergeAllowed && !shouldBuildNeuralFinalTake(mergeSamples)) {
+          mergeAllowed = false;
+          // Drop all earlier full-length chunk references. Playback and the
+          // per-segment caches own the individual speech PCM as needed.
+          renderedSegments.length = 0;
+        }
+      }
+      if (!onChunk || mergeAllowed) renderedSegments.push(chunk);
       if (generation === this.generation) onChunk?.(chunk);
     }
 
-    return { ...mergeRenderedSegments(renderedSegments), generatedNew };
+    if (onChunk && !mergeAllowed) {
+      return {
+        audio: new Float32Array(0),
+        sampleRate: 24_000,
+        generatedNew,
+        streamedOnly: true,
+        streamAudioSeconds,
+      };
+    }
+    return {
+      ...mergeRenderedSegments(renderedSegments),
+      generatedNew,
+      streamedOnly: false,
+      streamAudioSeconds,
+    };
   }
 
   async play(
@@ -1035,6 +1070,8 @@ export class BrowserNeuralVoice {
     let fallback = Boolean(gpuBlock);
     let firstAudioMs: number | undefined;
     let startedStream = false;
+    let streamedOnly = false;
+    let streamedAudioSeconds = 0;
     // The progressive path is only for long, unedited CPU speech. All short
     // takes, explicitly prosody-edited lines and saved complete PCM continue
     // to use the original model-native single-buffer playback.
@@ -1082,6 +1119,8 @@ export class BrowserNeuralVoice {
         );
         rendered = { audio: result.audio, sampleRate: result.sampleRate };
         generatedNew = result.generatedNew;
+        streamedOnly = result.streamedOnly;
+        streamedAudioSeconds = result.streamAudioSeconds;
       } catch (error) {
         stream?.stop();
         if (this.activeStream === stream) this.activeStream = null;
@@ -1097,19 +1136,24 @@ export class BrowserNeuralVoice {
       } finally {
         if (attemptingGPU) markGPUAttempt(false);
       }
-      if (generation !== this.generation || !rendered || rendered.audio.length === 0) return;
+      if (generation !== this.generation || !rendered
+        || (rendered.audio.length === 0 && !(streamedOnly && startedStream))) return;
       // Formatting, pitch, energy and merge are cheap. Cache-only edits should
       // show as re-composition, not falsely as neural generation time.
       inferenceMs = generatedNew ? performance.now() - inferenceStart : 0;
-      this.audioCache.set(cacheKey, rendered);
-      if (effectiveOptions.backend === 'wasm') {
-        // Do not block first playback on an IndexedDB write.
-        void this.savedAudio.put(neuralPersistentKey('final', cacheKey), rendered);
+      if (!streamedOnly) {
+        this.audioCache.set(cacheKey, rendered);
+        if (effectiveOptions.backend === 'wasm') {
+          // Do not block first playback on an IndexedDB write.
+          void this.savedAudio.put(neuralPersistentKey('final', cacheKey), rendered);
+        }
       }
     }
 
     if (!rendered) return;
-    const audioSeconds = rendered.audio.length / rendered.sampleRate;
+    const audioSeconds = streamedOnly
+      ? streamedAudioSeconds
+      : rendered.audio.length / rendered.sampleRate;
     options.onMetrics?.({
       backend: backendUsed,
       inferenceMs,

@@ -2216,6 +2216,7 @@ export class VoiceMode {
     try {
       this.lastNeuralMetric = '';
       let speakingWhileRendering = false;
+      let firstAudioLabel = '';
       const gpuBlocked = this.settings.engine === 'neural-gpu'
         ? neuralGPUBlockReason()
         : null;
@@ -2233,6 +2234,9 @@ export class VoiceMode {
         pitch: this.settings.pitch,
         tone: this.settings.tone,
         expression: this.settings.expression,
+        onFirstAudio: (elapsedMs) => {
+          firstAudioLabel = `FIRST AUDIO ${(elapsedMs / 1000).toFixed(1)}s`;
+        },
         onMetrics: (metric) => {
           this.lastNeuralMetric = metric.cached
             ? 'INSTANT CACHE'
@@ -2253,7 +2257,7 @@ export class VoiceMode {
           speakingWhileRendering = true;
           this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
           this.setStatus(
-            `NEURAL · ${voiceId.toUpperCase()} · ${this.lastNeuralMetric} · ${neuralPlan.edited ? `${neuralPlan.segments.length} SEG` : 'MODEL-NATIVE'}`,
+            `NEURAL · ${voiceId.toUpperCase()} · ${firstAudioLabel || this.lastNeuralMetric || 'PLAYING'} · ${neuralPlan.edited ? `${neuralPlan.segments.length} SEG` : 'MODEL-NATIVE'}`,
           );
         },
         onEnd: () => {

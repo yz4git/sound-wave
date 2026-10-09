@@ -1324,3 +1324,14 @@ Guardrails:
 The progressive path now chooses an approximately 56-character first chunk (at a natural sentence boundary) before continuing with normal up-to-112-character chunks. This reduces expected time before hearing a long passage without changing short-sentence inference or inserting artificial punctuation. When the next inference is slower than current playback, the queue resumes naturally; when ready early, 8ms crossfade scheduling avoids a sharp seam.
 
 The UI keeps the SPEAKING button active while subsequent chunks generate and reports FIRST AUDIO latency separately from the total render time/RTF. AudioContext lifecycle tests verify initial scheduling, ordered chunks, STOP cancellation and the final completion signal without requiring actual device audio.
+
+
+### 63. Memory-bounded progressive streaming and cached-phrase warmup
+
+Long progressive playback previously generated each sentence early, but still assembled a potentially multi-minute Float32 array before completing. Keeping raw inference PCM, scheduled AudioBuffers, merged PCM and IndexedDB clones concurrently increases memory pressure on iPhone.
+
+The new stream collector retains data for a final merged take only until its PCM budget reaches **3 MiB** (~32 s at 24kHz mono Float32). Above that limit, it drops collector references and finishes via already scheduled audio buffers and bounded saved raw phrases. It does not allocate or persist a giant merged final take, nor does it preload Kokoro if every individual phrase is already available in RAM/IndexedDB. For short or modest speech, the previous finalized-take cache remains active.
+
+ONNX phoneme/acoustic inference keys for the preflight probe use the same exact settings as actual rendering (speaker, effective model speed, pitch compensation); ENERGY/gain/pause changes remain cheap post-processing. The UI now displays first-audio latency at the actual first scheduled chunk, rather than only when all remaining sentences finish.
+
+No new GPU sessions or thread-heavy inference were introduced; iPhone uses the stable q8 WASM backend.
