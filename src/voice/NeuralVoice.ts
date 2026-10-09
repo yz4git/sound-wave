@@ -880,7 +880,7 @@ export class BrowserNeuralVoice {
     options: NeuralVoicePlaybackOptions,
     generation: number,
     backend: NeuralComputeBackend,
-    onChunk?: (chunk: NeuralStreamingChunk) => void,
+    onChunk?: (chunk: NeuralStreamingChunk) => Promise<void> | void,
   ): Promise<{
     audio: Float32Array;
     sampleRate: number;
@@ -1006,7 +1006,7 @@ export class BrowserNeuralVoice {
         }
       }
       if (!onChunk || mergeAllowed) renderedSegments.push(chunk);
-      if (generation === this.generation) onChunk?.(chunk);
+      if (generation === this.generation && onChunk) await onChunk(chunk);
     }
 
     if (onChunk && !mergeAllowed) {
@@ -1107,7 +1107,8 @@ export class BrowserNeuralVoice {
         if (stream) this.activeStream = stream;
         const result = await this.renderPlan(
           null, plan, options, generation, backendUsed,
-          stream ? (chunk) => {
+          stream ? async (chunk) => {
+            if (generation !== this.generation || !await stream.waitForRoom()) return;
             if (generation !== this.generation) return;
             if (stream.enqueue(chunk) && !startedStream) {
               startedStream = true;

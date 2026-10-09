@@ -1335,3 +1335,12 @@ The new stream collector retains data for a final merged take only until its PCM
 ONNX phoneme/acoustic inference keys for the preflight probe use the same exact settings as actual rendering (speaker, effective model speed, pitch compensation); ENERGY/gain/pause changes remain cheap post-processing. The UI now displays first-audio latency at the actual first scheduled chunk, rather than only when all remaining sentences finish.
 
 No new GPU sessions or thread-heavy inference were introduced; iPhone uses the stable q8 WASM backend.
+
+
+### 64. Bounded WebAudio scheduling (iPhone backpressure)
+
+On a warm session, dozens of long-passage segments can be read quickly from IndexedDB and scheduled immediately via `AudioBufferSourceNode`. Despite limiting *merged* PCM, this could still retain an unbounded number of WebAudio native buffers and hit iOS memory pressure.
+
+The progressive pipeline now permits **at most three scheduled chunks** at once. Before enqueuing another, the synthesizer asynchronously waits for an older buffer's `onended` event, then resumes. STOP wakes any waiting producer and prevents stale audio from being scheduled. This backpressure does not modify source PCM, voice, rate or edit semantics. It limits speculative memory and CPU work when audio playback is slower than cached phrase preparation.
+
+The streaming engine remains opt-in by program path (long unedited CPU q8 utterances only), while short and edited speech continue the existing completed-take path.

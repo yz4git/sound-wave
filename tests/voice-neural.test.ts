@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { NeuralInferenceSingleFlight } from '../src/voice/NeuralInferenceSingleFlight';
-import { NeuralChunkPlayer, nextNeuralChunkTime, streamingChunkGain } from '../src/voice/NeuralChunkPlayer';
+import {
+  NeuralChunkPlayer,
+  NEURAL_STREAM_MAX_QUEUED_CHUNKS,
+  nextNeuralChunkTime,
+  streamingChunkGain,
+} from '../src/voice/NeuralChunkPlayer';
 import { splitLongNeuralText, NEURAL_MAX_UNEDITED_CHARS } from '../src/voice/NeuralLongText';
 import {
   NeuralPhonemeCache,
@@ -981,5 +986,70 @@ describe('Streaming memory budget and saved-phrase identity', () => {
     expect(neuralSegmentRenderKey({...segment,energyScale:0.7,pauseAfter:0}, {...options,energy:1.2})).toBe(baseline);
     expect(neuralSegmentRenderKey(segment,{...options,rate:1.15})).not.toBe(baseline);
     expect(neuralSegmentRenderKey(segment,{...options,character:'soft'})).not.toBe(baseline);
+  });
+});
+
+describe('Neural HQ bounded scheduled audio and STOP backpressure', () => {
+  function makeContext() {
+    const sources: Array<{ onended: (() => void) | null; stop: () => void }> = [];
+    const context = {
+      currentTime: 0,
+      destination: {},
+      createBuffer(_c: number, size: number) {
+        const values = new Float32Array(size);
+        return {getChannelData: () => values};
+      },
+      createBufferSource() {
+        const node = {
+          onended: null as (() => void) | null,
+          buffer: null as unknown,
+          start(_at: number) {},
+          stop() {},
+          connect() {},
+          disconnect() {},
+        };
+        sources.push(node);
+        return node;
+      },
+      createGain() {
+        return { gain: {
+          setValueAtTime(_v: number, _t: number) {},
+          linearRampToValueAtTime(_v: number, _t: number) {},
+        }, connect() {}, disconnect() {} };
+      },
+    };
+    return {context: context as unknown as AudioContext, sources};
+  }
+  const chunk = { audio: new Float32Array(512).fill(0.1), sampleRate:24000, gain:1, pauseAfter:0 };
+  it('blocks scheduling chunk 4 until a previous buffer ends', async () => {
+    const {context,sources} = makeContext();
+    const player = new NeuralChunkPlayer(context);
+    for (let i = 0; i < NEURAL_STREAM_MAX_QUEUED_CHUNKS; i++) {
+      expect(await player.waitForRoom()).toBe(true);
+      expect(player.enqueue(chunk)).toBe(true);
+    }
+    expect(player.bufferedChunks).toBe(3);
+    let allowed: boolean | undefined;
+    const pending = player.waitForRoom().then(v => { allowed = v; });
+    await Promise.resolve();
+    expect(allowed).toBeUndefined();
+    sources[0]!.onended?.();
+    await pending;
+    expect(allowed).toBe(true);
+    expect(player.bufferedChunks).toBe(2);
+    expect(player.enqueue(chunk)).toBe(true);
+    expect(player.bufferedChunks).toBe(3);
+    player.stop();
+  });
+
+  it('unblocks a waiting producer immediately when STOP is pressed', async () => {
+    const {context}=makeContext();
+    const player=new NeuralChunkPlayer(context);
+    for(let i=0;i<3;i++)player.enqueue(chunk);
+    const pending=player.waitForRoom();
+    player.stop();
+    expect(await pending).toBe(false);
+    expect(player.bufferedChunks).toBe(0);
+    expect(player.enqueue(chunk)).toBe(false);
   });
 });

@@ -16,6 +16,9 @@ const CROSSFADE_SECONDS = 0.008;
 const EDGE_FADE_SECONDS = 0.006;
 const START_LEAD_SECONDS = 0.012;
 
+/** Bounded AudioBufferSource queue: prevents Safari holding a whole chapter. */
+export const NEURAL_STREAM_MAX_QUEUED_CHUNKS = 3;
+
 export function streamingChunkGain(chunk: NeuralStreamingChunk): number {
   if (chunk.audio.length === 0 || !Number.isFinite(chunk.gain)) return 0;
   let peak = 0;
@@ -46,6 +49,7 @@ export function nextNeuralChunkTime(
 export class NeuralChunkPlayer {
   private readonly sources = new Set<AudioBufferSourceNode>();
   private readonly gains = new Map<AudioBufferSourceNode, GainNode>();
+  private readonly roomWaiters = new Set<() => void>();
   private previousEnd: number | null = null;
   private previousPause = 0;
   private closed = false;
@@ -56,6 +60,26 @@ export class NeuralChunkPlayer {
   constructor(private readonly context: AudioContext) {}
 
   get started(): boolean { return this.previousEnd !== null; }
+  get bufferedChunks(): number { return this.sources.size; }
+
+  /**
+   * Backpressure is applied before enqueuing each subsequent segment,
+   * including fast IndexedDB cache hits. Model inference remains serial.
+   */
+  async waitForRoom(): Promise<boolean> {
+    while (!this.closed && this.sources.size >= NEURAL_STREAM_MAX_QUEUED_CHUNKS) {
+      await new Promise<void>((resolve) => {
+        this.roomWaiters.add(resolve);
+      });
+    }
+    return !this.closed;
+  }
+
+  private signalRoom(): void {
+    const waiters = [...this.roomWaiters];
+    this.roomWaiters.clear();
+    for (const wake of waiters) wake();
+  }
 
   enqueue(chunk: NeuralStreamingChunk): boolean {
     if (this.closed || this.sealed || chunk.audio.length === 0) return false;
@@ -94,6 +118,7 @@ export class NeuralChunkPlayer {
       this.sources.delete(source);
       const oldGain = this.gains.get(source);
       this.gains.delete(source);
+      this.signalRoom();
       try { source.disconnect(); } catch { /* already released */ }
       try { oldGain?.disconnect(); } catch { /* already released */ }
       this.resolveIfFinished();
@@ -129,6 +154,7 @@ export class NeuralChunkPlayer {
     }
     this.sources.clear();
     this.gains.clear();
+    this.signalRoom();
     this.resolveIfFinished();
   }
 
