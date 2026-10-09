@@ -87,6 +87,10 @@ export function splitLongNeuralText(
   if (Array.from(raw).length <= maxChars) return [raw];
 
   const pieces = boundaries(raw);
+  // For long passages, hear the first natural sentence sooner instead of
+  // waiting for a full ~112-character inference pass. A single sentence
+  // longer than this target is kept intact up to maxChars.
+  const firstAudioTarget = Math.min(maxChars, 56);
   const out: string[] = [];
   let current = '';
   for (const piece of pieces) {
@@ -95,7 +99,8 @@ export function splitLongNeuralText(
       : [piece];
     for (const item of parts) {
       const joined = current ? current + item : item;
-      if (Array.from(joined).length > maxChars && current) {
+      const currentLimit = out.length === 0 ? firstAudioTarget : maxChars;
+      if (current && Array.from(joined).length > currentLimit) {
         out.push(current);
         current = item;
       } else {

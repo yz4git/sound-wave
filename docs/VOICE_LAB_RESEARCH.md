@@ -1317,3 +1317,10 @@ Guardrails:
 - STOP or replacement speech cancels all scheduled buffers and prevents stale onStart/onEnd callbacks. Generation tokens still gate all playback. No extra ONNX sessions or concurrent model inference are created, avoiding iPhone memory spikes.
 - User-visible metrics distinguish full render time from first-audio latency, when supported.
 - No claim that ONNX itself computes faster. The benefit is faster first audible speech and lower latency before hearing long text.
+
+
+### 62. First-sentence fast-start and in-progress UX
+
+The progressive path now chooses an approximately 56-character first chunk (at a natural sentence boundary) before continuing with normal up-to-112-character chunks. This reduces expected time before hearing a long passage without changing short-sentence inference or inserting artificial punctuation. When the next inference is slower than current playback, the queue resumes naturally; when ready early, 8ms crossfade scheduling avoids a sharp seam.
+
+The UI keeps the SPEAKING button active while subsequent chunks generate and reports FIRST AUDIO latency separately from the total render time/RTF. AudioContext lifecycle tests verify initial scheduling, ordered chunks, STOP cancellation and the final completion signal without requiring actual device audio.

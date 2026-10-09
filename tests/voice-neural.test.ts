@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { NeuralInferenceSingleFlight } from '../src/voice/NeuralInferenceSingleFlight';
-import { nextNeuralChunkTime, streamingChunkGain } from '../src/voice/NeuralChunkPlayer';
+import { NeuralChunkPlayer, nextNeuralChunkTime, streamingChunkGain } from '../src/voice/NeuralChunkPlayer';
 import { splitLongNeuralText, NEURAL_MAX_UNEDITED_CHARS } from '../src/voice/NeuralLongText';
 import {
   NeuralPhonemeCache,
@@ -860,5 +860,102 @@ describe('Neural HQ streaming first-sentence audio', () => {
       gain: 1,
       pauseAfter: 0,
     })).toBe(0);
+  });
+});
+
+
+describe('Progressive Neural HQ AudioContext lifecycle', () => {
+  function mockContext() {
+    const sources: Array<{ source: {
+      buffer: unknown;
+      onended: (() => void) | null;
+      connect: () => void;
+      disconnect: () => void;
+      start: (time: number) => void;
+      stop: () => void;
+    }; startTimes: number[]; stops: number[] }> = [];
+    const context = {
+      currentTime: 10,
+      destination: {},
+      createBuffer(_channels: number, length: number) {
+        const channel = new Float32Array(length);
+        return { getChannelData: () => channel };
+      },
+      createGain() {
+        return {
+          gain: {
+            setValueAtTime() {},
+            linearRampToValueAtTime() {},
+          },
+          connect() {},
+          disconnect() {},
+        };
+      },
+      createBufferSource() {
+        const startTimes: number[] = [];
+        const stops: number[] = [];
+        const source = {
+          buffer: null as unknown,
+          onended: null as (() => void) | null,
+          connect() {},
+          disconnect() {},
+          start(time: number) { startTimes.push(time); },
+          stop() { stops.push(1); },
+        };
+        sources.push({ source, startTimes, stops });
+        return source;
+      },
+    };
+    return { context: context as unknown as AudioContext, sources };
+  }
+
+  const chunk = {
+    audio: new Float32Array(24000).fill(0.12),
+    sampleRate: 24000,
+    gain: 1,
+    pauseAfter: 0,
+  };
+
+  it('schedules the first buffer before the next chunk is available', async () => {
+    const mock = mockContext();
+    const player = new NeuralChunkPlayer(mock.context);
+    expect(player.started).toBe(false);
+    expect(player.enqueue(chunk)).toBe(true);
+    expect(player.started).toBe(true);
+    expect(mock.sources[0]!.startTimes).toHaveLength(1);
+    expect(mock.sources[0]!.startTimes[0]).toBeCloseTo(10.012);
+    expect(player.enqueue(chunk)).toBe(true);
+    expect(mock.sources[1]!.startTimes[0]).toBeCloseTo(11.004);
+    const pending = player.finish();
+    let resolved = false;
+    void pending.then(() => { resolved = true; });
+    mock.sources[0]!.source.onended?.();
+    await Promise.resolve();
+    expect(resolved).toBe(false);
+    mock.sources[1]!.source.onended?.();
+    await pending;
+    expect(resolved).toBe(true);
+    expect(player.enqueue(chunk)).toBe(false);
+  });
+
+  it('STOP cancels every scheduled chunk and resolves pending finish', async () => {
+    const mock = mockContext();
+    const player = new NeuralChunkPlayer(mock.context);
+    player.enqueue(chunk);
+    player.enqueue(chunk);
+    const pending = player.finish();
+    player.stop();
+    await pending;
+    expect(mock.sources.every(({ stops }) => stops.length === 1)).toBe(true);
+    expect(player.enqueue(chunk)).toBe(false);
+  });
+
+  it('prioritizes a short first sentence for a large unedited passage', () => {
+    const sentence = 'この音声を自然に再生します。';
+    const long = sentence.repeat(16);
+    const chunks = splitLongNeuralText(long);
+    expect(chunks.length).toBeGreaterThan(2);
+    expect(chunks[0]!.length).toBeLessThanOrEqual(56);
+    expect(chunks.join('')).toBe(long);
   });
 });

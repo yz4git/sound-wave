@@ -2215,6 +2215,7 @@ export class VoiceMode {
 
     try {
       this.lastNeuralMetric = '';
+      let speakingWhileRendering = false;
       const gpuBlocked = this.settings.engine === 'neural-gpu'
         ? neuralGPUBlockReason()
         : null;
@@ -2235,15 +2236,21 @@ export class VoiceMode {
         onMetrics: (metric) => {
           this.lastNeuralMetric = metric.cached
             ? 'INSTANT CACHE'
-            : `${metric.backend.toUpperCase()}${metric.fallback ? ' FALLBACK' : ''} · ${(metric.inferenceMs / 1000).toFixed(1)}s / ${metric.audioSeconds.toFixed(1)}s AUDIO · RTF ${metric.realTimeFactor.toFixed(2)}`;
+            : `${metric.backend.toUpperCase()}${metric.fallback ? ' FALLBACK' : ''} · ${(metric.inferenceMs / 1000).toFixed(1)}s / ${metric.audioSeconds.toFixed(1)}s AUDIO · RTF ${metric.realTimeFactor.toFixed(2)}`
+              + (metric.firstAudioMs !== undefined
+                ? ` · FIRST AUDIO ${(metric.firstAudioMs / 1000).toFixed(1)}s`
+                : '');
         },
         onStatus: (message) => {
           if (!this.active || (this.settings.engine !== 'neural' && this.settings.engine !== 'neural-gpu')) return;
-          this.setStatus(message);
-          this.required<HTMLButtonElement>('#voice-play').textContent = '… NEURAL HQ';
+          this.setStatus(speakingWhileRendering ? `SPEAKING · ${message}` : message);
+          if (!speakingWhileRendering) {
+            this.required<HTMLButtonElement>('#voice-play').textContent = '… NEURAL HQ';
+          }
         },
         onStart: (voiceId) => {
           if (!this.active || (this.settings.engine !== 'neural' && this.settings.engine !== 'neural-gpu')) return;
+          speakingWhileRendering = true;
           this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
           this.setStatus(
             `NEURAL · ${voiceId.toUpperCase()} · ${this.lastNeuralMetric} · ${neuralPlan.edited ? `${neuralPlan.segments.length} SEG` : 'MODEL-NATIVE'}`,
