@@ -1544,3 +1544,32 @@
   outline: 2px solid #7dcafe;
   outline-offset: 1px;
 }
+
+
+/* On-device Neural HQ baseline versus VOX LOCAL, same utterance and level. */
+#voice-lab .voice-voxlocal-ab {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+#voice-lab .voice-voxlocal-ab button {
+  appearance: none;
+  touch-action: manipulation;
+  min-height: 40px;
+  min-width: 0;
+  padding: 9px 5px;
+  border: 1px solid rgba(150, 222, 255, .35);
+  border-radius: 9px;
+  background: rgba(17, 52, 77, .8);
+  color: #f3faff;
+  font: 800 11px/1.25 system-ui, sans-serif;
+  letter-spacing: .02em;
+}
+#voice-lab .voice-voxlocal-ab button:active {
+  background: rgba(65, 157, 207, .42);
+}
+#voice-lab .voice-voxlocal-report {
+  min-height: 28px;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
