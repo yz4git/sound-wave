@@ -821,7 +821,7 @@ export class VoiceMode {
     localDescription.addEventListener('input', () => {
       this.settings.voxLocalDescription = localDescription.value.slice(0, 240);
       this.saveSettings();
-      this.voxLocal.stop();
+      this.stop();
     });
     this.required<HTMLSelectElement>('#voice-voxlocal-quality').addEventListener('change', (event) => {
       const quality = (event.target as HTMLSelectElement).value;
