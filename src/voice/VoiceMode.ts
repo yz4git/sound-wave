@@ -487,6 +487,11 @@ export class VoiceMode {
   private bindEvents(): void {
     const text = this.required<HTMLTextAreaElement>('#voice-text');
     text.addEventListener('input', () => {
+      if (this.settings.engine === 'vox-local') {
+        this.stop();
+        this.required<HTMLElement>('#voice-voxlocal-ab-report').textContent =
+          'Text changed. Tap A or B to compare new matching takes.';
+      }
       this.resetProsodyEdits();
       this.prosodyLoadedSignature = '';
       this.clearJapaneseAnalysis();
@@ -980,6 +985,10 @@ export class VoiceMode {
   private changed(refreshSelects = true): void {
     this.saveSettings();
     this.stop();
+    if (this.settings.engine === 'vox-local') {
+      this.required<HTMLElement>('#voice-voxlocal-ab-report').textContent =
+        'Voice settings changed. Tap A or B for a new matched A/B comparison.';
+    }
     if (refreshSelects) this.syncControls();
     else this.syncLabels();
     this.refreshPlan();
