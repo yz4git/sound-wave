@@ -233,7 +233,22 @@ export class VoxLocalVoice {
       backend: 'wasm',
       onStatus,
     };
-    const raw = await this.neural.renderPCM(plan, options);
+    // Use the voice-design delivery in the neural acoustic stage as well
+    // as the post-filter; a description should change more than EQ alone.
+    // Explicit per-phrase edits retain their own intended expression.
+    const designedPlan: NeuralProsodyPlan = plan.edited
+      ? plan
+      : {
+          ...plan,
+          segments: plan.segments.map((segment) => ({
+            ...segment,
+            expression: {
+              preset: profile.voiceStyle,
+              intensity: design.expression.intensity,
+            },
+          })),
+        };
+    const raw = await this.neural.renderPCM(designedPlan, options);
     if (epoch !== this.epoch || !raw) return null;
     onStatus('VOX LOCAL · RECONSTRUCTING VOICE');
     const adjusted = reconstructVoxLocalAudio(raw.audio, raw.sampleRate, profile, design.quality);
