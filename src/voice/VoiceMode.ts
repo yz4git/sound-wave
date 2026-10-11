@@ -1350,7 +1350,7 @@ export class VoiceMode {
     pageLabel.textContent = `${window.page + 1} / ${window.pageCount}`;
     const prevPage = this.required<HTMLButtonElement>('#voice-prosody-prev');
     const nextPage = this.required<HTMLButtonElement>('#voice-prosody-next');
-    const prosodyEditable = this.settings.engine !== 'system';
+    const prosodyEditable = this.settings.engine !== 'system' && this.settings.engine !== 'voxcpm2' && this.settings.engine !== 'vox-local';
     prevPage.disabled = !prosodyEditable || window.page <= 0;
     nextPage.disabled = !prosodyEditable || window.page >= window.pageCount - 1;
     const preview = plan.units.slice(window.start, window.end);
