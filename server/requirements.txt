@@ -1,0 +1,5 @@
+# Install VoxCPM2 via pip install voxcpm per official GPU/platform instructions.
+voxcpm
+fastapi>=0.115,<1
+uvicorn>=0.30,<1
+soundfile>=0.13,<1
