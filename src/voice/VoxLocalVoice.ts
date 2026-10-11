@@ -92,47 +92,76 @@ export function reconstructVoxLocalAudio(
   quality: VoxLocalQuality,
 ): Float32Array {
   if (!input.length) return new Float32Array();
+  if (!(sampleRate >= 8_000 && sampleRate <= 96_000)) throw new Error('Invalid neural PCM sample rate');
   const out = new Float32Array(input.length);
-  const warmA = Math.exp(-2 * Math.PI * 360 / sampleRate);
-  const presenceA = Math.exp(-2 * Math.PI * 2600 / sampleRate);
-  const smoothA = Math.exp(-2 * Math.PI * 9800 / sampleRate);
-  const envRise = Math.exp(-1 / (sampleRate * 0.009));
-  const envFall = Math.exp(-1 / (sampleRate * 0.065));
-  let warm = 0, mid = 0, smooth = 0, envelope = 0;
+
+  // Small, continuous filters preserve the pretrained model's harmonics and
+  // consonants; the designer must not replace speech with synthetic noise.
+  const warmthA = Math.exp(-2 * Math.PI * 330 / sampleRate);
+  const presenceA = Math.exp(-2 * Math.PI * 2400 / sampleRate);
+  const airA = Math.exp(-2 * Math.PI * Math.min(6500, sampleRate * 0.37) / sampleRate);
+  const attackA = Math.exp(-1 / (sampleRate * 0.007));
+  const releaseA = Math.exp(-1 / (sampleRate * 0.075));
+  let bass = 0, mid = 0, air = 0, envelope = 0;
   let seed = 0x6af241b9;
-  const breathAmount = profile.breath * (quality === 'fast' ? 0 : 0.0016);
+  let noiseLow = 0, breathBand = 0;
+
+  // New breath noise is *disabled* for normal voices: older VOX LOCAL added
+  // near-white noise to virtually every voiced sample, raising the hiss floor.
+  // Whisper/husky design uses a much quieter, band-shaped transitional layer.
+  const breathLevel = quality === 'fast'
+    ? 0 : Math.max(0, profile.breath - 0.16) * 0.004;
+  const presenceBoost = bound(profile.clarity, -0.1, 0.8) * 0.070;
+  const airBoost = bound(profile.air, 0, 0.6) * 0.045;
+  const warmthBoost = bound(profile.warmth, -0.4, 0.85) * 0.070;
+
   for (let i = 0; i < input.length; i++) {
-    const x = Number.isFinite(input[i]) ? input[i]! : 0;
-    warm = warmA * warm + (1 - warmA) * x;
+    const source = input[i] ?? 0;
+    const x = Number.isFinite(source) ? source : 0;
+    bass = warmthA * bass + (1 - warmthA) * x;
     mid = presenceA * mid + (1 - presenceA) * x;
-    smooth = smoothA * smooth + (1 - smoothA) * x;
-    const mag = Math.abs(x);
-    envelope = (mag > envelope ? envRise : envFall) * envelope
-      + (1 - (mag > envelope ? envRise : envFall)) * mag;
+    air = airA * air + (1 - airA) * x;
+    const magnitude = Math.abs(x);
+    const a = magnitude > envelope ? attackA : releaseA;
+    envelope = a * envelope + (1 - a) * magnitude;
+
+    // Consonants have unusually strong upper bands. Do not accentuate those
+    // peaks indiscriminately: it turns Japanese /s/ into sharp hiss.
+    const upper = x - air;
+    const relativeUpper = Math.min(1, Math.abs(upper) / Math.max(0.006, envelope * 1.35));
+    const deEss = 1 - relativeUpper * 0.50;
     let result = x
-      + warm * profile.warmth * 0.11
-      + (x - mid) * profile.clarity * 0.10
-      + (x - smooth) * profile.air * 0.085;
+      + bass * warmthBoost
+      + (x - mid) * presenceBoost * (0.8 + 0.2 * deEss)
+      + upper * airBoost * deEss;
+
     if (quality === 'studio') {
-      // A gentle envelope-following gain curve: softer portions remain audible
-      // without flattening attack consonants or accent contours.
-      const compensated = 1 + (1 - Math.min(1, envelope / 0.13)) * 0.032;
-      result *= compensated;
+      // Gently lift speech tails while maintaining accent and onset dynamics.
+      // No attempt at fake high-resolution diffusion-style resynthesis.
+      result *= 1 + 0.018 * (1 - Math.min(1, envelope / 0.12));
     }
-    if (breathAmount && envelope > 0.005) {
+
+    if (breathLevel > 0 && envelope > 0.004 && envelope < 0.21) {
       seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5;
-      const noise = ((seed >>> 0) / 0x100000000) * 2 - 1;
-      result += noise * breathAmount * Math.min(1, envelope * 9);
+      const white = ((seed >>> 0) / 0x100000000) * 2 - 1;
+      noiseLow = noiseLow * 0.80 + white * 0.20;
+      breathBand = breathBand * 0.38 + (white - noiseLow) * 0.62;
+      const activity = Math.min(1, envelope / 0.035);
+      const quieter = Math.max(0, 1 - envelope / 0.22);
+      result += breathBand * breathLevel * activity * quieter;
     }
-    result *= 0.985 + profile.emphasis * 0.07;
-    // Soft safety ceiling; keeps transients from clipping on iOS.
-    out[i] = bound(result / (1 + Math.max(0, Math.abs(result) - 0.9) * 0.9), -0.98, 0.98);
+
+    result *= 0.995 + profile.emphasis * 0.035;
+    // Soft safety limiter, not a loudness maximizer.
+    const excess = Math.max(0, Math.abs(result) - 0.91);
+    const safe = result / (1 + excess * 0.9);
+    out[i] = bound(safe, -0.98, 0.98);
   }
   const fade = Math.min(Math.floor(sampleRate * 0.006), Math.floor(out.length / 2));
   for (let i = 0; i < fade; i++) {
-    const g = (i + 1) / (fade + 1);
-    out[i] = out[i]! * g;
-    out[out.length - 1 - i] = out[out.length - 1 - i]! * g;
+    const gain = (i + 1) / (fade + 1);
+    out[i] = out[i]! * gain;
+    out[out.length - 1 - i] = out[out.length - 1 - i]! * gain;
   }
   return out;
 }
