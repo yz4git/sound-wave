@@ -70,3 +70,45 @@ voice design, never an older take with different settings.
   phones; start with a sentence and Balanced mode.
 - The original remote VoxCPM2 server mode remains optional, but is **not
   required** to use Vox Local.
+
+
+## A/B quality review (October 2026)
+
+VOICE LAB now has **A · NEURAL HQ BASE** and **B · VOX LOCAL** buttons
+inside the Vox Local panel. A and B render exactly the same spoken text,
+using the *same selected neural speaker, speaking speed, expression and
+pronunciation*. The raw Kokoro output is produced **once** and reused by the
+second side. A is the raw model output; B is the refined sound design, with
+RMS level approximately matched so a louder sample does not seem better.
+
+The A/B panel displays measurable **RMS level difference**, **peak level
+for each output**, and **waveform change percentage**. The latter is a
+normalized RMS signal difference, **not a voice-quality, intelligibility or
+similarity score**. In STUDIO, analysis uses the common native sample rate
+before upsampling for a valid matched comparison.
+
+Changes after the initial code review:
+
+- Removed continuous unfiltered random noise from ordinary voices. Breathy
+  and whisper designs receive only a much quieter band-shaped transitional
+  component, to avoid unnecessary hiss throughout voiced segments.
+- Added high-frequency sibilance-aware gain to avoid excessive /s/ and /sh/
+  edge enhancement, especially for Japanese.
+- Reduced aggressive treble and loudness boosts to retain model-native
+  phonemes, attacks and sentence cadence.
+- Matched output RMS against the identical original take, and constrained
+  sample peaks without hard volume maximization.
+- Added regressions for silence, clipping, cache reuse, description changes
+  and identical-reference PCM comparison.
+
+These are **engineering and signal-level checks**. Test automation currently
+does not include a recorded human listening panel or real iPhone headphone
+measurements; a listening verdict must not be inferred from the waveform
+difference number. User preference and device playback can be evaluated
+using the built-in A/B buttons.
+
+Use the same sentence, switch A/B several times, and assess especially:
+(1) sibilant roughness, (2) consonant intelligibility, (3) naturalness of
+phrase endings, and (4) whether the voice description causes a desirable
+speaker/delivery change. Note that these are design improvements atop the
+same Kokoro backbone, not a claim of VoxCPM2-grade synthesis.
