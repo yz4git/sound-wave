@@ -2,6 +2,7 @@ import type { VoiceCharacterPreset } from '../compose/VoiceCharacter';
 import type { VoiceExpressionPreset, VoiceExpressionSettings } from './VoiceExpression';
 import type { BrowserNeuralVoice, NeuralProsodyPlan } from './NeuralVoice';
 import type { NeuralVoicePlaybackOptions } from './NeuralVoice';
+import { analyzeVoxLocalAB, matchVoicePcmLevel, type VoxLocalABMetrics } from './VoxLocalCompare';
 
 /**
  * Independent, on-device voice-design + acoustic reconstruction pipeline.
@@ -189,7 +190,14 @@ export class VoxLocalVoice {
   private context: AudioContext | null = null;
   private source: AudioBufferSourceNode | null = null;
   private epoch = 0;
-  private cached: { key: string; audio: Float32Array; rate: number } | null = null;
+  private cached: {
+    key: string;
+    audio: Float32Array;
+    rate: number;
+    reference: Float32Array;
+    referenceRate: number;
+    metrics: VoxLocalABMetrics;
+  } | null = null;
 
   constructor(private readonly neural: BrowserNeuralVoice) {}
 
@@ -253,17 +261,22 @@ export class VoxLocalVoice {
     onStatus('VOX LOCAL · RECONSTRUCTING VOICE');
     const adjusted = reconstructVoxLocalAudio(raw.audio, raw.sampleRate, profile, design.quality);
     if (epoch !== this.epoch) return null;
+    // Compare the post-filter against the *same generated Kokoro utterance*.
+    // Match loudness before upsampling to avoid a misleading louder-is-better result.
+    const matched = matchVoicePcmLevel(raw.audio, adjusted);
+    const metrics = analyzeVoxLocalAB(raw.audio, matched);
     const output = design.quality === 'studio'
-      ? { audio: upsampleVoxLocalAudio(adjusted, raw.sampleRate), rate: 48_000 }
-      : { audio: adjusted, rate: raw.sampleRate };
+      ? { audio: upsampleVoxLocalAudio(matched, raw.sampleRate), rate: 48_000 }
+      : { audio: matched, rate: raw.sampleRate };
     if (epoch !== this.epoch) return null;
-    this.cached = { key, ...output };
+    this.cached = { key, ...output, reference: raw.audio, referenceRate: raw.sampleRate, metrics };
     return output;
   }
 
-  async play(
+  private async playSide(
     plan: NeuralProsodyPlan,
     design: VoxLocalDesign,
+    side: 'reference' | 'local',
     onStatus: (status: string) => void,
     onEnd: () => void,
   ): Promise<void> {
@@ -272,12 +285,16 @@ export class VoxLocalVoice {
     this.unlock();
     const take = await this.synthesize(plan, design, onStatus);
     if (!take || epoch !== this.epoch) return;
+    const cache = this.cached;
+    if (!cache) return;
+    const audio = side === 'reference' ? cache.reference : take.audio;
+    const rate = side === 'reference' ? cache.referenceRate : take.rate;
     const context = this.context;
     if (!context) throw new Error('VOX LOCAL · WEB AUDIO UNAVAILABLE');
     await context.resume();
     if (epoch !== this.epoch) return;
-    const buffer = context.createBuffer(1, take.audio.length, take.rate);
-    buffer.getChannelData(0).set(take.audio);
+    const buffer = context.createBuffer(1, audio.length, rate);
+    buffer.getChannelData(0).set(audio);
     const source = context.createBufferSource();
     source.buffer = buffer;
     source.connect(context.destination);
@@ -288,8 +305,33 @@ export class VoxLocalVoice {
       source.disconnect();
       onEnd();
     };
-    onStatus(`VOX LOCAL · SPEAKING ${buffer.duration.toFixed(1)}s · ${take.rate}Hz`);
+    onStatus(`${side === 'reference' ? 'NEURAL HQ BASE' : 'VOX LOCAL'} · PLAYING ${buffer.duration.toFixed(1)}s · ${rate}Hz`);
     source.start();
+  }
+
+  async play(
+    plan: NeuralProsodyPlan,
+    design: VoxLocalDesign,
+    onStatus: (status: string) => void,
+    onEnd: () => void,
+  ): Promise<void> {
+    return this.playSide(plan, design, 'local', onStatus, onEnd);
+  }
+
+  /** A is the unmodified neural audio with identical voice, speed and text. */
+  async playReference(
+    plan: NeuralProsodyPlan,
+    design: VoxLocalDesign,
+    onStatus: (status: string) => void,
+    onEnd: () => void,
+  ): Promise<void> {
+    return this.playSide(plan, design, 'reference', onStatus, onEnd);
+  }
+
+  comparisonMetrics(plan: NeuralProsodyPlan, design: VoxLocalDesign): VoxLocalABMetrics | null {
+    const profile = designVoxLocalVoice(design);
+    const key = JSON.stringify({ plan, profile, quality: design.quality, energy: design.energy, tone: design.tone });
+    return this.cached?.key === key ? this.cached.metrics : null;
   }
 
   cachedWav(plan: NeuralProsodyPlan, design: VoxLocalDesign): Blob | null {
