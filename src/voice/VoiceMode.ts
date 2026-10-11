@@ -1,4 +1,5 @@
 import type { VocalStyle } from '../compose/VocalGenerator';
+import { VoxCpmRemoteVoice, voxCpmVoicePrompt, type VoxCpmRemoteOptions } from './VoxCpmRemote';
 import { downloadBlob } from '../compose/SongExport';
 import { VOICE_CHARACTER_PRESETS, validVoiceCharacterPreset, type VoiceCharacterPreset } from '../compose/VoiceCharacter';
 import { type VoiceIntonation } from './VoiceScript';
@@ -77,13 +78,16 @@ import {
   neuralGPUBlockReason,
 } from './NeuralVoice';
 
-type VoiceEngine = 'local' | 'neural' | 'neural-gpu' | 'system';
+type VoiceEngine = 'local' | 'neural' | 'neural-gpu' | 'system' | 'voxcpm2';
 type ProsodyLane = 'pitch' | 'energy' | 'duration';
 
 interface VoiceLabSettings extends VoiceSynthSettings {
   engine: VoiceEngine;
   quality: VoiceRenderQuality;
   expression: VoiceExpressionSettings;
+  voxCpmEndpoint: string;
+  voxCpmDescription: string;
+  voxCpmSteps: number;
 }
 
 interface VoiceImprintCacheEntry {
@@ -111,7 +115,7 @@ function validIntonation(value: unknown): value is VoiceIntonation {
 }
 
 function validEngine(value: unknown): value is VoiceEngine {
-  return value === 'local' || value === 'neural' || value === 'neural-gpu' || value === 'system';
+  return value === 'local' || value === 'neural' || value === 'neural-gpu' || value === 'system' || value === 'voxcpm2';
 }
 
 function validQuality(value: unknown): value is VoiceRenderQuality {
@@ -127,6 +131,9 @@ export class VoiceMode {
   private readonly root: HTMLElement;
   private readonly synth = new VoiceSynth();
   private readonly neural = new BrowserNeuralVoice();
+  private readonly voxCpm = new VoxCpmRemoteVoice();
+  private voxCpmToken = ''; // Kept in memory only; never saved to localStorage.
+  private voxCpmPlaybackEpoch = 0;
   private lastNeuralMetric = '';
   private settings: VoiceLabSettings;
   private active = false;
@@ -234,6 +241,9 @@ export class VoiceMode {
   private loadSettings(): VoiceLabSettings {
     const fallback: VoiceLabSettings = {
       engine: 'local',
+      voxCpmEndpoint: '',
+      voxCpmDescription: 'A clear, warm and naturally expressive Japanese voice',
+      voxCpmSteps: 10,
       quality: 'hq',
       style: 'warm',
       character: 'natural',
@@ -257,6 +267,9 @@ export class VoiceMode {
         engine: parsed.engine === 'neural-gpu' && neuralGPUBlockReason()
           ? 'neural'
           : validEngine(parsed.engine) ? parsed.engine : fallback.engine,
+        voxCpmEndpoint: typeof parsed.voxCpmEndpoint === 'string' ? parsed.voxCpmEndpoint.slice(0, 512) : fallback.voxCpmEndpoint,
+        voxCpmDescription: typeof parsed.voxCpmDescription === 'string' ? parsed.voxCpmDescription.slice(0, 240) : fallback.voxCpmDescription,
+        voxCpmSteps: [6, 10, 16].includes(Number(parsed.voxCpmSteps)) ? Number(parsed.voxCpmSteps) : 10,
         quality: validQuality(parsed.quality) ? parsed.quality : fallback.quality,
         style: validStyle(parsed.style) ? parsed.style : fallback.style,
         character: validVoiceCharacterPreset(parsed.character) ? parsed.character : fallback.character,
@@ -321,6 +334,29 @@ export class VoiceMode {
             <button type="button" data-voice-engine="neural">NEURAL HQ</button>
             <button type="button" data-voice-engine="neural-gpu">GPU BETA</button>
             <button type="button" data-voice-engine="system">SYSTEM TTS</button>
+            <button type="button" data-voice-engine="voxcpm2">VOXCPM2 · 48kHz</button>
+          </div>
+          <div id="voice-voxcpm-config" class="voice-voxcpm-config" hidden>
+            <strong>VOXCPM2 · REMOTE NEURAL MODEL</strong>
+            <p>Japanese / 48kHz · Real VoxCPM2 requires a running Python/GPU server. No model is downloaded to the iPhone.</p>
+            <label>SERVER BASE URL
+              <input type="url" id="voice-voxcpm-endpoint" inputmode="url" autocomplete="url" placeholder="https://your-server.example" />
+            </label>
+            <label>VOICE DESIGN · NATURAL LANGUAGE
+              <input type="text" id="voice-voxcpm-description" maxlength="240" placeholder="A warm, gentle Japanese narrator" />
+            </label>
+            <label>INFERENCE QUALITY
+              <select id="voice-voxcpm-steps">
+                <option value="6">FAST · 6 STEPS</option>
+                <option value="10">BALANCED · 10 STEPS</option>
+                <option value="16">QUALITY · 16 STEPS</option>
+              </select>
+            </label>
+            <label>SERVER TOKEN (OPTIONAL, THIS SESSION ONLY)
+              <input type="password" id="voice-voxcpm-token" autocomplete="off" spellcheck="false" placeholder="Bearer token" />
+            </label>
+            <p>RATE / PITCH / ENERGY / DELIVERY are soft voice-design suggestions. Per-mora drawn pitch edits are not supported by this model.</p>
+            <p>Serve /v1/speech and allow this site's HTTPS origin with CORS. Export WAV is available after SPEAK.</p>
           </div>
           <div class="voice-engine" role="group" aria-label="Local render quality">
             <button type="button" data-voice-quality="fast">FAST DSP</button>
@@ -722,6 +758,7 @@ export class VoiceMode {
 
     this.required<HTMLButtonElement>('#voice-play').addEventListener('pointerdown', (event) => {
       event.preventDefault();
+      if (this.settings.engine === 'voxcpm2') this.voxCpm.unlock();
       void this.play();
     }, { passive: false });
     this.required<HTMLButtonElement>('#voice-stop').addEventListener('pointerdown', (event) => {
@@ -754,6 +791,25 @@ export class VoiceMode {
       this.refreshPlan();
       this.setStatus('VOICE IMPRINT CLEARED');
     }, { passive: false });
+
+    const voxEndpoint = this.required<HTMLInputElement>('#voice-voxcpm-endpoint');
+    voxEndpoint.addEventListener('change', () => {
+      this.settings.voxCpmEndpoint = voxEndpoint.value.trim();
+      this.changed(false);
+    });
+    const voxDescription = this.required<HTMLInputElement>('#voice-voxcpm-description');
+    voxDescription.addEventListener('change', () => {
+      this.settings.voxCpmDescription = voxDescription.value.slice(0, 240);
+      this.changed(false);
+    });
+    this.required<HTMLSelectElement>('#voice-voxcpm-steps').addEventListener('change', (event) => {
+      this.settings.voxCpmSteps = Number((event.target as HTMLSelectElement).value);
+      this.changed(false);
+    });
+    this.required<HTMLInputElement>('#voice-voxcpm-token').addEventListener('input', (event) => {
+      this.voxCpmToken = (event.target as HTMLInputElement).value;
+      this.voxCpm.stop();
+    });
 
     for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-voice-engine]')) {
       button.addEventListener('pointerdown', (event) => {
@@ -878,6 +934,10 @@ export class VoiceMode {
     this.required<HTMLSelectElement>('#voice-character').value = this.settings.character;
     this.required<HTMLSelectElement>('#voice-style').value = this.settings.style;
     this.required<HTMLSelectElement>('#voice-intonation').value = this.settings.intonation;
+    this.required<HTMLElement>('#voice-voxcpm-config').hidden = this.settings.engine !== 'voxcpm2';
+    this.required<HTMLInputElement>('#voice-voxcpm-endpoint').value = this.settings.voxCpmEndpoint;
+    this.required<HTMLInputElement>('#voice-voxcpm-description').value = this.settings.voxCpmDescription;
+    this.required<HTMLSelectElement>('#voice-voxcpm-steps').value = String(this.settings.voxCpmSteps);
     this.required<HTMLInputElement>('#voice-tone').value = String(Math.round(this.settings.tone * 100));
     this.required<HTMLInputElement>('#voice-vtl').value = String(Math.round((this.settings.tractLength ?? 0) * 100));
     this.required<HTMLInputElement>('#voice-rate').value = String(Math.round(this.settings.rate * 100));
@@ -897,10 +957,10 @@ export class VoiceMode {
       button.classList.toggle('active', button.dataset.voiceQuality === this.settings.quality);
       button.disabled = this.settings.engine !== 'local';
     }
-    const editableEngine = this.settings.engine !== 'system';
+    const editableEngine = this.settings.engine !== 'system' && this.settings.engine !== 'voxcpm2';
     this.required<HTMLButtonElement>('#voice-analyze-japanese').disabled =
       !editableEngine || this.japaneseAnalyzing;
-    this.required<HTMLButtonElement>('#voice-export-wav').disabled = this.settings.engine !== 'local';
+    this.required<HTMLButtonElement>('#voice-export-wav').disabled = this.settings.engine !== 'local' && this.settings.engine !== 'voxcpm2';
     this.required<HTMLButtonElement>('#voice-imprint-load').disabled = this.settings.engine !== 'local';
     this.required<HTMLButtonElement>('#voice-imprint-clear').disabled =
       this.settings.engine !== 'local' || !this.settings.identityImprint;
@@ -915,9 +975,10 @@ export class VoiceMode {
     }
     this.required<HTMLElement>('#voice-contour').classList.toggle('disabled', !editableEngine);
     this.required<HTMLInputElement>('#voice-vtl').disabled =
-      this.settings.engine === 'neural' || this.settings.engine === 'neural-gpu';
+      this.settings.engine === 'neural' || this.settings.engine === 'neural-gpu' || this.settings.engine === 'voxcpm2';
     this.required<HTMLSelectElement>('#voice-style').disabled =
-      this.settings.engine === 'neural' || this.settings.engine === 'neural-gpu';
+      this.settings.engine === 'neural' || this.settings.engine === 'neural-gpu' || this.settings.engine === 'voxcpm2';
+    this.required<HTMLInputElement>('#voice-tone').disabled = this.settings.engine === 'voxcpm2';
     this.syncProsodyLaneUi();
     this.syncLabels();
   }
@@ -1330,6 +1391,9 @@ export class VoiceMode {
       if (!gpu && blocked) {
         note.textContent += ' · GPU BETA IS BLOCKED ON THIS DEVICE TO PREVENT MEMORY CRASHES';
       }
+    } else if (this.settings.engine === 'voxcpm2') {
+      note.textContent = 'VOXCPM2 · 2B · Japanese + 29 other languages · 48kHz WAV · remote inference · Voice Design; requires your own server. The browser does not host the model.';
+      this.setStatus(this.settings.voxCpmEndpoint.trim() ? 'READY · VOXCPM2 · TAP SPEAK' : 'VOXCPM2 · SET SERVER URL TO ENABLE SPEECH');
     } else {
       note.textContent = 'SYSTEM TTS · device/browser voice · kanji and general text supported · availability varies by OS';
       this.setStatus('READY · SYSTEM TTS');
@@ -2039,6 +2103,8 @@ export class VoiceMode {
     this.clearPlaybackTimers();
     this.synth.stop();
     this.neural.stop();
+    this.voxCpm.stop();
+    this.voxCpmPlaybackEpoch++;
     this.systemSpeechGeneration += 1;
     if ('speechSynthesis' in window) window.speechSynthesis.cancel();
     this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
@@ -2052,7 +2118,9 @@ export class VoiceMode {
             ? 'READY · NEURAL HQ'
             : this.settings.engine === 'neural-gpu'
               ? 'READY · GPU BETA'
-              : 'READY · SYSTEM TTS',
+              : this.settings.engine === 'voxcpm2'
+                ? 'READY · VOXCPM2'
+                : 'READY · SYSTEM TTS',
       );
     }
   }
@@ -2068,6 +2136,10 @@ export class VoiceMode {
     const markup = parseVoiceMarkup(text);
     if (this.settings.engine === 'system') {
       this.playSystem(markup);
+      return;
+    }
+    if (this.settings.engine === 'voxcpm2') {
+      await this.playVoxCpm(markup);
       return;
     }
     if (this.settings.engine === 'neural' || this.settings.engine === 'neural-gpu') {
@@ -2141,6 +2213,57 @@ export class VoiceMode {
     } catch (error) {
       console.warn('VOICE LAB local synthesis failed.', error);
       this.setStatus('LOCAL VOICE ENGINE UNAVAILABLE');
+    }
+  }
+
+  private voxCpmOptions(markup: VoiceMarkupScript): VoxCpmRemoteOptions {
+    return {
+      endpoint: this.settings.voxCpmEndpoint,
+      token: this.voxCpmToken,
+      text: markup.plainText.trim(),
+      voiceDescription: voxCpmVoicePrompt({
+        description: this.settings.voxCpmDescription,
+        character: this.settings.character,
+        rate: this.settings.rate,
+        pitch: this.settings.pitch,
+        energy: this.settings.energy,
+        expression: this.settings.expression.preset,
+      }),
+      inferenceTimesteps: this.settings.voxCpmSteps,
+    };
+  }
+
+  private async playVoxCpm(markup: VoiceMarkupScript): Promise<void> {
+    if (!markup.plainText.trim()) {
+      this.setStatus('ENTER TEXT');
+      return;
+    }
+    const epoch = this.voxCpmPlaybackEpoch;
+    try {
+      const options = this.voxCpmOptions(markup);
+      this.required<HTMLButtonElement>('#voice-play').textContent = '… VOXCPM2';
+      await this.voxCpm.play(
+        options,
+        (message) => {
+          if (this.active && this.settings.engine === 'voxcpm2' && epoch === this.voxCpmPlaybackEpoch) {
+            this.setStatus(message);
+            if (message.startsWith('VOXCPM2 · PLAYING')) {
+              this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
+            }
+          }
+        },
+        () => {
+          if (this.active && this.settings.engine === 'voxcpm2' && epoch === this.voxCpmPlaybackEpoch) {
+            this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
+            this.setStatus('READY · VOXCPM2 · WAV AVAILABLE FOR EXPORT');
+          }
+        },
+      );
+    } catch (error) {
+      if (epoch !== this.voxCpmPlaybackEpoch || !this.active) return;
+      console.warn('VOICE LAB VoxCPM2 synthesis failed.', error);
+      this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
+      this.setStatus(error instanceof Error ? error.message : 'VOXCPM2 SERVER UNAVAILABLE');
     }
   }
 
@@ -2357,6 +2480,20 @@ export class VoiceMode {
     if (this.settings.engine === 'system') return;
     const text = this.required<HTMLTextAreaElement>('#voice-text').value.trim();
     const markup = parseVoiceMarkup(text);
+    if (this.settings.engine === 'voxcpm2') {
+      try {
+        const wav = this.voxCpm.cachedWav(this.voxCpmOptions(markup));
+        if (!wav) {
+          this.setStatus('VOXCPM2 · TAP SPEAK TO GENERATE WAV FIRST');
+          return;
+        }
+        downloadBlob(wav, `${safeFilename(markup.plainText)}-voxcpm2.wav`);
+        this.setStatus(`VOXCPM2 WAV EXPORTED · ${Math.round(wav.size / 1024)} KB`);
+      } catch (error) {
+        this.setStatus(error instanceof Error ? error.message : 'VOXCPM2 EXPORT FAILED');
+      }
+      return;
+    }
     let resolved = this.resolveLocalScript(text);
     if (needsJapanesePronunciationAnalysis(markup.plainText) && !resolved.analyzed) {
       this.setStatus(containsKanji(markup.plainText)
