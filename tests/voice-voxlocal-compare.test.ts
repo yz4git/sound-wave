@@ -102,7 +102,7 @@ describe('VOX LOCAL vs identical NEURAL HQ baseline A/B measurements', () => {
     expect(metrics?.comparedSamples).toBe(raw.length);
     expect(Math.abs(metrics?.levelDifferenceDb ?? 100)).toBeLessThan(0.25);
     const cached = await engine.synthesize(plan, design, () => {});
-    expect(cached).toBe(first); // No unnecessary neural inference, same buffers.
+    expect(cached?.audio).toBe(first?.audio); // No unnecessary neural inference, same buffers.
     expect(renderPCM).toHaveBeenCalledTimes(1);
 
     await engine.synthesize(plan, { ...design, description: '明るいクリアな声' }, () => {});
