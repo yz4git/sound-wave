@@ -1026,6 +1026,26 @@ export class BrowserNeuralVoice {
     };
   }
 
+  async renderPCM(plan: NeuralProsodyPlan, options: NeuralVoicePlaybackOptions): Promise<CachedNeuralAudio | null> {
+    this.stop();
+    const epoch = this.generation;
+    const cpuOptions = { ...options, backend: 'wasm' as const };
+    const key = neuralPlaybackCacheKey(plan, cpuOptions);
+    let result = this.audioCache.get(key);
+    if (!result) result = await this.savedAudio.get(neuralPersistentKey('final', key));
+    if (epoch !== this.generation) return null;
+    if (!result) {
+      options.onStatus?.('ON DEVICE · RENDERING SPEECH');
+      const rendered = await this.renderPlan(null, plan, cpuOptions, epoch, 'wasm');
+      if (epoch !== this.generation) return null;
+      if (!rendered.audio.length || !neuralPCMQualityGate(rendered.audio)) throw new Error('NEURAL PCM INVALID');
+      result = { audio: rendered.audio, sampleRate: rendered.sampleRate };
+      this.audioCache.set(key, result);
+      void this.savedAudio.put(neuralPersistentKey('final', key), result);
+    }
+    return result;
+  }
+
   async play(
     text: string,
     options: NeuralVoicePlaybackOptions,
