@@ -793,14 +793,16 @@ export class VoiceMode {
     }, { passive: false });
 
     const voxEndpoint = this.required<HTMLInputElement>('#voice-voxcpm-endpoint');
-    voxEndpoint.addEventListener('change', () => {
-      this.settings.voxCpmEndpoint = voxEndpoint.value.trim();
-      this.changed(false);
+    voxEndpoint.addEventListener('input', () => {
+      this.settings.voxCpmEndpoint = voxEndpoint.value.trim().slice(0, 512);
+      this.saveSettings();
+      this.voxCpm.stop();
     });
     const voxDescription = this.required<HTMLInputElement>('#voice-voxcpm-description');
-    voxDescription.addEventListener('change', () => {
+    voxDescription.addEventListener('input', () => {
       this.settings.voxCpmDescription = voxDescription.value.slice(0, 240);
-      this.changed(false);
+      this.saveSettings();
+      this.voxCpm.stop();
     });
     this.required<HTMLSelectElement>('#voice-voxcpm-steps').addEventListener('change', (event) => {
       this.settings.voxCpmSteps = Number((event.target as HTMLSelectElement).value);
