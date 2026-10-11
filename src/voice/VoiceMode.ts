@@ -359,6 +359,11 @@ export class VoiceMode {
               </select>
             </label>
             <p>Natural language selects a pretrained voice plus speed, pitch, breath and spectral shaping. This is not VoxCPM2 or full zero-shot generative voice cloning. Per-mora contour editing remains available through Neural HQ.</p>
+            <div class="voice-voxlocal-ab" role="group" aria-label="Compare the same neural voice before and after Vox Local processing">
+              <button type="button" id="voice-voxlocal-ab-a">A · NEURAL HQ BASE</button>
+              <button type="button" id="voice-voxlocal-ab-b">B · VOX LOCAL</button>
+            </div>
+            <p id="voice-voxlocal-ab-report" class="voice-voxlocal-report" aria-live="polite">A/B generates ONE identical underlying neural take. A = untouched neural audio; B = sound-designed, level-matched audio. Compare by ear; measured difference is NOT a quality score.</p>
           </div>
           <div id="voice-voxcpm-config" class="voice-voxcpm-config" hidden>
             <strong>VOXCPM2 · REMOTE NEURAL MODEL</strong>
@@ -817,11 +822,27 @@ export class VoiceMode {
       this.setStatus('VOICE IMPRINT CLEARED');
     }, { passive: false });
 
+    for (const side of ['a', 'b'] as const) {
+      this.required<HTMLButtonElement>(`#voice-voxlocal-ab-${side}`).addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        if (this.settings.engine !== 'vox-local') return;
+        this.voxLocal.unlock();
+        this.stop();
+        const rawText = this.required<HTMLTextAreaElement>('#voice-text').value.trim();
+        if (!rawText) {
+          this.setStatus('ENTER TEXT TO COMPARE');
+          return;
+        }
+        void this.playVoxLocal(parseVoiceMarkup(rawText), rawText, side === 'a');
+      }, { passive: false });
+    }
+
     const localDescription = this.required<HTMLInputElement>('#voice-voxlocal-description');
     localDescription.addEventListener('input', () => {
       this.settings.voxLocalDescription = localDescription.value.slice(0, 240);
       this.saveSettings();
       this.stop();
+      this.required<HTMLElement>('#voice-voxlocal-ab-report').textContent = 'Voice description changed. Tap A/B to rebuild a matched comparison.';
     });
     this.required<HTMLSelectElement>('#voice-voxlocal-quality').addEventListener('change', (event) => {
       const quality = (event.target as HTMLSelectElement).value;
@@ -2282,7 +2303,7 @@ export class VoiceMode {
     };
   }
 
-  private async playVoxLocal(markup: VoiceMarkupScript, text: string): Promise<void> {
+  private async playVoxLocal(markup: VoiceMarkupScript, text: string, reference = false): Promise<void> {
     if (!markup.plainText.trim()) {
       this.setStatus('ENTER TEXT');
       return;
@@ -2291,9 +2312,14 @@ export class VoiceMode {
     try {
       const plan = this.prepareNeuralPlan(markup, text);
       this.required<HTMLButtonElement>('#voice-play').textContent = '… VOX LOCAL';
-      await this.voxLocal.play(
+      const playSide = reference
+        ? this.voxLocal.playReference.bind(this.voxLocal)
+        : this.voxLocal.play.bind(this.voxLocal);
+      await playSide(
         plan, this.voxLocalDesign(),
         (message) => {
+          if (message.includes('PLAYING')) this.renderVoxLocalABReport(plan);
+
           if (!this.active || this.settings.engine !== 'vox-local' || epoch !== this.voxCpmPlaybackEpoch) return;
           this.setStatus(message.replace('NEURAL HQ', 'ON-DEVICE'));
           if (message.includes('SPEAKING')) this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
@@ -2301,7 +2327,7 @@ export class VoiceMode {
         () => {
           if (!this.active || this.settings.engine !== 'vox-local' || epoch !== this.voxCpmPlaybackEpoch) return;
           this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
-          this.setStatus('VOX LOCAL · COMPLETE · WAV READY');
+          this.setStatus(reference ? 'READY · NEURAL HQ BASE A/B' : 'VOX LOCAL · COMPLETE · WAV READY');
         },
       );
     } catch (error) {
@@ -2310,6 +2336,16 @@ export class VoiceMode {
       console.warn('VOX LOCAL render failed.', error);
       this.setStatus('VOX LOCAL FAILED · ' + (error instanceof Error ? error.message : 'CHECK MODEL DOWNLOAD'));
     }
+  }
+
+  private renderVoxLocalABReport(plan: NeuralProsodyPlan): void {
+    const report = this.voxLocal.comparisonMetrics(plan, this.voxLocalDesign());
+    if (!report) return;
+    const delta = report.levelDifferenceDb;
+    this.required<HTMLElement>('#voice-voxlocal-ab-report').textContent =
+      `SAME NEURAL TAKE · RMS LEVEL MATCH ${delta >= 0 ? '+' : ''}${delta.toFixed(2)} dB · ` +
+      `PEAK A ${report.reference.peakDbfs.toFixed(1)} / B ${report.local.peakDbfs.toFixed(1)} dBFS · ` +
+      `WAVEFORM CHANGE ${report.waveformDifferencePercent.toFixed(1)}% (not a sound-quality rating)`;
   }
 
   private voxCpmOptions(markup: VoiceMarkupScript): VoxCpmRemoteOptions {
