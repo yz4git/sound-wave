@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   analyzeVoxLocalAB,
   matchVoicePcmLevel,
@@ -7,8 +7,10 @@ import {
 import {
   designVoxLocalVoice,
   reconstructVoxLocalAudio,
+  VoxLocalVoice,
   type VoxLocalDesign,
 } from '../src/voice/VoxLocalVoice';
+import type { BrowserNeuralVoice, NeuralProsodyPlan } from '../src/voice/NeuralVoice';
 
 const design: VoxLocalDesign = {
   description: '静かでやさしい女性の声',
@@ -78,6 +80,34 @@ describe('VOX LOCAL vs identical NEURAL HQ baseline A/B measurements', () => {
     const matched = matchVoicePcmLevel(signal, processed);
     expect(measureVoicePcm(matched).peak).toBeLessThanOrEqual(0.98);
     expect(measureVoicePcm(matched).clippedSamples).toBe(0);
+  });
+
+  it('renders the same underlying neural utterance once for A and B and reuses its take', async () => {
+    const raw = syntheticSpeech(2400);
+    const renderPCM = vi.fn(async () => ({ audio: raw, sampleRate: 24_000 }));
+    const neural = { renderPCM } as unknown as BrowserNeuralVoice;
+    const engine = new VoxLocalVoice(neural);
+    const plan: NeuralProsodyPlan = {
+      edited: false,
+      segments: [{
+        text: 'こんにちは', startUnit: 0, endUnit: 5,
+        rateScale: 1, energyScale: 1, pitchSemitones: 0, pauseAfter: 0,
+        expression: { preset: 'neutral', intensity: 1 },
+      }],
+    };
+    const first = await engine.synthesize(plan, design, () => {});
+    expect(first).not.toBeNull();
+    expect(renderPCM).toHaveBeenCalledTimes(1);
+    const metrics = engine.comparisonMetrics(plan, design);
+    expect(metrics?.comparedSamples).toBe(raw.length);
+    expect(Math.abs(metrics?.levelDifferenceDb ?? 100)).toBeLessThan(0.25);
+    const cached = await engine.synthesize(plan, design, () => {});
+    expect(cached).toBe(first); // No unnecessary neural inference, same buffers.
+    expect(renderPCM).toHaveBeenCalledTimes(1);
+
+    await engine.synthesize(plan, { ...design, description: '明るいクリアな声' }, () => {});
+    expect(renderPCM).toHaveBeenCalledTimes(2);
+    expect(engine.comparisonMetrics(plan, design)).toBeNull();
   });
 
   it('handles silent signals without invalid level comparisons', () => {
