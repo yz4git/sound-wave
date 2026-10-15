@@ -1553,6 +1553,10 @@ export class VoiceMode {
       note.textContent = 'SYSTEM TTS · device/browser voice · kanji and general text supported · availability varies by OS';
       this.setStatus('READY · SYSTEM TTS');
     }
+    if (shouldUseDeviceSpeech(this.settings.engine, this.settings.iphoneCompatibleSpeech, this.playbackEnvironment)) {
+      note.textContent = 'iPhone互換ON · SPEAKは端末標準TTSで即再生 · 選択したKokoro/VOX LOCAL/DSPモデルは使用しません · 高度な声質編集を試す場合は上部の互換設定をOFF';
+      this.setStatus('READY · iPhone互換音声（端末標準） · TAP SPEAK');
+    }
   }
 
   private ensurePhraseEdits(plainText: string): void {
