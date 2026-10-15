@@ -2305,6 +2305,17 @@ export class VoiceMode {
     this.required<HTMLButtonElement>('#voice-play').textContent = `… ${elapsed}秒 · 準備中`;
   }
 
+  private showSpeechFailure(detail: string): void {
+    this.endSpeechWait();
+    const panel = this.required<HTMLElement>('#voice-speech-wait');
+    panel.hidden = false;
+    panel.classList.add('taking-long');
+    this.required<HTMLElement>('#voice-speech-wait-headline').textContent = '音声の再生を開始できませんでした';
+    this.required<HTMLElement>('#voice-speech-wait-description').textContent =
+      `${detail.slice(0, 180)} · 🔊 TESTで出力を確認、または▶ iPhone音声を使ってください。`;
+    this.required<HTMLButtonElement>('#voice-play').textContent = '▶ RETRY';
+  }
+
   private endSpeechWait(): void {
     if (this.speechWaitTimer) window.clearInterval(this.speechWaitTimer);
     this.speechWaitTimer = 0;
@@ -2495,10 +2506,10 @@ export class VoiceMode {
       );
     } catch (error) {
       if (!this.active || epoch !== this.voxCpmPlaybackEpoch) return;
-      this.endSpeechWait();
-      this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
+      const reason = error instanceof Error ? error.message : 'モデルの音声生成に失敗しました';
       console.warn('VOX LOCAL render failed.', error);
-      this.setStatus('VOX LOCAL FAILED · ' + (error instanceof Error ? error.message : 'CHECK MODEL DOWNLOAD'));
+      this.showSpeechFailure(reason);
+      this.setStatus('VOX LOCAL FAILED · ' + reason);
     }
   }
 
@@ -2563,9 +2574,9 @@ export class VoiceMode {
     } catch (error) {
       if (epoch !== this.voxCpmPlaybackEpoch || !this.active) return;
       console.warn('VOICE LAB VoxCPM2 synthesis failed.', error);
-      this.endSpeechWait();
-      this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
-      this.setStatus(error instanceof Error ? error.message : 'VOXCPM2 SERVER UNAVAILABLE');
+      const reason = error instanceof Error ? error.message : 'VOXCPM2 SERVER UNAVAILABLE';
+      this.showSpeechFailure(reason);
+      this.setStatus(reason);
     }
   }
 
@@ -2698,9 +2709,9 @@ export class VoiceMode {
     } catch (error) {
       if (epoch !== this.voxCpmPlaybackEpoch || !this.active) return;
       console.warn('VOICE LAB Neural HQ synthesis failed.', error);
-      this.endSpeechWait();
-      this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
-      this.setStatus('NEURAL HQ FAILED · DSP / SYSTEM TTS STILL AVAILABLE');
+      const reason = error instanceof Error ? error.message : 'NEURAL HQ MODEL ERROR';
+      this.showSpeechFailure(reason);
+      this.setStatus('NEURAL HQ FAILED · ' + reason);
     }
   }
 
