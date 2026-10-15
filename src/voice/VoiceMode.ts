@@ -143,6 +143,8 @@ export class VoiceMode {
   private speechWaitStartedAt = 0;
   private speechWaitEngine: SpeechWaitEngine = 'vox-local';
   private speechWaitStage: SpeechWaitStage = 'preparing';
+  private voxLocalPreviewUrl: string | null = null;
+  private audioProbeContext: AudioContext | null = null;
   private lastNeuralMetric = '';
   private settings: VoiceLabSettings;
   private active = false;
@@ -236,6 +238,7 @@ export class VoiceMode {
 
   deactivate(): void {
     this.active = false;
+    this.clearNativeVoxPreview();
     this.stop();
     this.synth.suspend();
     this.root.classList.remove('active');
@@ -328,6 +331,8 @@ export class VoiceMode {
         <div class="voice-transport">
           <button type="button" id="voice-play">▶ SPEAK</button>
           <button type="button" id="voice-stop">■ STOP</button>
+          <button type="button" id="voice-audio-test" aria-label="Test sound output">🔊 TEST</button>
+          <button type="button" id="voice-device-fallback" aria-label="Play with iPhone system voice">▶ iPhone音声</button>
         </div>
         <div id="voice-speech-wait" class="voice-speech-wait" role="status" aria-live="off" hidden>
           <div class="voice-speech-wait-head">
@@ -377,6 +382,11 @@ export class VoiceMode {
               <button type="button" id="voice-voxlocal-ab-b">B · VOX LOCAL</button>
             </div>
             <p id="voice-voxlocal-ab-report" class="voice-voxlocal-report" aria-live="polite">A/B generates ONE identical underlying neural take. A = untouched neural audio; B = sound-designed, level-matched audio. Compare by ear; measured difference is NOT a quality score.</p>
+            <div id="voice-voxlocal-native" class="voice-voxlocal-native" hidden>
+              <strong>iPhone標準プレーヤーで音声を再生</strong>
+              <p>Web Audioで音が出ない場合はこちらを再生してください。生成済みWAVを直接再生します。</p>
+              <audio id="voice-voxlocal-native-audio" controls preload="none" playsinline></audio>
+            </div>
           </div>
           <div id="voice-voxcpm-config" class="voice-voxcpm-config" hidden>
             <strong>VOXCPM2 · REMOTE NEURAL MODEL</strong>
@@ -500,6 +510,7 @@ export class VoiceMode {
   private bindEvents(): void {
     const text = this.required<HTMLTextAreaElement>('#voice-text');
     text.addEventListener('input', () => {
+      this.clearNativeVoxPreview();
       if (this.settings.engine === 'vox-local') {
         this.stop();
         this.required<HTMLElement>('#voice-voxlocal-ab-report').textContent =
@@ -814,6 +825,14 @@ export class VoiceMode {
       event.preventDefault();
       this.stop();
     }, { passive: false });
+    this.required<HTMLButtonElement>('#voice-audio-test').addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      this.testAudioOutput();
+    }, { passive: false });
+    this.required<HTMLButtonElement>('#voice-device-fallback').addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      this.playWithDeviceVoice();
+    }, { passive: false });
     this.required<HTMLButtonElement>('#voice-export-wav').addEventListener('pointerdown', (event) => {
       event.preventDefault();
       void this.exportWav();
@@ -860,6 +879,7 @@ export class VoiceMode {
     localDescription.addEventListener('input', () => {
       this.settings.voxLocalDescription = localDescription.value.slice(0, 240);
       this.saveSettings();
+      this.clearNativeVoxPreview();
       this.stop();
       this.required<HTMLElement>('#voice-voxlocal-ab-report').textContent = 'Voice description changed. Tap A/B to rebuild a matched comparison.';
     });
@@ -999,6 +1019,7 @@ export class VoiceMode {
   private changed(refreshSelects = true): void {
     this.saveSettings();
     this.stop();
+    this.clearNativeVoxPreview();
     if (this.settings.engine === 'vox-local') {
       this.required<HTMLElement>('#voice-voxlocal-ab-report').textContent =
         'Voice settings changed. Tap A or B for a new matched A/B comparison.';
@@ -2189,6 +2210,73 @@ export class VoiceMode {
     for (const unit of this.root.querySelectorAll<HTMLElement>('[data-voice-unit]')) unit.classList.remove('speaking');
   }
 
+  /** Runs directly in the pointer gesture; no model or network required. */
+  private testAudioOutput(): void {
+    try {
+      const context = this.audioProbeContext
+        ?? new AudioContext({ latencyHint: 'interactive' });
+      this.audioProbeContext = context;
+      const osc = context.createOscillator();
+      const amp = context.createGain();
+      const now = context.currentTime;
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(660, now);
+      amp.gain.setValueAtTime(0.0001, now);
+      amp.gain.exponentialRampToValueAtTime(0.16, now + 0.025);
+      amp.gain.exponentialRampToValueAtTime(0.0001, now + 0.28);
+      osc.connect(amp);
+      amp.connect(context.destination);
+      osc.onended = () => { osc.disconnect(); amp.disconnect(); };
+      // Start inside pointerdown, critical for WebKit's gesture policy.
+      osc.start(now);
+      osc.stop(now + 0.29);
+      void context.resume().then(() => {
+        this.setStatus(context.state === 'running'
+          ? '🔊 テスト音を再生しました · 聞こえない場合はiPhoneの音量/消音設定を確認'
+          : '音声出力が停止状態です · iPhone音声を試してください');
+      }).catch(() => this.setStatus('音声出力を開始できません · iPhone音声を試してください'));
+    } catch (error) {
+      console.warn('VOICE LAB audio output test failed.', error);
+      this.setStatus('TEST AUDIO FAILED · iPhoneの音声出力を確認してください');
+    }
+  }
+
+  /** Always available when the on-device neural model is slow or unavailable. */
+  private playWithDeviceVoice(): void {
+    const rawText = this.required<HTMLTextAreaElement>('#voice-text').value.trim();
+    this.stop();
+    if (!rawText) {
+      this.setStatus('ENTER TEXT');
+      return;
+    }
+    this.playSystem(parseVoiceMarkup(rawText));
+  }
+
+  private clearNativeVoxPreview(): void {
+    const audio = this.root.querySelector<HTMLAudioElement>('#voice-voxlocal-native-audio');
+    if (audio) {
+      audio.pause();
+      audio.removeAttribute('src');
+      audio.load();
+    }
+    if (this.voxLocalPreviewUrl) {
+      URL.revokeObjectURL(this.voxLocalPreviewUrl);
+      this.voxLocalPreviewUrl = null;
+    }
+    const panel = this.root.querySelector<HTMLElement>('#voice-voxlocal-native');
+    if (panel) panel.hidden = true;
+  }
+
+  private showNativeVoxPreview(plan: NeuralProsodyPlan, design: VoxLocalDesign): void {
+    const wav = this.voxLocal.cachedWav(plan, design);
+    if (!wav) return;
+    this.clearNativeVoxPreview();
+    const audio = this.required<HTMLAudioElement>('#voice-voxlocal-native-audio');
+    this.voxLocalPreviewUrl = URL.createObjectURL(wav);
+    audio.src = this.voxLocalPreviewUrl;
+    this.required<HTMLElement>('#voice-voxlocal-native').hidden = false;
+  }
+
   private startSpeechWait(engine: SpeechWaitEngine): void {
     this.endSpeechWait();
     this.speechWaitEngine = engine;
@@ -2385,6 +2473,9 @@ export class VoiceMode {
         plan, this.voxLocalDesign(),
         (message) => {
           if (!this.active || this.settings.engine !== 'vox-local' || epoch !== this.voxCpmPlaybackEpoch) return;
+          if (message.includes('WAV READY')) {
+            this.showNativeVoxPreview(plan, this.voxLocalDesign());
+          }
           if (message.includes('PLAYING') || message.includes('SPEAKING')) {
             this.endSpeechWait();
             this.renderVoxLocalABReport(plan);
