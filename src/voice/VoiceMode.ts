@@ -807,6 +807,7 @@ export class VoiceMode {
       event.preventDefault();
       if (this.settings.engine === 'voxcpm2') this.voxCpm.unlock();
       if (this.settings.engine === 'vox-local') this.voxLocal.unlock();
+      if (this.settings.engine === 'neural' || this.settings.engine === 'neural-gpu') this.neural.unlock();
       void this.play();
     }, { passive: false });
     this.required<HTMLButtonElement>('#voice-stop').addEventListener('pointerdown', (event) => {
