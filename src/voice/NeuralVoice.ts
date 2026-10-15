@@ -105,6 +105,24 @@ export const KOKORO_JP_CDN =
 /** ONNX FP32 vocoder with broken WebGPU ConvTranspose layers rewritten. */
 export const KOKORO_GPU_MODEL_ID = 'DevAmarnadhCG/Kokoro-82M-v1.0-ONNX-webgpu';
 
+/** Memory-constrained mobile Safari uses q4 rather than the 90MB q8 weights. */
+export function neuralCpuDtypeForDevice(
+  env: { userAgent: string; platform: string; maxTouchPoints: number },
+): 'q4' | 'q8' {
+  const ios = /iPhone|iPad|iPod/i.test(env.userAgent)
+    || (env.platform === 'MacIntel' && env.maxTouchPoints > 1);
+  return ios ? 'q4' : 'q8';
+}
+
+function currentNeuralCpuDtype(): 'q4' | 'q8' {
+  if (typeof navigator === 'undefined') return 'q8';
+  return neuralCpuDtypeForDevice({
+    userAgent: navigator.userAgent,
+    platform: navigator.platform,
+    maxTouchPoints: navigator.maxTouchPoints ?? 0,
+  });
+}
+
 export function neuralWebGPUAvailable(): boolean {
   return typeof navigator !== 'undefined'
     && 'gpu' in navigator
@@ -236,7 +254,7 @@ export function neuralPlaybackCacheKey(
     KOKORO_JP_CDN,
     options.backend === 'webgpu'
       ? ['webgpu', 'fp32', KOKORO_GPU_MODEL_ID]
-      : ['wasm', 'q8'],
+      : ['wasm', currentNeuralCpuDtype()],
     neuralVoiceIdForCharacter(options.character),
     options.rate,
     options.energy,
@@ -301,7 +319,7 @@ export function neuralSegmentInferenceKey(
   return JSON.stringify([
     'kokoro-jp-segment-v2',
     KOKORO_JP_CDN,
-    backend === 'webgpu' ? ['webgpu', KOKORO_GPU_MODEL_ID] : ['wasm', 'q8'],
+    backend === 'webgpu' ? ['webgpu', KOKORO_GPU_MODEL_ID] : ['wasm', currentNeuralCpuDtype()],
     voiceId,
     text,
     modelSpeed,
@@ -819,7 +837,7 @@ export class BrowserNeuralVoice {
         const module = await import(/* @vite-ignore */ moduleUrl) as unknown as KokoroJPModule;
         const config = backend === 'webgpu'
           ? { modelId: KOKORO_GPU_MODEL_ID, dtype: 'fp32' as const, device: 'webgpu' as const }
-          : { dtype: 'q8' as const, device: 'wasm' as const };
+          : { dtype: currentNeuralCpuDtype(), device: 'wasm' as const };
         const model = await module.KokoroJP.load(config);
         if (epoch === this.modelEpoch) this.modelReady = true;
         return model;
@@ -971,7 +989,7 @@ export class BrowserNeuralVoice {
       } else {
         // Only an actual uncached phrase pays the model initialization cost.
         if (!this.modelReady) {
-          options.onStatus?.('NEURAL HQ · LOADING MODEL · INITIAL DOWNLOAD MAY TAKE TIME');
+          options.onStatus?.(`NEURAL HQ · LOADING ${currentNeuralCpuDtype().toUpperCase()} MODEL · INITIAL DOWNLOAD MAY TAKE TIME`);
         }
         tts ??= await this.loadModel(backend);
         if (generation !== this.generation) {
@@ -1066,7 +1084,7 @@ export class BrowserNeuralVoice {
     if (!result) {
       options.onStatus?.(this.modelReady
         ? 'ON DEVICE · GENERATING SPEECH'
-        : 'NEURAL HQ · LOADING MODEL · INITIAL DOWNLOAD MAY TAKE TIME');
+        : `NEURAL HQ · LOADING ${currentNeuralCpuDtype().toUpperCase()} MODEL · INITIAL DOWNLOAD MAY TAKE TIME`);
       const rendered = await this.renderPlan(null, plan, cpuOptions, epoch, 'wasm');
       if (epoch !== this.generation) return null;
       if (!rendered.audio.length || !neuralPCMQualityGate(rendered.audio)) throw new Error('NEURAL PCM INVALID');
