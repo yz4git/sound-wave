@@ -2468,7 +2468,10 @@ export class VoiceMode {
       }, Math.ceil((plan.duration + 0.1) * 1000));
     } catch (error) {
       console.warn('VOICE LAB local synthesis failed.', error);
-      this.setStatus('LOCAL VOICE ENGINE UNAVAILABLE');
+      const detail = error instanceof Error ? error.message : 'LOCAL DSP synthesis unavailable';
+      this.showSpeechFailure(detail);
+      this.setStatus('LOCAL DSP FAILED · TRYING iPhone VOICE');
+      this.playSystem(markup, true);
     }
   }
 
