@@ -351,7 +351,7 @@ export class VoiceMode {
         </div>
         <div class="voice-iphone-compat" id="voice-iphone-compat" hidden>
           <label><input type="checkbox" id="voice-iphone-compat-input" />
-            iPhone互換 · SPEAKで確実な標準音声を優先
+            iPhone互換 · SPEAKを端末標準音声で再生
           </label>
           <small>ON: iPhone標準TTS（Kokoro・VOX LOCALの声質加工は使いません）。OFF: 選択した実験的な音声モデルを実行。</small>
         </div>
