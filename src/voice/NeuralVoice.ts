@@ -777,6 +777,20 @@ export class BrowserNeuralVoice {
     return this.context;
   }
 
+  /**
+   * Resume synchronously during the user's touch gesture. Safari may refuse
+   * to start audio if resume() is only called after long asynchronous ONNX
+   * loading/inference, when the original gesture activation has expired.
+   */
+  unlock(): void {
+    try {
+      const context = this.ensureContext();
+      if (context.state !== 'running') void context.resume().catch(() => {});
+    } catch {
+      // A later play() produces the user-visible error if audio is unsupported.
+    }
+  }
+
   private async loadModel(backend: NeuralComputeBackend = 'wasm'): Promise<KokoroJPInstance> {
     if (backend === 'webgpu') {
       const block = neuralGPUBlockReason();
