@@ -168,6 +168,7 @@ export class VoiceMode {
   private lastDrawIndex: number | null = null;
   private lastDrawValue = 0;
   private systemSpeechGeneration = 0;
+  private systemSpeechStartTimer = 0;
   private japaneseAnalysis: JapaneseG2PAnalysis | null = null;
   private japaneseAnalysisSource = '';
   private japaneseAnalyzing = false;
@@ -2399,6 +2400,8 @@ export class VoiceMode {
   }
 
   private stop(): void {
+    if (this.systemSpeechStartTimer) window.clearTimeout(this.systemSpeechStartTimer);
+    this.systemSpeechStartTimer = 0;
     this.endSpeechWait();
     this.clearPlaybackTimers();
     this.synth.stop();
@@ -2849,6 +2852,8 @@ export class VoiceMode {
     let segmentIndex = 0;
 
     const speakNext = (): void => {
+      if (this.systemSpeechStartTimer) window.clearTimeout(this.systemSpeechStartTimer);
+      this.systemSpeechStartTimer = 0;
       if (generation !== this.systemSpeechGeneration) return;
       const segment = segments[segmentIndex];
       if (!segment) {
@@ -2878,8 +2883,12 @@ export class VoiceMode {
         1.75,
       );
       utterance.volume = clamp(this.settings.energy * expression.energyScale, 0.35, 1);
+      let hasStarted = false;
       utterance.onstart = () => {
         if (generation !== this.systemSpeechGeneration) return;
+        hasStarted = true;
+        if (this.systemSpeechStartTimer) window.clearTimeout(this.systemSpeechStartTimer);
+        this.systemSpeechStartTimer = 0;
         this.endSpeechWait();
         this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
         this.setStatus(
@@ -2896,12 +2905,32 @@ export class VoiceMode {
       };
       utterance.onerror = (event) => {
         if (generation !== this.systemSpeechGeneration) return;
+        if (this.systemSpeechStartTimer) window.clearTimeout(this.systemSpeechStartTimer);
+        this.systemSpeechStartTimer = 0;
         this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
         const detail = `iPhone標準音声も開始できませんでした · ${event.error ?? 'speech unavailable'}`;
         if (recovery || compatibility) this.showSpeechFailure(detail + ' · 標準音声の音源を確認してください');
         this.setStatus(detail);
       };
-      window.speechSynthesis.speak(utterance);
+      try {
+        this.setStatus(compatibility
+          ? 'iPhone互換音声の開始待ち（モデル生成なし）'
+          : recovery ? 'iPhone標準音声へ切り替えています' : 'SYSTEM TTS · STARTING');
+        window.speechSynthesis.speak(utterance);
+      } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        this.showSpeechFailure(`iPhone音声APIがエラーを返しました: ${reason}`);
+        this.setStatus('iPhone音声の開始に失敗しました');
+        return;
+      }
+      this.systemSpeechStartTimer = window.setTimeout(() => {
+        if (generation !== this.systemSpeechGeneration || hasStarted) return;
+        this.systemSpeechStartTimer = 0;
+        this.showSpeechFailure(
+          `iPhoneのspeechSynthesisが8秒以内にonstartを返しませんでした（pending=${window.speechSynthesis.pending}, speaking=${window.speechSynthesis.speaking}）。`
+        );
+        this.setStatus('音声APIから再生開始の応答がありません');
+      }, 8000);
     };
 
     speakNext();
