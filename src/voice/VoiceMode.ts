@@ -841,7 +841,9 @@ export class VoiceMode {
       this.setStatus('PITCH / ENERGY / TIMING RESET');
     }, { passive: false });
 
-    this.required<HTMLButtonElement>('#voice-play').addEventListener('pointerdown', (event) => {
+    // On iOS touch, transient user activation is reliable on the synthesized
+    // click (after pointerup), not necessarily pointerdown.
+    this.required<HTMLButtonElement>('#voice-play').addEventListener('click', (event) => {
       event.preventDefault();
       if (this.settings.engine === 'voxcpm2') this.voxCpm.unlock();
       if (this.settings.engine === 'vox-local') this.voxLocal.unlock();
@@ -856,10 +858,10 @@ export class VoiceMode {
       event.preventDefault();
       this.testAudioOutput();
     }, { passive: false });
-    this.required<HTMLButtonElement>('#voice-device-fallback').addEventListener('pointerdown', (event) => {
+    this.required<HTMLButtonElement>('#voice-device-fallback').addEventListener('click', (event) => {
       event.preventDefault();
       this.playWithDeviceVoice();
-    }, { passive: false });
+    });
     this.required<HTMLInputElement>('#voice-iphone-compat-input').addEventListener('change', (event) => {
       this.settings.iphoneCompatibleSpeech = (event.currentTarget as HTMLInputElement).checked;
       this.saveSettings();
@@ -2414,7 +2416,10 @@ export class VoiceMode {
     this.voxLocal.stop();
     this.voxCpmPlaybackEpoch++;
     this.systemSpeechGeneration += 1;
-    if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+    if ('speechSynthesis' in window &&
+      (window.speechSynthesis.speaking || window.speechSynthesis.pending || window.speechSynthesis.paused)) {
+      window.speechSynthesis.cancel();
+    }
     this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
     if (this.active) {
       this.setStatus(
