@@ -2545,6 +2545,11 @@ export class VoiceMode {
       this.setStatus('ENTER TEXT');
       return;
     }
+    if (!this.settings.voxCpmEndpoint.trim()) {
+      this.showSpeechFailure('VOXCPM2 · SERVERモードにはURLが必要です。サーバー不要のVOX LOCALか▶ iPhone音声を選んでください。');
+      this.setStatus('VOXCPM2 NEEDS SERVER · CHOOSE VOX LOCAL FOR NO SERVER');
+      return;
+    }
     const epoch = this.voxCpmPlaybackEpoch;
     this.startSpeechWait('voxcpm2');
     try {
