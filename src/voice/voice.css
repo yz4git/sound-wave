@@ -1652,6 +1652,7 @@
 }
 #voice-lab .voice-voxlocal-native[hidden] { display: none !important; }
 #voice-lab .voice-voxlocal-native {
+  flex: 1 0 100%;
   display: flex;
   flex-direction: column;
   gap: 6px;
