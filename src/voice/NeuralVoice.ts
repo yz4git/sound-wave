@@ -785,7 +785,16 @@ export class BrowserNeuralVoice {
   unlock(): void {
     try {
       const context = this.ensureContext();
-      if (context.state !== 'running') void context.resume().catch(() => {});
+      if (context.state !== 'running') {
+        // Prime the output graph while iOS still holds the pointer gesture.
+        // This is silent; audible speech starts only after model inference.
+        const priming = context.createBufferSource();
+        priming.buffer = context.createBuffer(1, 1, context.sampleRate);
+        priming.connect(context.destination);
+        priming.onended = () => priming.disconnect();
+        priming.start();
+        void context.resume().catch(() => {});
+      }
     } catch {
       // A later play() produces the user-visible error if audio is unsupported.
     }
