@@ -947,10 +947,16 @@ export class BrowserNeuralVoice {
         );
       } else {
         // Only an actual uncached phrase pays the model initialization cost.
+        if (!this.modelReady) {
+          options.onStatus?.('NEURAL HQ · LOADING MODEL · INITIAL DOWNLOAD MAY TAKE TIME');
+        }
         tts ??= await this.loadModel(backend);
         if (generation !== this.generation) {
           return { audio: new Float32Array(0), sampleRate: 24_000, generatedNew, streamedOnly: false, streamAudioSeconds };
         }
+        options.onStatus?.(plan.segments.length > 1
+          ? `NEURAL HQ · GENERATING AUDIO ${index + 1}/${plan.segments.length}`
+          : 'NEURAL HQ · GENERATING AUDIO');
         const reusedPending = this.inferenceJobs.has(segmentKey);
         // Cache as soon as the shared ONNX call finishes, even when the
         // initiating playback was stopped in the meantime. A subsequent
@@ -1035,7 +1041,9 @@ export class BrowserNeuralVoice {
     if (!result) result = await this.savedAudio.get(neuralPersistentKey('final', key));
     if (epoch !== this.generation) return null;
     if (!result) {
-      options.onStatus?.('ON DEVICE · RENDERING SPEECH');
+      options.onStatus?.(this.modelReady
+        ? 'ON DEVICE · GENERATING SPEECH'
+        : 'NEURAL HQ · LOADING MODEL · INITIAL DOWNLOAD MAY TAKE TIME');
       const rendered = await this.renderPlan(null, plan, cpuOptions, epoch, 'wasm');
       if (epoch !== this.generation) return null;
       if (!rendered.audio.length || !neuralPCMQualityGate(rendered.audio)) throw new Error('NEURAL PCM INVALID');
