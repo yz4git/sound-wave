@@ -1635,3 +1635,49 @@
   #voice-lab .voice-speech-wait-spinner,
   #voice-lab .voice-speech-wait-bar i { animation: none; }
 }
+
+
+/* Audio recovery controls and native WAV preview on narrow iPhone screens. */
+#voice-lab .voice-header > div:first-child { flex: 1 1 180px; min-width: 0; }
+#voice-lab .voice-transport {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+  max-width: 100%;
+}
+#voice-lab .voice-transport button {
+  padding-inline: 10px;
+  white-space: nowrap;
+}
+#voice-lab .voice-voxlocal-native[hidden] { display: none !important; }
+#voice-lab .voice-voxlocal-native {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid rgba(135, 217, 255, .40);
+  border-radius: 9px;
+  background: rgba(13, 47, 68, .9);
+}
+#voice-lab .voice-voxlocal-native strong { font-size: 12px; }
+#voice-lab .voice-voxlocal-native p { margin: 0; font-size: 11px; }
+#voice-lab .voice-voxlocal-native audio {
+  width: 100%;
+  max-width: 100%;
+  min-height: 40px;
+}
+@media (max-width: 550px) {
+  #voice-lab .voice-header { gap: 8px; }
+  #voice-lab .voice-transport {
+    flex: 1 1 100%;
+    justify-content: flex-start;
+    gap: 5px;
+  }
+  #voice-lab .voice-transport button {
+    min-height: 36px;
+    padding-inline: 7px;
+    font-size: 10px;
+  }
+}
