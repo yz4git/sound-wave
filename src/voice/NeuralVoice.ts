@@ -1111,8 +1111,24 @@ export class BrowserNeuralVoice {
       : options;
     if (gpuBlock) options.onStatus?.(gpuBlock);
 
-    if (context.state !== 'running') await context.resume();
+    if (context.state !== 'running') {
+      options.onStatus?.('NEURAL HQ · WAITING FOR AUDIO OUTPUT');
+      let resumeTimeout = 0;
+      try {
+        await Promise.race([
+          context.resume(),
+          new Promise<never>((_, reject) => {
+            resumeTimeout = window.setTimeout(() => reject(new Error(
+              'NEURAL HQ AUDIO OUTPUT BLOCKED · TAP SPEAK AGAIN OR USE iPhone VOICE'
+            )), 10_000);
+          }),
+        ]);
+      } finally {
+        window.clearTimeout(resumeTimeout);
+      }
+    }
     if (generation !== this.generation) return;
+    if (context.state !== 'running') throw new Error('NEURAL HQ AUDIO CONTEXT SUSPENDED');
 
     const cacheKey = neuralPlaybackCacheKey(plan, effectiveOptions);
     let rendered = this.audioCache.get(cacheKey);
