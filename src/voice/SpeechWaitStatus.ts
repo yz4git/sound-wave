@@ -3,7 +3,7 @@
  * elapsed time only; they never invent an inference percentage or ETA.
  */
 export type SpeechWaitEngine = 'neural' | 'vox-local' | 'voxcpm2';
-export type SpeechWaitStage = 'preparing' | 'cache' | 'loading' | 'generating' | 'refining' | 'connecting';
+export type SpeechWaitStage = 'preparing' | 'cache' | 'loading' | 'generating' | 'refining' | 'connecting' | 'audio';
 
 const STAGES: Record<SpeechWaitStage, string> = {
   preparing: '音声の準備中',
@@ -12,10 +12,12 @@ const STAGES: Record<SpeechWaitStage, string> = {
   generating: '音声を生成中',
   refining: '音声を仕上げています',
   connecting: '音声サーバーの応答待ち',
+  audio: '音声出力の開始待ち',
 };
 
 export function speechWaitStageFromStatus(message: string, previous: SpeechWaitStage): SpeechWaitStage {
   const value = message.toUpperCase();
+  if (/WAITING FOR AUDIO|AUDIO OUTPUT|AUDIOCONTEXT|AUDIO UNLOCK/.test(value)) return 'audio';
   if (/RECONSTRUCT|RESAMPL|REFIN|MERG|UPSAMPL|COMPOS/.test(value)) return 'refining';
   if (/LOADING|LOAD MODEL|MODEL DOWNLOAD|DOWNLOADING|INITIALIZING/.test(value)) return 'loading';
   if (/CHECKING SAVED|SAVED PHRASE|CACHED|REUSING SAVED|CHECKING CACHE/.test(value)) return 'cache';
@@ -63,6 +65,9 @@ export function speechWaitView(
   }
   if (stage === 'refining') {
     return { headline, explanation: '生成した音声の調整と再生準備を行っています。', attention: false };
+  }
+  if (stage === 'audio') {
+    return { headline, explanation: '音声データは準備済みです。iPhoneの音声再生機能を開始しています。長く続く場合はSTOPから再生し直してください。', attention: false };
   }
   if (stage === 'connecting') {
     return { headline, explanation: 'サーバーの応答を待っています。ネットワーク接続をご確認ください。', attention: false };
