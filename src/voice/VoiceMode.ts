@@ -1,6 +1,7 @@
 import type { VocalStyle } from '../compose/VocalGenerator';
 import { VoxCpmRemoteVoice, voxCpmVoicePrompt, type VoxCpmRemoteOptions } from './VoxCpmRemote';
 import { VoxLocalVoice, type VoxLocalDesign, type VoxLocalQuality } from './VoxLocalVoice';
+import { isIPhoneBrowser, shouldUseDeviceSpeech, type PlaybackEnvironment } from './IPhoneSpeechPolicy';
 import { speechWaitStageFromStatus, speechWaitView, type SpeechWaitEngine, type SpeechWaitStage } from './SpeechWaitStatus';
 import { downloadBlob } from '../compose/SongExport';
 import { VOICE_CHARACTER_PRESETS, validVoiceCharacterPreset, type VoiceCharacterPreset } from '../compose/VoiceCharacter';
@@ -92,6 +93,7 @@ interface VoiceLabSettings extends VoiceSynthSettings {
   voxCpmSteps: number;
   voxLocalDescription: string;
   voxLocalQuality: VoxLocalQuality;
+  iphoneCompatibleSpeech: boolean;
 }
 
 interface VoiceImprintCacheEntry {
@@ -145,6 +147,13 @@ export class VoiceMode {
   private speechWaitStage: SpeechWaitStage = 'preparing';
   private voxLocalPreviewUrl: string | null = null;
   private audioProbeContext: AudioContext | null = null;
+  private speechTrace: string[] = [];
+  private lastSpeechError = '';
+  private readonly playbackEnvironment: PlaybackEnvironment = {
+    userAgent: navigator.userAgent,
+    platform: navigator.platform,
+    maxTouchPoints: navigator.maxTouchPoints ?? 0,
+  };
   private lastNeuralMetric = '';
   private settings: VoiceLabSettings;
   private active = false;
@@ -258,6 +267,7 @@ export class VoiceMode {
       voxCpmSteps: 10,
       voxLocalDescription: '落ち着いた、柔らかくて自然な日本語の声',
       voxLocalQuality: 'balanced',
+      iphoneCompatibleSpeech: isIPhoneBrowser(this.playbackEnvironment),
       quality: 'hq',
       style: 'warm',
       character: 'natural',
@@ -288,6 +298,8 @@ export class VoiceMode {
         voxCpmSteps: [6, 10, 16].includes(Number(parsed.voxCpmSteps)) ? Number(parsed.voxCpmSteps) : 10,
         voxLocalDescription: typeof parsed.voxLocalDescription === 'string' ? parsed.voxLocalDescription.slice(0, 240) : fallback.voxLocalDescription,
         voxLocalQuality: parsed.voxLocalQuality === 'fast' || parsed.voxLocalQuality === 'balanced' || parsed.voxLocalQuality === 'studio' ? parsed.voxLocalQuality : 'balanced',
+        iphoneCompatibleSpeech: typeof parsed.iphoneCompatibleSpeech === 'boolean'
+          ? parsed.iphoneCompatibleSpeech : fallback.iphoneCompatibleSpeech,
         quality: validQuality(parsed.quality) ? parsed.quality : fallback.quality,
         style: validStyle(parsed.style) ? parsed.style : fallback.style,
         character: validVoiceCharacterPreset(parsed.character) ? parsed.character : fallback.character,
@@ -336,6 +348,12 @@ export class VoiceMode {
           <button type="button" id="voice-audio-test" aria-label="Test sound output">🔊 TEST</button>
           <button type="button" id="voice-device-fallback" aria-label="Play with iPhone system voice">▶ iPhone音声</button>
         </div>
+        <div class="voice-iphone-compat" id="voice-iphone-compat" hidden>
+          <label><input type="checkbox" id="voice-iphone-compat-input" />
+            iPhone互換 · SPEAKで確実な標準音声を優先
+          </label>
+          <small>ON: iPhone標準TTS（Kokoro・VOX LOCALの声質加工は使いません）。OFF: 選択した実験的な音声モデルを実行。</small>
+        </div>
         <div id="voice-speech-wait" class="voice-speech-wait" role="status" aria-live="off" hidden>
           <div class="voice-speech-wait-head">
             <span class="voice-speech-wait-spinner" aria-hidden="true"></span>
@@ -344,6 +362,11 @@ export class VoiceMode {
           <p id="voice-speech-wait-description">処理が終わると音声を再生します。</p>
           <div class="voice-speech-wait-bar" aria-hidden="true"><i></i></div>
         </div>
+        <details id="voice-error-diagnostic" class="voice-error-diagnostic" hidden>
+          <summary>エラー詳細・診断ログ</summary>
+          <pre id="voice-error-diagnostic-text"></pre>
+          <button type="button" id="voice-copy-diagnostic">診断情報をコピー</button>
+        </details>
         <div id="voice-voxlocal-native" class="voice-voxlocal-native" hidden>
           <strong>🔊 音声データ生成完了 · iPhone標準プレーヤー</strong>
           <p>自動再生で音が出ない場合、この再生ボタンをタップしてください。</p>
@@ -836,6 +859,21 @@ export class VoiceMode {
       event.preventDefault();
       this.playWithDeviceVoice();
     }, { passive: false });
+    this.required<HTMLInputElement>('#voice-iphone-compat-input').addEventListener('change', (event) => {
+      this.settings.iphoneCompatibleSpeech = (event.currentTarget as HTMLInputElement).checked;
+      this.saveSettings();
+      this.stop();
+      this.refreshPlan();
+    });
+    this.required<HTMLButtonElement>('#voice-copy-diagnostic').addEventListener('pointerdown', (event) => {
+      event.preventDefault();
+      const diagnosis = this.required<HTMLElement>('#voice-error-diagnostic-text').textContent ?? '';
+      void navigator.clipboard?.writeText(diagnosis).then(() => {
+        this.setStatus('診断ログをコピーしました');
+      }).catch(() => {
+        this.setStatus('診断ログを選択してコピーしてください');
+      });
+    }, { passive: false });
     this.required<HTMLButtonElement>('#voice-export-wav').addEventListener('pointerdown', (event) => {
       event.preventDefault();
       void this.exportWav();
@@ -1033,6 +1071,8 @@ export class VoiceMode {
   }
 
   private syncControls(): void {
+    this.required<HTMLElement>('#voice-iphone-compat').hidden = !isIPhoneBrowser(this.playbackEnvironment);
+    this.required<HTMLInputElement>('#voice-iphone-compat-input').checked = this.settings.iphoneCompatibleSpeech;
     this.required<HTMLInputElement>('#voice-expression-intensity').value = String(
       Math.round(this.settings.expression.intensity * 100),
     );
@@ -2282,6 +2322,7 @@ export class VoiceMode {
 
   private startSpeechWait(engine: SpeechWaitEngine): void {
     this.endSpeechWait();
+    this.speechTrace = [`0s ${engine} · started`];
     this.speechWaitEngine = engine;
     this.speechWaitStage = engine === 'voxcpm2' ? 'connecting' : 'preparing';
     this.speechWaitStartedAt = Date.now();
@@ -2292,6 +2333,10 @@ export class VoiceMode {
 
   private progressSpeechWait(message: string): void {
     if (!this.speechWaitTimer) return;
+    const seconds = Math.round((Date.now() - this.speechWaitStartedAt) / 1000);
+    const entry = `${seconds}s · ${message.slice(0, 140)}`;
+    if (this.speechTrace.at(-1) !== entry) this.speechTrace.push(entry);
+    if (this.speechTrace.length > 24) this.speechTrace.shift();
     this.speechWaitStage = speechWaitStageFromStatus(message, this.speechWaitStage);
     this.updateSpeechWait();
   }
@@ -2308,6 +2353,23 @@ export class VoiceMode {
   }
 
   private showSpeechFailure(detail: string): void {
+    const elapsed = this.speechWaitStartedAt
+      ? Math.round((Date.now() - this.speechWaitStartedAt) / 1000) : 0;
+    this.lastSpeechError = detail;
+    const diagnostics = [
+      'Sound Wave speech failure',
+      `Mode: ${this.settings.engine}`,
+      `iOS: ${isIPhoneBrowser(this.playbackEnvironment)}`,
+      `Compatibility mode: ${this.settings.iphoneCompatibleSpeech}`,
+      `Stage: ${this.speechWaitStage}`,
+      `Elapsed: ${elapsed}s`,
+      `Error: ${detail}`,
+      ...this.speechTrace,
+    ].join('\n');
+    const details = this.required<HTMLDetailsElement>('#voice-error-diagnostic');
+    details.hidden = false;
+    details.open = true;
+    this.required<HTMLElement>('#voice-error-diagnostic-text').textContent = diagnostics;
     this.endSpeechWait();
     const panel = this.required<HTMLElement>('#voice-speech-wait');
     panel.hidden = false;
@@ -2322,7 +2384,7 @@ export class VoiceMode {
           : '音声の生成または再生に失敗しました';
     this.required<HTMLElement>('#voice-speech-wait-headline').textContent = headline;
     this.required<HTMLElement>('#voice-speech-wait-description').textContent =
-      `${detail.slice(0, 180)} · 🔊 TESTで出力を確認、または▶ iPhone音声を使ってください。`;
+      `詳細: ${detail.slice(0, 210)} · 下の「エラー詳細・診断ログ」で原因を確認できます。`;
     this.required<HTMLButtonElement>('#voice-play').textContent = '▶ RETRY';
   }
 
@@ -2375,6 +2437,12 @@ export class VoiceMode {
     }
 
     const markup = parseVoiceMarkup(text);
+    if (shouldUseDeviceSpeech(this.settings.engine, this.settings.iphoneCompatibleSpeech, this.playbackEnvironment)) {
+      // Crucial: call system speech *synchronously* in the original pointer
+      // gesture, before any awaited model download or failed async fallback.
+      this.playSystem(markup, false, true);
+      return;
+    }
     if (this.settings.engine === 'system') {
       this.playSystem(markup);
       return;
@@ -2751,7 +2819,7 @@ export class VoiceMode {
     }
   }
 
-  private playSystem(script: VoiceMarkupScript, recovery = false): void {
+  private playSystem(script: VoiceMarkupScript, recovery = false, compatibility = false): void {
     if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
       this.setStatus('SYSTEM TTS UNAVAILABLE');
       return;
@@ -2785,7 +2853,8 @@ export class VoiceMode {
       const segment = segments[segmentIndex];
       if (!segment) {
         this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
-        this.setStatus(recovery ? 'READY · iPhone音声での代替再生が終了しました' : 'READY · SYSTEM TTS');
+        this.setStatus(recovery ? 'READY · iPhone音声での代替再生が終了しました'
+          : compatibility ? 'READY · iPhone互換音声の再生が終了しました' : 'READY · SYSTEM TTS');
         return;
       }
       segmentIndex += 1;
@@ -2816,7 +2885,9 @@ export class VoiceMode {
         this.setStatus(
           recovery
             ? `iPhone標準音声で代替再生中 · ${voice?.name ?? 'DEVICE VOICE'}`
-            : `SYSTEM TTS · ${expressionSettings.preset.toUpperCase()} · ${voice?.name ?? 'DEFAULT VOICE'}`,
+            : compatibility
+              ? `iPhone互換再生中（モデル推論なし） · ${voice?.name ?? 'DEVICE VOICE'}`
+              : `SYSTEM TTS · ${expressionSettings.preset.toUpperCase()} · ${voice?.name ?? 'DEFAULT VOICE'}`,
         );
       };
       utterance.onend = () => {
@@ -2827,7 +2898,7 @@ export class VoiceMode {
         if (generation !== this.systemSpeechGeneration) return;
         this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
         const detail = `iPhone標準音声も開始できませんでした · ${event.error ?? 'speech unavailable'}`;
-        if (recovery) this.showSpeechFailure(detail + ' · 画面上部の▶ iPhone音声を直接押してください');
+        if (recovery || compatibility) this.showSpeechFailure(detail + ' · 標準音声の音源を確認してください');
         this.setStatus(detail);
       };
       window.speechSynthesis.speak(utterance);
