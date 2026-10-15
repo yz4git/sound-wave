@@ -2312,7 +2312,15 @@ export class VoiceMode {
     const panel = this.required<HTMLElement>('#voice-speech-wait');
     panel.hidden = false;
     panel.classList.add('taking-long');
-    this.required<HTMLElement>('#voice-speech-wait-headline').textContent = '音声の再生を開始できませんでした';
+    const message = detail.toLowerCase();
+    const headline = /network|fetch|http|download|cdn|offline/.test(message)
+      ? '音声モデルのダウンロードに失敗しました'
+      : /memory|allocation|out.of.memory|oom|rangeerror/.test(message)
+        ? '音声モデルの読み込みでメモリ不足の可能性'
+        : /audio|suspend|notallowed|gesture/.test(message)
+          ? '音声データの再生開始に失敗しました'
+          : '音声の生成または再生に失敗しました';
+    this.required<HTMLElement>('#voice-speech-wait-headline').textContent = headline;
     this.required<HTMLElement>('#voice-speech-wait-description').textContent =
       `${detail.slice(0, 180)} · 🔊 TESTで出力を確認、または▶ iPhone音声を使ってください。`;
     this.required<HTMLButtonElement>('#voice-play').textContent = '▶ RETRY';
@@ -2522,7 +2530,8 @@ export class VoiceMode {
       const reason = error instanceof Error ? error.message : 'モデルの音声生成に失敗しました';
       console.warn('VOX LOCAL render failed.', error);
       this.showSpeechFailure(reason);
-      this.setStatus('VOX LOCAL FAILED · ' + reason);
+      this.setStatus('VOX LOCAL FAILED · ' + reason + ' · TRYING iPhone VOICE');
+      this.playSystem(markup, true);
     }
   }
 
@@ -2734,11 +2743,12 @@ export class VoiceMode {
       console.warn('VOICE LAB Neural HQ synthesis failed.', error);
       const reason = error instanceof Error ? error.message : 'NEURAL HQ MODEL ERROR';
       this.showSpeechFailure(reason);
-      this.setStatus('NEURAL HQ FAILED · ' + reason);
+      this.setStatus('NEURAL HQ FAILED · ' + reason + ' · TRYING iPhone VOICE');
+      this.playSystem(markup, true);
     }
   }
 
-  private playSystem(script: VoiceMarkupScript): void {
+  private playSystem(script: VoiceMarkupScript, recovery = false): void {
     if (!('speechSynthesis' in window) || typeof SpeechSynthesisUtterance === 'undefined') {
       this.setStatus('SYSTEM TTS UNAVAILABLE');
       return;
@@ -2772,7 +2782,7 @@ export class VoiceMode {
       const segment = segments[segmentIndex];
       if (!segment) {
         this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
-        this.setStatus('READY · SYSTEM TTS');
+        this.setStatus(recovery ? 'READY · iPhone音声での代替再生が終了しました' : 'READY · SYSTEM TTS');
         return;
       }
       segmentIndex += 1;
@@ -2798,19 +2808,24 @@ export class VoiceMode {
       utterance.volume = clamp(this.settings.energy * expression.energyScale, 0.35, 1);
       utterance.onstart = () => {
         if (generation !== this.systemSpeechGeneration) return;
+        this.endSpeechWait();
         this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
         this.setStatus(
-          `SYSTEM TTS · ${expressionSettings.preset.toUpperCase()} · ${voice?.name ?? 'DEFAULT VOICE'}`,
+          recovery
+            ? `iPhone標準音声で代替再生中 · ${voice?.name ?? 'DEVICE VOICE'}`
+            : `SYSTEM TTS · ${expressionSettings.preset.toUpperCase()} · ${voice?.name ?? 'DEFAULT VOICE'}`,
         );
       };
       utterance.onend = () => {
         if (generation !== this.systemSpeechGeneration) return;
         speakNext();
       };
-      utterance.onerror = () => {
+      utterance.onerror = (event) => {
         if (generation !== this.systemSpeechGeneration) return;
         this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
-        this.setStatus('SYSTEM TTS FAILED');
+        const detail = `iPhone標準音声も開始できませんでした · ${event.error ?? 'speech unavailable'}`;
+        if (recovery) this.showSpeechFailure(detail + ' · 画面上部の▶ iPhone音声を直接押してください');
+        this.setStatus(detail);
       };
       window.speechSynthesis.speak(utterance);
     };
