@@ -280,7 +280,9 @@ export class VoiceMode {
       return {
         engine: parsed.engine === 'neural-gpu' && neuralGPUBlockReason()
           ? 'neural'
-          : validEngine(parsed.engine) ? parsed.engine : fallback.engine,
+          : parsed.engine === 'voxcpm2' && !(typeof parsed.voxCpmEndpoint === 'string' && parsed.voxCpmEndpoint.trim())
+            ? 'vox-local'
+            : validEngine(parsed.engine) ? parsed.engine : fallback.engine,
         voxCpmEndpoint: typeof parsed.voxCpmEndpoint === 'string' ? parsed.voxCpmEndpoint.slice(0, 512) : fallback.voxCpmEndpoint,
         voxCpmDescription: typeof parsed.voxCpmDescription === 'string' ? parsed.voxCpmDescription.slice(0, 240) : fallback.voxCpmDescription,
         voxCpmSteps: [6, 10, 16].includes(Number(parsed.voxCpmSteps)) ? Number(parsed.voxCpmSteps) : 10,
@@ -2374,6 +2376,17 @@ export class VoiceMode {
       return;
     }
     if (this.settings.engine === 'voxcpm2') {
+      if (!this.settings.voxCpmEndpoint.trim()) {
+        // Old versions persisted the server-only engine. Do not trap existing
+        // iPhone users in a mode that is guaranteed to fail without a server.
+        this.settings.engine = 'vox-local';
+        this.saveSettings();
+        this.syncControls();
+        this.setStatus('サーバー設定がないため VOX LOCAL に切り替えました');
+        this.voxLocal.unlock();
+        await this.playVoxLocal(markup, text);
+        return;
+      }
       await this.playVoxCpm(markup);
       return;
     }
@@ -2546,8 +2559,13 @@ export class VoiceMode {
       return;
     }
     if (!this.settings.voxCpmEndpoint.trim()) {
-      this.showSpeechFailure('VOXCPM2 · SERVERモードにはURLが必要です。サーバー不要のVOX LOCALか▶ iPhone音声を選んでください。');
-      this.setStatus('VOXCPM2 NEEDS SERVER · CHOOSE VOX LOCAL FOR NO SERVER');
+      this.settings.engine = 'vox-local';
+      this.saveSettings();
+      this.syncControls();
+      this.setStatus('VOXCPM2 はサーバーが必要なため、VOX LOCALへ切り替えました');
+      const raw = this.required<HTMLTextAreaElement>('#voice-text').value.trim();
+      this.voxLocal.unlock();
+      await this.playVoxLocal(markup, raw);
       return;
     }
     const epoch = this.voxCpmPlaybackEpoch;
