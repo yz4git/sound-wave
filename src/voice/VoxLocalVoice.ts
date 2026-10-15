@@ -320,8 +320,29 @@ export class VoxLocalVoice {
     const rate = side === 'reference' ? cache.referenceRate : take.rate;
     const context = this.context;
     if (!context) throw new Error('VOX LOCAL · WEB AUDIO UNAVAILABLE');
-    await context.resume();
+    if (context.state !== 'running') {
+      onStatus('VOX LOCAL · WAITING FOR AUDIO OUTPUT');
+      // A suspended iOS AudioContext sometimes cannot resume once the touch
+      // gesture has been lost during a long model inference. Do not leave the
+      // player in an endless spinner; tell the user to retry.
+      let timeout = 0;
+      try {
+        await Promise.race([
+          context.resume(),
+          new Promise<never>((_, reject) => {
+            timeout = window.setTimeout(() => reject(new Error(
+              'AUDIO OUTPUT IS BLOCKED · TAP STOP, THEN SPEAK AGAIN'
+            )), 12000);
+          }),
+        ]);
+      } finally {
+        window.clearTimeout(timeout);
+      }
+    }
     if (epoch !== this.epoch) return;
+    if (context.state !== 'running') {
+      throw new Error('AUDIO OUTPUT SUSPENDED · TAP STOP, THEN SPEAK AGAIN');
+    }
     const buffer = context.createBuffer(1, audio.length, rate);
     buffer.getChannelData(0).set(audio);
     const source = context.createBufferSource();
@@ -334,8 +355,8 @@ export class VoxLocalVoice {
       source.disconnect();
       onEnd();
     };
-    onStatus(`${side === 'reference' ? 'NEURAL HQ BASE' : 'VOX LOCAL'} · PLAYING ${buffer.duration.toFixed(1)}s · ${rate}Hz`);
     source.start();
+    onStatus(`${side === 'reference' ? 'NEURAL HQ BASE' : 'VOX LOCAL'} · PLAYING ${buffer.duration.toFixed(1)}s · ${rate}Hz`);
   }
 
   async play(
