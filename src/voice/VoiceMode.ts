@@ -342,6 +342,11 @@ export class VoiceMode {
           <p id="voice-speech-wait-description">処理が終わると音声を再生します。</p>
           <div class="voice-speech-wait-bar" aria-hidden="true"><i></i></div>
         </div>
+        <div id="voice-voxlocal-native" class="voice-voxlocal-native" hidden>
+          <strong>🔊 音声データ生成完了 · iPhone標準プレーヤー</strong>
+          <p>自動再生で音が出ない場合、この再生ボタンをタップしてください。</p>
+          <audio id="voice-voxlocal-native-audio" controls preload="none" playsinline></audio>
+        </div>
       </header>
 
       <div class="voice-layout">
@@ -382,11 +387,7 @@ export class VoiceMode {
               <button type="button" id="voice-voxlocal-ab-b">B · VOX LOCAL</button>
             </div>
             <p id="voice-voxlocal-ab-report" class="voice-voxlocal-report" aria-live="polite">A/B generates ONE identical underlying neural take. A = untouched neural audio; B = sound-designed, level-matched audio. Compare by ear; measured difference is NOT a quality score.</p>
-            <div id="voice-voxlocal-native" class="voice-voxlocal-native" hidden>
-              <strong>iPhone標準プレーヤーで音声を再生</strong>
-              <p>Web Audioで音が出ない場合はこちらを再生してください。生成済みWAVを直接再生します。</p>
-              <audio id="voice-voxlocal-native-audio" controls preload="none" playsinline></audio>
-            </div>
+
           </div>
           <div id="voice-voxcpm-config" class="voice-voxcpm-config" hidden>
             <strong>VOXCPM2 · REMOTE NEURAL MODEL</strong>
@@ -2232,7 +2233,7 @@ export class VoiceMode {
       osc.stop(now + 0.29);
       void context.resume().then(() => {
         this.setStatus(context.state === 'running'
-          ? '🔊 テスト音を再生しました · 聞こえない場合はiPhoneの音量/消音設定を確認'
+          ? '🔊 テスト音を出力しました · 聞こえない場合は音量・消音設定とiPhone音声を確認'
           : '音声出力が停止状態です · iPhone音声を試してください');
       }).catch(() => this.setStatus('音声出力を開始できません · iPhone音声を試してください'));
     } catch (error) {
