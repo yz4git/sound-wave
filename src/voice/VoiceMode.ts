@@ -1,6 +1,7 @@
 import type { VocalStyle } from '../compose/VocalGenerator';
 import { VoxCpmRemoteVoice, voxCpmVoicePrompt, type VoxCpmRemoteOptions } from './VoxCpmRemote';
 import { VoxLocalVoice, type VoxLocalDesign, type VoxLocalQuality } from './VoxLocalVoice';
+import { speechWaitStageFromStatus, speechWaitView, type SpeechWaitEngine, type SpeechWaitStage } from './SpeechWaitStatus';
 import { downloadBlob } from '../compose/SongExport';
 import { VOICE_CHARACTER_PRESETS, validVoiceCharacterPreset, type VoiceCharacterPreset } from '../compose/VoiceCharacter';
 import { type VoiceIntonation } from './VoiceScript';
@@ -138,6 +139,10 @@ export class VoiceMode {
   private readonly voxLocal = new VoxLocalVoice(this.neural);
   private voxCpmToken = ''; // Kept in memory only; never saved to localStorage.
   private voxCpmPlaybackEpoch = 0;
+  private speechWaitTimer = 0;
+  private speechWaitStartedAt = 0;
+  private speechWaitEngine: SpeechWaitEngine = 'vox-local';
+  private speechWaitStage: SpeechWaitStage = 'preparing';
   private lastNeuralMetric = '';
   private settings: VoiceLabSettings;
   private active = false;
@@ -323,6 +328,14 @@ export class VoiceMode {
         <div class="voice-transport">
           <button type="button" id="voice-play">▶ SPEAK</button>
           <button type="button" id="voice-stop">■ STOP</button>
+        </div>
+        <div id="voice-speech-wait" class="voice-speech-wait" role="status" aria-live="off" hidden>
+          <div class="voice-speech-wait-head">
+            <span class="voice-speech-wait-spinner" aria-hidden="true"></span>
+            <strong id="voice-speech-wait-headline">音声を準備しています · 0秒経過</strong>
+          </div>
+          <p id="voice-speech-wait-description">処理が終わると音声を再生します。</p>
+          <div class="voice-speech-wait-bar" aria-hidden="true"><i></i></div>
         </div>
       </header>
 
@@ -2175,7 +2188,45 @@ export class VoiceMode {
     for (const unit of this.root.querySelectorAll<HTMLElement>('[data-voice-unit]')) unit.classList.remove('speaking');
   }
 
+  private startSpeechWait(engine: SpeechWaitEngine): void {
+    this.endSpeechWait();
+    this.speechWaitEngine = engine;
+    this.speechWaitStage = engine === 'voxcpm2' ? 'connecting' : 'preparing';
+    this.speechWaitStartedAt = Date.now();
+    this.required<HTMLElement>('#voice-speech-wait').hidden = false;
+    this.updateSpeechWait();
+    this.speechWaitTimer = window.setInterval(() => this.updateSpeechWait(), 1000);
+  }
+
+  private progressSpeechWait(message: string): void {
+    if (!this.speechWaitTimer) return;
+    this.speechWaitStage = speechWaitStageFromStatus(message, this.speechWaitStage);
+    this.updateSpeechWait();
+  }
+
+  private updateSpeechWait(): void {
+    if (this.required<HTMLElement>('#voice-speech-wait').hidden) return;
+    const elapsed = Math.max(0, Math.floor((Date.now() - this.speechWaitStartedAt) / 1000));
+    const view = speechWaitView(this.speechWaitEngine, this.speechWaitStage, elapsed);
+    const panel = this.required<HTMLElement>('#voice-speech-wait');
+    panel.classList.toggle('taking-long', view.attention);
+    this.required<HTMLElement>('#voice-speech-wait-headline').textContent = view.headline;
+    this.required<HTMLElement>('#voice-speech-wait-description').textContent = view.explanation;
+    this.required<HTMLButtonElement>('#voice-play').textContent = `… ${elapsed}秒 · 準備中`;
+  }
+
+  private endSpeechWait(): void {
+    if (this.speechWaitTimer) window.clearInterval(this.speechWaitTimer);
+    this.speechWaitTimer = 0;
+    const panel = this.root.querySelector<HTMLElement>('#voice-speech-wait');
+    if (panel) {
+      panel.hidden = true;
+      panel.classList.remove('taking-long');
+    }
+  }
+
   private stop(): void {
+    this.endSpeechWait();
     this.clearPlaybackTimers();
     this.synth.stop();
     this.neural.stop();
@@ -2318,29 +2369,40 @@ export class VoiceMode {
       return;
     }
     const epoch = this.voxCpmPlaybackEpoch;
+    this.startSpeechWait('vox-local');
     try {
+      // A browser frame must paint the busy state before CPU-heavy WebAssembly
+      // inference starts, or iPhone Safari can appear frozen after tapping SPEAK.
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())));
+      if (epoch !== this.voxCpmPlaybackEpoch || !this.active) return;
       const plan = this.prepareNeuralPlan(markup, text);
-      this.required<HTMLButtonElement>('#voice-play').textContent = '… VOX LOCAL';
+      this.progressSpeechWait('ON DEVICE · RENDERING SPEECH');
       const playSide = reference
         ? this.voxLocal.playReference.bind(this.voxLocal)
         : this.voxLocal.play.bind(this.voxLocal);
       await playSide(
         plan, this.voxLocalDesign(),
         (message) => {
-          if (message.includes('PLAYING')) this.renderVoxLocalABReport(plan);
-
           if (!this.active || this.settings.engine !== 'vox-local' || epoch !== this.voxCpmPlaybackEpoch) return;
+          if (message.includes('PLAYING') || message.includes('SPEAKING')) {
+            this.endSpeechWait();
+            this.renderVoxLocalABReport(plan);
+            this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
+          } else {
+            this.progressSpeechWait(message);
+          }
           this.setStatus(message.replace('NEURAL HQ', 'ON-DEVICE'));
-          if (message.includes('SPEAKING')) this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
         },
         () => {
           if (!this.active || this.settings.engine !== 'vox-local' || epoch !== this.voxCpmPlaybackEpoch) return;
+          this.endSpeechWait();
           this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
           this.setStatus(reference ? 'READY · NEURAL HQ BASE A/B' : 'VOX LOCAL · COMPLETE · WAV READY');
         },
       );
     } catch (error) {
       if (!this.active || epoch !== this.voxCpmPlaybackEpoch) return;
+      this.endSpeechWait();
       this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
       console.warn('VOX LOCAL render failed.', error);
       this.setStatus('VOX LOCAL FAILED · ' + (error instanceof Error ? error.message : 'CHECK MODEL DOWNLOAD'));
@@ -2380,6 +2442,7 @@ export class VoiceMode {
       return;
     }
     const epoch = this.voxCpmPlaybackEpoch;
+    this.startSpeechWait('voxcpm2');
     try {
       const options = this.voxCpmOptions(markup);
       this.required<HTMLButtonElement>('#voice-play').textContent = '… VOXCPM2';
@@ -2389,12 +2452,16 @@ export class VoiceMode {
           if (this.active && this.settings.engine === 'voxcpm2' && epoch === this.voxCpmPlaybackEpoch) {
             this.setStatus(message);
             if (message.startsWith('VOXCPM2 · PLAYING')) {
+              this.endSpeechWait();
               this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
+            } else {
+              this.progressSpeechWait(message);
             }
           }
         },
         () => {
           if (this.active && this.settings.engine === 'voxcpm2' && epoch === this.voxCpmPlaybackEpoch) {
+            this.endSpeechWait();
             this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
             this.setStatus('READY · VOXCPM2 · WAV AVAILABLE FOR EXPORT');
           }
@@ -2403,6 +2470,7 @@ export class VoiceMode {
     } catch (error) {
       if (epoch !== this.voxCpmPlaybackEpoch || !this.active) return;
       console.warn('VOICE LAB VoxCPM2 synthesis failed.', error);
+      this.endSpeechWait();
       this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
       this.setStatus(error instanceof Error ? error.message : 'VOXCPM2 SERVER UNAVAILABLE');
     }
@@ -2475,9 +2543,13 @@ export class VoiceMode {
       this.setStatus('ENTER TEXT');
       return;
     }
-    const neuralPlan = this.prepareNeuralPlan(markup, rawText);
-
+    const epoch = this.voxCpmPlaybackEpoch;
+    this.startSpeechWait('neural');
     try {
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())));
+      if (!this.active || epoch !== this.voxCpmPlaybackEpoch) return;
+      const neuralPlan = this.prepareNeuralPlan(markup, rawText);
+      this.progressSpeechWait('ON DEVICE · RENDERING SPEECH');
       this.lastNeuralMetric = '';
       let speakingWhileRendering = false;
       let firstAudioLabel = '';
@@ -2510,28 +2582,30 @@ export class VoiceMode {
                 : '');
         },
         onStatus: (message) => {
-          if (!this.active || (this.settings.engine !== 'neural' && this.settings.engine !== 'neural-gpu')) return;
+          if (!this.active || epoch !== this.voxCpmPlaybackEpoch || (this.settings.engine !== 'neural' && this.settings.engine !== 'neural-gpu')) return;
           this.setStatus(speakingWhileRendering ? `SPEAKING · ${message}` : message);
-          if (!speakingWhileRendering) {
-            this.required<HTMLButtonElement>('#voice-play').textContent = '… NEURAL HQ';
-          }
+          if (!speakingWhileRendering) this.progressSpeechWait(message);
         },
         onStart: (voiceId) => {
-          if (!this.active || (this.settings.engine !== 'neural' && this.settings.engine !== 'neural-gpu')) return;
+          if (!this.active || epoch !== this.voxCpmPlaybackEpoch || (this.settings.engine !== 'neural' && this.settings.engine !== 'neural-gpu')) return;
           speakingWhileRendering = true;
+          this.endSpeechWait();
           this.required<HTMLButtonElement>('#voice-play').textContent = '■ SPEAKING';
           this.setStatus(
             `NEURAL · ${voiceId.toUpperCase()} · ${firstAudioLabel || this.lastNeuralMetric || 'PLAYING'} · ${neuralPlan.edited ? `${neuralPlan.segments.length} SEG` : 'MODEL-NATIVE'}`,
           );
         },
         onEnd: () => {
-          if (!this.active || (this.settings.engine !== 'neural' && this.settings.engine !== 'neural-gpu')) return;
+          if (!this.active || epoch !== this.voxCpmPlaybackEpoch || (this.settings.engine !== 'neural' && this.settings.engine !== 'neural-gpu')) return;
+          this.endSpeechWait();
           this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
           this.setStatus(`READY · ${this.lastNeuralMetric}`);
         },
       });
     } catch (error) {
+      if (epoch !== this.voxCpmPlaybackEpoch || !this.active) return;
       console.warn('VOICE LAB Neural HQ synthesis failed.', error);
+      this.endSpeechWait();
       this.required<HTMLButtonElement>('#voice-play').textContent = '▶ SPEAK';
       this.setStatus('NEURAL HQ FAILED · DSP / SYSTEM TTS STILL AVAILABLE');
     }
