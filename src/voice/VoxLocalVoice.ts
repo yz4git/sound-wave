@@ -233,6 +233,14 @@ export class VoxLocalVoice {
   unlock(): void {
     try {
       this.context ??= new AudioContext({ latencyHint: 'interactive' });
+      if (this.context.state === 'running') return;
+      // WebKit requires an actual source.start() inside the pointer gesture
+      // on some iOS versions; resume() alone can leave later speech silent.
+      const priming = this.context.createBufferSource();
+      priming.buffer = this.context.createBuffer(1, 1, this.context.sampleRate);
+      priming.connect(this.context.destination);
+      priming.onended = () => priming.disconnect();
+      priming.start();
       void this.context.resume().catch(() => {});
     } catch { /* unavailable WebAudio shows an error on play */ }
   }
