@@ -314,6 +314,9 @@ export class VoxLocalVoice {
     this.unlock();
     const take = await this.synthesize(plan, design, onStatus);
     if (!take || epoch !== this.epoch) return;
+    // Publish the generated WAV *before* attempting to resume WebAudio.
+    // The native HTML audio control remains usable if iOS blocks WebAudio.
+    onStatus('VOX LOCAL · WAV READY');
     const cache = this.cached;
     if (!cache) return;
     const audio = side === 'reference' ? cache.reference : take.audio;
