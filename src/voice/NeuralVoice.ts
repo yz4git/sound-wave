@@ -3,6 +3,7 @@ import { NeuralRenderStore, neuralPersistentKey } from './NeuralRenderStore';
 import { NeuralInferenceSingleFlight } from './NeuralInferenceSingleFlight';
 import { NeuralChunkPlayer, type NeuralStreamingChunk } from './NeuralChunkPlayer';
 import { splitLongNeuralText } from './NeuralLongText';
+import { effectiveConversationPause } from './VoxConversation';
 import {
   NeuralPhonemeCache,
   speakWithReusablePhonemes,
@@ -28,6 +29,8 @@ export interface NeuralVoicePlaybackOptions {
   tone: number;
   expression: VoiceExpressionSettings;
   backend?: NeuralComputeBackend;
+  /** Match additional pause to model-provided trailing silence (VOX LOCAL only). */
+  conversationTiming?: boolean;
   onStatus?: (message: string) => void;
   onMetrics?: (metric: {
     backend: NeuralComputeBackend;
@@ -1042,7 +1045,9 @@ export class BrowserNeuralVoice {
           0.18,
           1.18,
         ),
-        pauseAfter: segment.pauseAfter,
+        pauseAfter: options.conversationTiming
+          ? effectiveConversationPause(segment.pauseAfter, rendered.audio, rendered.sampleRate)
+          : segment.pauseAfter,
       };
       if (onChunk) {
         streamAudioSeconds += chunk.audio.length / chunk.sampleRate
