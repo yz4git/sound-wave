@@ -890,10 +890,13 @@ export class BrowserNeuralVoice {
     generation: number,
     onStatus?: (message: string) => void,
   ): Promise<{ audio: Float32Array; sampling_rate: number } | null> {
-    // Serialize only uncached inference calls, not instant PCM replay.
-    // An old stopped request may still be running inside ONNX; wait for its
-    // tokenizer interception to finish before installing our next hook.
+    // Serialize uncached ONNX calls. On iOS (q4 selected by device detection)
+    // use official KokoroJP.speak() and never replace its tokenizer.
+    const useOfficialSpeakOnly = currentNeuralCpuDtype() === 'q4';
     const result = this.inferenceTail.then(async () => {
+      if (useOfficialSpeakOnly && generation === this.generation) {
+        onStatus?.('NEURAL HQ · IOS SAFE PATH · OFFICIAL JAPANESE TOKENIZER');
+      }
       // A queued call may outlive the original play request. Finish the
       // already-requested ONNX work so a newer identical request can reuse it.
       // Actual playback/callbacks are still gated by generation.
@@ -909,6 +912,7 @@ export class BrowserNeuralVoice {
             ? 'NEURAL HQ · REUSING TOKEN IDS · SKIPPING JAPANESE G2P'
             : 'NEURAL HQ · RESTORING PHONEMES · SKIPPING JAPANESE G2P');
         },
+        useOfficialSpeakOnly,
       );
     });
     this.inferenceTail = result.then(() => {}, () => {});
