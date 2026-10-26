@@ -1,6 +1,7 @@
 import type { VocalStyle } from '../compose/VocalGenerator';
 import { VoxCpmRemoteVoice, voxCpmVoicePrompt, type VoxCpmRemoteOptions } from './VoxCpmRemote';
 import { VoxLocalVoice, type VoxLocalDesign, type VoxLocalQuality } from './VoxLocalVoice';
+import type { VoxConversationStyle } from './VoxConversation';
 import { isIPhoneBrowser, shouldUseDeviceSpeech, type PlaybackEnvironment } from './IPhoneSpeechPolicy';
 import { speechWaitStageFromStatus, speechWaitView, type SpeechWaitEngine, type SpeechWaitStage } from './SpeechWaitStatus';
 import { downloadBlob } from '../compose/SongExport';
@@ -93,6 +94,7 @@ interface VoiceLabSettings extends VoiceSynthSettings {
   voxCpmSteps: number;
   voxLocalDescription: string;
   voxLocalQuality: VoxLocalQuality;
+  voxConversationStyle: VoxConversationStyle;
   iphoneCompatibleSpeech: boolean;
 }
 
@@ -268,6 +270,7 @@ export class VoiceMode {
       voxCpmSteps: 10,
       voxLocalDescription: '落ち着いた、柔らかくて自然な日本語の声',
       voxLocalQuality: 'balanced',
+      voxConversationStyle: 'natural',
       iphoneCompatibleSpeech: isIPhoneBrowser(this.playbackEnvironment),
       quality: 'hq',
       style: 'warm',
@@ -299,6 +302,8 @@ export class VoiceMode {
         voxCpmSteps: [6, 10, 16].includes(Number(parsed.voxCpmSteps)) ? Number(parsed.voxCpmSteps) : 10,
         voxLocalDescription: typeof parsed.voxLocalDescription === 'string' ? parsed.voxLocalDescription.slice(0, 240) : fallback.voxLocalDescription,
         voxLocalQuality: parsed.voxLocalQuality === 'fast' || parsed.voxLocalQuality === 'balanced' || parsed.voxLocalQuality === 'studio' ? parsed.voxLocalQuality : 'balanced',
+        voxConversationStyle: parsed.voxConversationStyle === 'off' || parsed.voxConversationStyle === 'relaxed' || parsed.voxConversationStyle === 'lively'
+          ? parsed.voxConversationStyle : 'natural',
         iphoneCompatibleSpeech: typeof parsed.iphoneCompatibleSpeech === 'boolean'
           ? parsed.iphoneCompatibleSpeech : fallback.iphoneCompatibleSpeech,
         quality: validQuality(parsed.quality) ? parsed.quality : fallback.quality,
@@ -407,6 +412,15 @@ export class VoiceMode {
                 <option value="studio">STUDIO · UPSAMPLED 48kHz</option>
               </select>
             </label>
+            <label>CONVERSATION RHYTHM · 会話らしさ
+              <select id="voice-voxlocal-conversation">
+                <option value="natural">自然な会話 · 意味に沿った間と速度</option>
+                <option value="relaxed">ゆったり会話 · やさしいテンポ</option>
+                <option value="lively">明るい会話 · 軽快なテンポ</option>
+                <option value="off">従来の読み上げ · 比較用</option>
+              </select>
+            </label>
+            <p>Sentence-aware pauses and subtle pacing without adding words or synthetic filler. Keeps Kokoro's Japanese voice and existing model-native phonemes. This is not a retrained conversational model.</p>
             <p>Natural language selects a pretrained voice plus speed, pitch, breath and spectral shaping. This is not VoxCPM2 or full zero-shot generative voice cloning. Per-mora contour editing remains available through Neural HQ.</p>
             <div class="voice-voxlocal-ab" role="group" aria-label="Compare the same neural voice before and after Vox Local processing">
               <button type="button" id="voice-voxlocal-ab-a">A · NEURAL HQ BASE</button>
@@ -927,6 +941,13 @@ export class VoiceMode {
       this.stop();
       this.required<HTMLElement>('#voice-voxlocal-ab-report').textContent = 'Voice description changed. Tap A/B to rebuild a matched comparison.';
     });
+    this.required<HTMLSelectElement>('#voice-voxlocal-conversation').addEventListener('change', (event) => {
+      const selected = (event.currentTarget as HTMLSelectElement).value;
+      if (selected !== 'off' && selected !== 'natural' && selected !== 'relaxed' && selected !== 'lively') return;
+      this.settings.voxConversationStyle = selected;
+      this.changed();
+      this.setStatus('VOX LOCAL · CONVERSATION RHYTHM · ' + selected.toUpperCase());
+    });
     this.required<HTMLSelectElement>('#voice-voxlocal-quality').addEventListener('change', (event) => {
       const quality = (event.target as HTMLSelectElement).value;
       if (quality !== 'fast' && quality !== 'balanced' && quality !== 'studio') return;
@@ -1088,6 +1109,7 @@ export class VoiceMode {
     this.required<HTMLElement>('#voice-voxcpm-config').hidden = this.settings.engine !== 'voxcpm2';
     this.required<HTMLElement>('#voice-voxlocal-config').hidden = this.settings.engine !== 'vox-local';
     this.required<HTMLInputElement>('#voice-voxlocal-description').value = this.settings.voxLocalDescription;
+    this.required<HTMLSelectElement>('#voice-voxlocal-conversation').value = this.settings.voxConversationStyle;
     this.required<HTMLSelectElement>('#voice-voxlocal-quality').value = this.settings.voxLocalQuality;
     this.required<HTMLInputElement>('#voice-voxcpm-endpoint').value = this.settings.voxCpmEndpoint;
     this.required<HTMLInputElement>('#voice-voxcpm-description').value = this.settings.voxCpmDescription;
@@ -1546,7 +1568,7 @@ export class VoiceMode {
         note.textContent += ' · GPU BETA IS BLOCKED ON THIS DEVICE TO PREVENT MEMORY CRASHES';
       }
     } else if (this.settings.engine === 'vox-local') {
-      note.textContent = 'VOX LOCAL · serverless inference · local Kokoro 82M q8 backbone + independent description-to-voice parameters, continuous PCM enhancement, and WAV export · STUDIO 48kHz is upsampled, not native model resolution';
+      note.textContent = 'VOX LOCAL · serverless Kokoro voice · iPhone q4 / desktop q8 · conversation-aware cadence + end-silence-aware pauses · without synthetic fillers · STUDIO 48kHz is upsampled, not native model resolution';
       this.setStatus('READY · VOX LOCAL · NO SERVER REQUIRED');
     } else if (this.settings.engine === 'voxcpm2') {
       note.textContent = 'VOXCPM2 · 2B · Japanese + 29 other languages · 48kHz WAV · remote inference · Voice Design; requires your own server. The browser does not host the model.';
@@ -2559,6 +2581,7 @@ export class VoiceMode {
     return {
       description: this.settings.voxLocalDescription,
       quality: this.settings.voxLocalQuality,
+      conversation: this.settings.voxConversationStyle,
       fallbackCharacter: this.settings.character,
       rate: this.settings.rate,
       pitch: this.settings.pitch,
