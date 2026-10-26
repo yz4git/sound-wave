@@ -274,7 +274,16 @@ export async function speakWithReusablePhonemes(
   voice: string,
   speed: number,
   onReuse?: (source: 'token-ids' | 'phonemes') => void,
+  useOfficialSpeakOnly = false,
 ): Promise<FastJapaneseSpeechResult> {
+  // Mobile Safari's cross-bundle callable tokenizer proxy does not always
+  // expose Function.prototype.call. Running our interception inside the
+  // library's Japanese G2P then fails with "u.call is not a function".
+  // Use the library's public speak() implementation unchanged on this path.
+  if (useOfficialSpeakOnly) {
+    const result = await client.speak(text, voice, speed);
+    return { ...result, reusedPhonemes: false, capturedPhonemes: false };
+  }
   const lowLevel = lowLevelKokoro(client);
   if (!lowLevel) {
     const result = await client.speak(text, voice, speed);
@@ -317,7 +326,9 @@ export async function speakWithReusablePhonemes(
   try {
     lowLevel.tokenizer = (phonemes, settings) => {
       if (typeof phonemes === 'string') captured = phonemes;
-      const tokens = tokenizer.call(lowLevel, phonemes, settings);
+      // Reflect.apply supports callable proxies which do not inherit
+      // Function.prototype.call (a real case in bundled runtime code).
+      const tokens = Reflect.apply(tokenizer, lowLevel, [phonemes, settings]);
       capturedIDs = tokens?.input_ids;
       return tokens;
     };
