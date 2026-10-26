@@ -3,6 +3,7 @@ import type { VoiceExpressionPreset, VoiceExpressionSettings } from './VoiceExpr
 import type { BrowserNeuralVoice, NeuralProsodyPlan } from './NeuralVoice';
 import type { NeuralVoicePlaybackOptions } from './NeuralVoice';
 import { analyzeVoxLocalAB, matchVoicePcmLevel, type VoxLocalABMetrics } from './VoxLocalCompare';
+import { planVoxConversation, VOX_CONVERSATION_VERSION, type VoxConversationStyle } from './VoxConversation';
 
 /**
  * Independent, on-device voice-design + acoustic reconstruction pipeline.
@@ -16,6 +17,7 @@ export type VoxLocalQuality = 'fast' | 'balanced' | 'studio';
 export interface VoxLocalDesign {
   description: string;
   quality: VoxLocalQuality;
+  conversation?: VoxConversationStyle;
   fallbackCharacter: VoiceCharacterPreset;
   rate: number;
   pitch: number;
@@ -263,7 +265,7 @@ export class VoxLocalVoice {
   ): Promise<{ audio: Float32Array; rate: number } | null> {
     const epoch = this.epoch;
     const profile = designVoxLocalVoice(design);
-    const key = JSON.stringify({ plan, profile, quality: design.quality, energy: design.energy, tone: design.tone });
+    const key = JSON.stringify({ version: VOX_CONVERSATION_VERSION, plan, profile, quality: design.quality, energy: design.energy, tone: design.tone, conversation: design.conversation ?? 'natural' });
     if (this.cached?.key === key) {
       onStatus('VOX LOCAL · INSTANT REPLAY CACHE');
       return { audio: this.cached.audio, rate: this.cached.rate };
@@ -276,6 +278,7 @@ export class VoxLocalVoice {
       tone: design.tone,
       expression: { preset: profile.voiceStyle, intensity: design.expression.intensity },
       backend: 'wasm',
+      conversationTiming: (design.conversation ?? 'natural') !== 'off',
       onStatus,
     };
     // Use the voice-design delivery in the neural acoustic stage as well
@@ -293,7 +296,11 @@ export class VoxLocalVoice {
             },
           })),
         };
-    const raw = await this.neural.renderPCM(designedPlan, options);
+    const voicedPlan = planVoxConversation(designedPlan, design.conversation ?? 'natural');
+    if (voicedPlan.segments.length > 1) {
+      onStatus('VOX LOCAL · NATURAL PHRASE CADENCE · PUNCTUATION-AWARE');
+    }
+    const raw = await this.neural.renderPCM(voicedPlan, options);
     if (epoch !== this.epoch || !raw) return null;
     onStatus('VOX LOCAL · RECONSTRUCTING VOICE');
     const adjusted = reconstructVoxLocalAudio(raw.audio, raw.sampleRate, profile, design.quality);
@@ -391,13 +398,13 @@ export class VoxLocalVoice {
 
   comparisonMetrics(plan: NeuralProsodyPlan, design: VoxLocalDesign): VoxLocalABMetrics | null {
     const profile = designVoxLocalVoice(design);
-    const key = JSON.stringify({ plan, profile, quality: design.quality, energy: design.energy, tone: design.tone });
+    const key = JSON.stringify({ version: VOX_CONVERSATION_VERSION, plan, profile, quality: design.quality, energy: design.energy, tone: design.tone, conversation: design.conversation ?? 'natural' });
     return this.cached?.key === key ? this.cached.metrics : null;
   }
 
   cachedWav(plan: NeuralProsodyPlan, design: VoxLocalDesign): Blob | null {
     const profile = designVoxLocalVoice(design);
-    const key = JSON.stringify({ plan, profile, quality: design.quality, energy: design.energy, tone: design.tone });
+    const key = JSON.stringify({ version: VOX_CONVERSATION_VERSION, plan, profile, quality: design.quality, energy: design.energy, tone: design.tone, conversation: design.conversation ?? 'natural' });
     if (!this.cached || this.cached.key !== key) return null;
     return encodeVoxLocalWav(this.cached.audio, this.cached.rate);
   }
