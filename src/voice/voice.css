@@ -1832,3 +1832,17 @@
 #voice-lab .voice-lexicon-item span { overflow-wrap: anywhere; min-width: 0; }
 #voice-lab .voice-lexicon-item button { flex: 0 0 auto; background: rgba(64,38,41,.9); }
 #voice-lab #voice-lexicon-preview { background: rgba(52,90,111,.25); border-radius: 6px; padding: 7px; overflow-wrap: anywhere; }
+
+
+#voice-lab .voice-signal-review { margin-top: 9px; padding: 9px; border-radius: 9px;
+  border: 1px solid rgba(122,188,224,.45); background: rgba(8,28,44,.82); min-width:0; }
+#voice-lab .voice-signal-review summary { cursor: pointer; font: 700 12px/1.4 system-ui,sans-serif; touch-action: manipulation; }
+#voice-lab .voice-signal-review p,
+#voice-lab .voice-signal-review small { display: block; font: 500 11px/1.5 system-ui,sans-serif; opacity:.92; margin:6px 0; }
+#voice-lab #voice-signal-warnings { display: grid; gap:6px; font:500 11px/1.4 system-ui,sans-serif; }
+#voice-lab #voice-signal-warnings button {
+  display: block; text-align: left; width:100%; min-height:38px;
+  padding:7px 9px; border-radius:6px; color:#fff4e9;
+  background:rgba(78,50,32,.8); border:1px solid rgba(217,174,114,.55);
+  font:500 11px/1.45 system-ui,sans-serif; touch-action:manipulation;
+}
