@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
-  addPronunciationEntry, applyPronunciationLexicon, lexiconFromStorage,
+  addPronunciationEntry, applyPronunciationLexicon, applyLexiconToNeuralPlan, lexiconFromStorage,
   normalizedPronunciationEntry, parsePronunciationLexicon, storePronunciationLexicon,
   VOICE_LEXICON_STORAGE_KEY,
 } from '../src/voice/VoicePronunciationLexicon';
@@ -65,5 +65,40 @@ describe('VoiceStudio-inspired Japanese TTS pronunciation dictionary', () => {
     expect(applyPronunciationLexicon(input, [])).toEqual({
       text:input, replacements:0, matchedWords:[],
     });
+  });
+});
+
+describe('model-safe pronunciation replacements', () => {
+  it('splits unusually expanded pronunciations and preserves trailing pause', () => {
+    const text = 'こんにちは。'.repeat(18);
+    const plan = {
+      edited: false,
+      segments: [{
+        text, startUnit: 0, endUnit: 0, rateScale: 1, energyScale: 1,
+        pitchSemitones: 0, pauseAfter: 0.22,
+        expression: { preset: 'neutral' as const, intensity: 1 },
+      }],
+    };
+    const original = JSON.stringify(plan);
+    const changed = applyLexiconToNeuralPlan(plan, [{
+      word: 'こんにちは', reading: 'ごあいさつはたいへんうれしいです',
+    }]);
+    expect(changed.segments.length).toBeGreaterThan(1);
+    expect(changed.segments.every(x=>Array.from(x.text).length<=112)).toBe(true);
+    expect(changed.segments.slice(0,-1).every(x=>x.pauseAfter===0)).toBe(true);
+    expect(changed.segments.at(-1)!.pauseAfter).toBe(0.22);
+    expect(JSON.stringify(plan)).toBe(original);
+    expect(changed.segments.map(x=>x.text).join('')).toContain('ごあいさつはたいへんうれしいです');
+  });
+  it('keeps original plan identity when nothing matches', () => {
+    const plan = {
+      edited: false,
+      segments: [{
+        text: 'おはよう。', startUnit: 0, endUnit: 0,
+        rateScale:1, energyScale:1, pitchSemitones:0,pauseAfter:0,
+        expression:{preset:'neutral' as const,intensity:1},
+      }],
+    };
+    expect(applyLexiconToNeuralPlan(plan,[{word:'神戸',reading:'こうべ'}])).toBe(plan);
   });
 });
