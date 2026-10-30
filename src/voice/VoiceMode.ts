@@ -2,6 +2,7 @@ import type { VocalStyle } from '../compose/VocalGenerator';
 import { VoxCpmRemoteVoice, voxCpmVoicePrompt, type VoxCpmRemoteOptions } from './VoxCpmRemote';
 import { VoxLocalVoice, type VoxLocalDesign, type VoxLocalQuality } from './VoxLocalVoice';
 import type { VoxConversationStyle } from './VoxConversation';
+import { auditCompareJapanese, parseHaasTranscript, validateHaasAuditEndpoint } from './HaasAudit';
 import { isIPhoneBrowser, shouldUseDeviceSpeech, type PlaybackEnvironment } from './IPhoneSpeechPolicy';
 import { speechWaitStageFromStatus, speechWaitView, type SpeechWaitEngine, type SpeechWaitStage } from './SpeechWaitStatus';
 import { downloadBlob } from '../compose/SongExport';
@@ -149,6 +150,7 @@ export class VoiceMode {
   private speechWaitStage: SpeechWaitStage = 'preparing';
   private voxLocalPreviewUrl: string | null = null;
   private audioProbeContext: AudioContext | null = null;
+  private haasAuditAbort: AbortController | null = null;
   private speechTrace: string[] = [];
   private lastSpeechError = '';
   private readonly playbackEnvironment: PlaybackEnvironment = {
@@ -427,6 +429,27 @@ export class VoiceMode {
               <button type="button" id="voice-voxlocal-ab-b">B · VOX LOCAL</button>
             </div>
             <p id="voice-voxlocal-ab-report" class="voice-voxlocal-report" aria-live="polite">A/B generates ONE identical underlying neural take. A = untouched neural audio; B = sound-designed, level-matched audio. Compare by ear; measured difference is NOT a quality score.</p>
+            <details id="voice-haas-audit" class="voice-haas-audit">
+              <summary>🔍 日本語の聞き取り・間をチェック（Haas-ASR参考）</summary>
+              <p>生成されたVOX LOCALの無音区間を端末内で診断。Haas-ASRのGPU認識結果を照合すると、漢字・かな表記差と文字誤りを確認できます。CERは読み取り精度の指標で、会話の自然さそのものを測る値ではありません。</p>
+              <p id="voice-haas-silence">音声をSPEAKで生成すると、間の診断を表示します。</p>
+              <label>認識された文章（Haasの結果を貼り付けても使えます）
+                <textarea id="voice-haas-transcript" rows="3" maxlength="1000" placeholder="Haas-ASRの文字起こし結果"></textarea>
+              </label>
+              <button type="button" id="voice-haas-compare">元の文章と照合</button>
+              <details class="voice-haas-remote">
+                <summary>Haas GPUサーバーで自動認識（任意）</summary>
+                <p>HaasはiPhone単体では実行できません。別途GPUサーバーにHTTPSのPOST /api/transcribeを用意した場合のみ利用可能です。ここで実行ボタンを押すと生成WAVが指定サーバーへ送信されます。</p>
+                <label>認識API URL
+                  <input type="url" id="voice-haas-endpoint" inputmode="url" maxlength="512" placeholder="https://your-gpu.example/api/transcribe" autocomplete="off" />
+                </label>
+                <label>APIトークン（画面上のみ・保存しません）
+                  <input type="password" id="voice-haas-token" maxlength="256" autocomplete="off" />
+                </label>
+                <button type="button" id="voice-haas-request">この音声を送信して認識</button>
+              </details>
+              <p id="voice-haas-report" role="status" aria-live="polite">診断は音声を変更しません。</p>
+            </details>
 
           </div>
           <div id="voice-voxcpm-config" class="voice-voxcpm-config" hidden>
@@ -947,6 +970,12 @@ export class VoiceMode {
       this.settings.voxConversationStyle = selected;
       this.changed();
       this.setStatus('VOX LOCAL · CONVERSATION RHYTHM · ' + selected.toUpperCase());
+    });
+    this.required<HTMLButtonElement>('#voice-haas-compare').addEventListener('click', () => {
+      this.compareHaasTranscript();
+    });
+    this.required<HTMLButtonElement>('#voice-haas-request').addEventListener('click', () => {
+      void this.requestHaasRecognition();
     });
     this.required<HTMLSelectElement>('#voice-voxlocal-quality').addEventListener('change', (event) => {
       const quality = (event.target as HTMLSelectElement).value;
@@ -2325,6 +2354,10 @@ export class VoiceMode {
   }
 
   private clearNativeVoxPreview(): void {
+    this.haasAuditAbort?.abort();
+    this.haasAuditAbort = null;
+    const silencePanel = this.root.querySelector<HTMLElement>('#voice-haas-silence');
+    if (silencePanel) silencePanel.textContent = '音声をSPEAKで生成すると、間の診断を表示します。';
     const audio = this.root.querySelector<HTMLAudioElement>('#voice-voxlocal-native-audio');
     if (audio) {
       audio.pause();
@@ -2347,6 +2380,82 @@ export class VoiceMode {
     this.voxLocalPreviewUrl = URL.createObjectURL(wav);
     audio.src = this.voxLocalPreviewUrl;
     this.required<HTMLElement>('#voice-voxlocal-native').hidden = false;
+    const stats = this.voxLocal.cachedSilenceReport(plan, design);
+    if (stats) {
+      this.required<HTMLElement>('#voice-haas-silence').textContent =
+        `音声 ${stats.durationSeconds.toFixed(1)}秒 · 無音 ${Math.round(stats.quietRatio * 100)}% · 0.42秒以上の静かな区間 ${stats.longGaps}か所（最大 ${stats.longestGapSeconds.toFixed(2)}秒）。参考値：音量で区間を判定し、正しい間かどうかまでは判断しません。`;
+    }
+  }
+
+  private compareHaasTranscript(): void {
+    const source = parseVoiceMarkup(this.required<HTMLTextAreaElement>('#voice-text').value.trim()).plainText;
+    const hypothesis = this.required<HTMLTextAreaElement>('#voice-haas-transcript').value.trim();
+    const result = this.required<HTMLElement>('#voice-haas-report');
+    if (!source || !hypothesis) {
+      result.textContent = '元の文章と、認識された文章の両方が必要です。';
+      return;
+    }
+    try {
+      const metric = auditCompareJapanese(source, hypothesis);
+      const strict = metric.strict, flex = metric.kanaFlexible;
+      result.textContent =
+        `簡易CER ${(strict.cer * 100).toFixed(1)}%（${strict.errors}/${strict.characters}文字）· かな表記ゆれ吸収 ${(flex.cer * 100).toFixed(1)}% · 置換${strict.substitutions} / 脱落${strict.deletions} / 余計な文字${strict.insertions}。これは文字列比較であり、Haas公式のjacerスコアや発話の自然さとは異なります。`;
+    } catch (error) {
+      result.textContent = error instanceof Error ? error.message : 'テキスト比較に失敗しました。';
+    }
+  }
+
+  private async requestHaasRecognition(): Promise<void> {
+    const result = this.required<HTMLElement>('#voice-haas-report');
+    if (this.settings.engine !== 'vox-local') { result.textContent = 'VOX LOCALを選んでください。'; return; }
+    const text = this.required<HTMLTextAreaElement>('#voice-text').value.trim();
+    if (!text) { result.textContent = '先に文章を入力してください。'; return; }
+    const markup = parseVoiceMarkup(text);
+    const plan = this.prepareNeuralPlan(markup, text);
+    const wav = this.voxLocal.cachedWav(plan, this.voxLocalDesign());
+    if (!wav) { result.textContent = 'SPEAKで音声を生成してから実行してください。'; return; }
+    if (wav.size > 10 * 1024 * 1024) { result.textContent = '音声が10MBを超えています。短い文章で試してください。'; return; }
+    let endpoint: URL;
+    try {
+      endpoint = validateHaasAuditEndpoint(this.required<HTMLInputElement>('#voice-haas-endpoint').value);
+    } catch (error) { result.textContent = error instanceof Error ? error.message : 'HTTPS URLが必要です。'; return; }
+    this.haasAuditAbort?.abort();
+    const controller = new AbortController();
+    this.haasAuditAbort = controller;
+    const button = this.required<HTMLButtonElement>('#voice-haas-request');
+    const timeout = window.setTimeout(() => controller.abort(), 60000);
+    button.disabled = true;
+    result.textContent = '明示的な操作により、生成した音声を指定サーバーへ送信しています…';
+    try {
+      const data = new FormData();
+      data.append('audio', wav, 'sound-wave-vox-local.wav');
+      const token = this.required<HTMLInputElement>('#voice-haas-token').value.trim();
+      const response = await fetch(endpoint.toString(), {
+        method: 'POST',
+        mode: 'cors',
+        credentials: 'omit',
+        cache: 'no-store',
+        ...(token ? { headers: { Authorization: `Bearer ${token}` } } : {}),
+        body: data,
+        signal: controller.signal,
+      });
+      if (!response.ok) throw new Error(`Haas認識サーバーがHTTP ${response.status}を返しました`);
+      if (Number(response.headers.get('content-length')) > 10000) throw new Error('認識応答が大きすぎます');
+      const raw = await response.text();
+      if (raw.length > 10000) throw new Error('認識応答が大きすぎます');
+      const recognized = parseHaasTranscript(JSON.parse(raw) as unknown);
+      if (controller.signal.aborted || !this.active) return;
+      this.required<HTMLTextAreaElement>('#voice-haas-transcript').value = recognized;
+      this.compareHaasTranscript();
+    } catch (error) {
+      if (controller.signal.aborted || !this.active) return;
+      const reason = error instanceof Error ? error.message : '接続または認識に失敗しました';
+      result.textContent = `${reason}。HTTPS・CORS・サーバー起動・認証を確認してください。音声は再生成されません。`;
+    } finally {
+      window.clearTimeout(timeout);
+      if (this.haasAuditAbort === controller) this.haasAuditAbort = null;
+      button.disabled = false;
+    }
   }
 
   private startSpeechWait(engine: SpeechWaitEngine): void {
