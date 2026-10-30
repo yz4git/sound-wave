@@ -1802,3 +1802,33 @@
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+
+/* Independent VoiceStudio-inspired, local-only Japanese reading dictionary. */
+#voice-lab .voice-lexicon {
+  padding: 10px 12px;
+  margin: 12px 0;
+  border-radius: 10px;
+  border: 1px solid rgba(148,207,240,.42);
+  background: rgba(14,29,47,.72);
+  min-width: 0;
+}
+#voice-lab .voice-lexicon summary { font: 750 13px/1.5 system-ui,sans-serif; touch-action: manipulation; cursor: pointer; }
+#voice-lab .voice-lexicon p { font: 500 11px/1.55 system-ui,sans-serif; opacity: .92; margin: 8px 0; }
+#voice-lab .voice-lexicon-add { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; margin: 10px 0; }
+#voice-lab .voice-lexicon-add label { min-width: 124px; flex: 1 1 130px; font: 500 11px/1.5 system-ui,sans-serif; }
+#voice-lab .voice-lexicon-add input {
+  display: block; box-sizing: border-box; padding: 8px 9px; width: 100%; margin-top: 4px;
+  min-height: 39px; font: 14px system-ui,sans-serif; border-radius: 7px;
+  border: 1px solid rgba(188,211,239,.45); background: rgba(4,11,24,.92); color: #eff8ff;
+}
+#voice-lab .voice-lexicon button {
+  border: 1px solid rgba(156,211,240,.58); border-radius: 7px;
+  background: rgba(27,76,100,.84); color: #f5fbff; padding: 8px 12px;
+  min-height: 39px; font: 700 12px system-ui,sans-serif; touch-action: manipulation;
+}
+#voice-lab .voice-lexicon-list { display: grid; gap: 6px; font: 12px/1.4 system-ui,sans-serif; }
+#voice-lab .voice-lexicon-item { display: flex; justify-content: space-between; gap: 9px; align-items: center; min-width: 0; padding: 5px 0; border-top: 1px solid rgba(170,205,225,.18); }
+#voice-lab .voice-lexicon-item span { overflow-wrap: anywhere; min-width: 0; }
+#voice-lab .voice-lexicon-item button { flex: 0 0 auto; background: rgba(64,38,41,.9); }
+#voice-lab #voice-lexicon-preview { background: rgba(52,90,111,.25); border-radius: 6px; padding: 7px; overflow-wrap: anywhere; }
