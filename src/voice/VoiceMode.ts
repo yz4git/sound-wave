@@ -925,9 +925,21 @@ export class VoiceMode {
       if (!button) return;
       const time = Number(button.dataset.voiceSignalSeek);
       const player = this.required<HTMLAudioElement>('#voice-voxlocal-native-audio');
-      if (!Number.isFinite(time) || !player.src || !Number.isFinite(player.duration)) return;
-      player.currentTime = Math.max(0, Math.min(player.duration, time));
-      void player.play().catch(() => this.setStatus('標準プレーヤーの再生ボタンを押してください'));
+      if (!Number.isFinite(time) || !player.src) return;
+      const seek = (): void => {
+        if (!Number.isFinite(player.duration)) {
+          this.setStatus('音声の読み込み後に、標準プレーヤーで確認してください');
+          return;
+        }
+        player.currentTime = Math.max(0, Math.min(player.duration, time));
+        void player.play().catch(() => this.setStatus('標準プレーヤーの再生ボタンを押してください'));
+      };
+      if (player.readyState >= HTMLMediaElement.HAVE_METADATA) seek();
+      else {
+        player.addEventListener('loadedmetadata', seek, { once: true });
+        player.preload = 'metadata';
+        player.load();
+      }
     });
     this.required<HTMLButtonElement>('#voice-device-fallback').addEventListener('click', (event) => {
       event.preventDefault();
