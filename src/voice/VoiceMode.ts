@@ -2,7 +2,7 @@ import type { VocalStyle } from '../compose/VocalGenerator';
 import { VoxCpmRemoteVoice, voxCpmVoicePrompt, type VoxCpmRemoteOptions } from './VoxCpmRemote';
 import { VoxLocalVoice, type VoxLocalDesign, type VoxLocalQuality } from './VoxLocalVoice';
 import type { VoxConversationStyle } from './VoxConversation';
-import { addPronunciationEntry, applyPronunciationLexicon, lexiconFromStorage,
+import { addPronunciationEntry, applyPronunciationLexicon, applyLexiconToNeuralPlan, lexiconFromStorage,
   storePronunciationLexicon, type VoicePronunciationEntry } from './VoicePronunciationLexicon';
 import { auditCompareJapanese, parseHaasTranscript, validateHaasAuditEndpoint } from './HaasAudit';
 import { isIPhoneBrowser, shouldUseDeviceSpeech, type PlaybackEnvironment } from './IPhoneSpeechPolicy';
@@ -2970,11 +2970,9 @@ export class VoiceMode {
     if (this.pronunciationLexicon.length === 0
       || (this.settings.engine !== 'vox-local' && this.settings.engine !== 'neural' && this.settings.engine !== 'neural-gpu')) return plan;
     // Keep VOICE LAB script, phoneme-editor indices and ASR reference intact.
-    // Cache keys include each transformed segment text, so takes cannot collide.
-    return { ...plan, segments: plan.segments.map((segment) => ({
-      ...segment,
-      text: applyPronunciationLexicon(segment.text, this.pronunciationLexicon).text,
-    })) };
+    // Cache keys include transformed text, and long expanded kana readings are
+    // split before Kokoro can silently truncate them.
+    return applyLexiconToNeuralPlan(plan, this.pronunciationLexicon);
   }
 
   private preloadNeuralModel(): void {
