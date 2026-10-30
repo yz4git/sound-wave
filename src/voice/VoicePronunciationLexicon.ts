@@ -5,6 +5,9 @@
  * Applies to text sent to Kokoro (not the original text/UI/ASR reference),
  * so transcription comparisons retain the words the author actually typed.
  */
+import type { NeuralProsodyPlan } from './NeuralVoice';
+import { splitLongNeuralText, NEURAL_MAX_UNEDITED_CHARS } from './NeuralLongText';
+
 export const VOICE_LEXICON_STORAGE_KEY = 'sound-wave-voice-pronunciation-v1';
 export const VOICE_LEXICON_LIMIT = 48;
 export interface VoicePronunciationEntry { word: string; reading: string }
@@ -102,4 +105,33 @@ export function lexiconFromStorage(storage: Pick<Storage, 'getItem'>): VoicePron
 
 export function storePronunciationLexicon(storage: Pick<Storage, 'setItem'>, data: readonly VoicePronunciationEntry[]): void {
   storage.setItem(VOICE_LEXICON_STORAGE_KEY, JSON.stringify(parsePronunciationLexicon(data)));
+}
+
+/**
+ * Transform only the Kokoro inference plan. VoiceStudio-inspired reading edits
+ * must not change the human-readable source text or the editor unit offsets.
+ * A longer kana pronunciation can expand a previously safe chunk beyond the
+ * model input limit, so split only those expanded segments at sentence/word
+ * boundaries. Preserve the original pause at the *last* subchunk.
+ */
+export function applyLexiconToNeuralPlan(
+  plan: NeuralProsodyPlan,
+  dictionary: readonly VoicePronunciationEntry[],
+): NeuralProsodyPlan {
+  if (!dictionary.length) return plan;
+  let changed = false;
+  const segments = plan.segments.flatMap((segment) => {
+    const converted = applyPronunciationLexicon(segment.text, dictionary);
+    if (!converted.replacements) return [segment];
+    changed = true;
+    const portions = Array.from(converted.text).length > NEURAL_MAX_UNEDITED_CHARS
+      ? splitLongNeuralText(converted.text)
+      : [converted.text];
+    return portions.map((text, index) => ({
+      ...segment,
+      text,
+      pauseAfter: index === portions.length - 1 ? segment.pauseAfter : 0,
+    }));
+  });
+  return changed ? { ...plan, segments } : plan;
 }
