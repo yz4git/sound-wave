@@ -23,7 +23,7 @@ Sound Waveの extras/haas_audit_server.py をGPUマシンに用意。**強いト
 
     export HAAS_API_TOKEN='20文字以上の長いランダムな秘密トークン'
     export HAAS_CORS_ORIGIN='https://yz4git.github.io'
-    uv run python /path/to/sound-wave/extras/haas_audit_server.py
+    uv run --with python-multipart python /path/to/sound-wave/extras/haas_audit_server.py
 
 認証・アクセス制御のあるHTTPSリバースプロキシを設定して https://your-gpu.example/api/transcribe を公開します。Sound WaveにURLとトークンを入力し、送信ボタンを押した場合に限り生成WAVを送信します。トークンは保存されません。
 
