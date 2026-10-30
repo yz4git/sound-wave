@@ -2,6 +2,8 @@ import type { VocalStyle } from '../compose/VocalGenerator';
 import { VoxCpmRemoteVoice, voxCpmVoicePrompt, type VoxCpmRemoteOptions } from './VoxCpmRemote';
 import { VoxLocalVoice, type VoxLocalDesign, type VoxLocalQuality } from './VoxLocalVoice';
 import type { VoxConversationStyle } from './VoxConversation';
+import { addPronunciationEntry, applyPronunciationLexicon, lexiconFromStorage,
+  storePronunciationLexicon, type VoicePronunciationEntry } from './VoicePronunciationLexicon';
 import { auditCompareJapanese, parseHaasTranscript, validateHaasAuditEndpoint } from './HaasAudit';
 import { isIPhoneBrowser, shouldUseDeviceSpeech, type PlaybackEnvironment } from './IPhoneSpeechPolicy';
 import { speechWaitStageFromStatus, speechWaitView, type SpeechWaitEngine, type SpeechWaitStage } from './SpeechWaitStatus';
@@ -143,6 +145,7 @@ export class VoiceMode {
   private readonly voxCpm = new VoxCpmRemoteVoice();
   private readonly voxLocal = new VoxLocalVoice(this.neural);
   private voxCpmToken = ''; // Kept in memory only; never saved to localStorage.
+  private pronunciationLexicon: VoicePronunciationEntry[] = [];
   private voxCpmPlaybackEpoch = 0;
   private speechWaitTimer = 0;
   private speechWaitStartedAt = 0;
@@ -223,10 +226,12 @@ export class VoiceMode {
     // child itself is scrollable.
     if (this.root.parentElement !== document.body) document.body.append(this.root);
     this.settings = this.loadSettings();
+    try { this.pronunciationLexicon = lexiconFromStorage(localStorage); } catch { /* Safari private mode */ }
     this.renderShell();
     this.bindEvents();
     this.syncControls();
     this.refreshPlan();
+    this.renderPronunciationLexicon();
   }
 
   get isActive(): boolean { return this.active; }
@@ -424,6 +429,17 @@ export class VoiceMode {
             </label>
             <p>Sentence-aware pauses and subtle pacing without adding words or synthetic filler. Keeps Kokoro's Japanese voice and existing model-native phonemes. This is not a retrained conversational model.</p>
             <p>Natural language selects a pretrained voice plus speed, pitch, breath and spectral shaping. This is not VoxCPM2 or full zero-shot generative voice cloning. Per-mora contour editing remains available through Neural HQ.</p>
+            <details class="voice-lexicon" id="voice-lexicon">
+              <summary>📖 日本語発音辞書 · 固有名詞の読みを修正</summary>
+              <p>登録した単語だけKokoroへ渡す読みを変えます。原文やVOICE LABの編集内容は変更しません。VOX LOCAL / NEURAL HQに対応。辞書はこのブラウザ内に保存します。</p>
+              <div class="voice-lexicon-add">
+                <label>元の単語 <input id="voice-lexicon-word" type="text" maxlength="40" placeholder="例：生成AI" autocomplete="off" /></label>
+                <label>発音（かな） <input id="voice-lexicon-reading" type="text" maxlength="80" placeholder="例：せいせいエーアイ" autocomplete="off" /></label>
+                <button id="voice-lexicon-add" type="button">読みを登録</button>
+              </div>
+              <div id="voice-lexicon-list" class="voice-lexicon-list" aria-live="polite"></div>
+              <p id="voice-lexicon-preview">登録した読みは音声生成時に反映されます。</p>
+            </details>
             <div class="voice-voxlocal-ab" role="group" aria-label="Compare the same neural voice before and after Vox Local processing">
               <button type="button" id="voice-voxlocal-ab-a">A · NEURAL HQ BASE</button>
               <button type="button" id="voice-voxlocal-ab-b">B · VOX LOCAL</button>
@@ -956,6 +972,33 @@ export class VoiceMode {
       }, { passive: false });
     }
 
+
+    this.required<HTMLButtonElement>('#voice-lexicon-add').addEventListener('click', () => {
+      const word = this.required<HTMLInputElement>('#voice-lexicon-word');
+      const reading = this.required<HTMLInputElement>('#voice-lexicon-reading');
+      try {
+        this.pronunciationLexicon = addPronunciationEntry(this.pronunciationLexicon, word.value, reading.value);
+        this.persistPronunciationLexicon();
+        word.value = ''; reading.value = '';
+        this.changed(false);
+        this.renderPronunciationLexicon();
+        this.setStatus('発音辞書を更新しました · 次のSPEAKから反映');
+      } catch (error) {
+        this.setStatus(error instanceof Error ? error.message : '発音辞書の登録に失敗しました');
+      }
+    });
+    this.required<HTMLElement>('#voice-lexicon-list').addEventListener('click', (event) => {
+      if (!(event.target instanceof HTMLElement)) return;
+      const button = event.target.closest<HTMLButtonElement>('[data-voice-lexicon-delete]');
+      if (!button) return;
+      const index = Number(button.dataset.voiceLexiconDelete);
+      if (!Number.isInteger(index) || index < 0 || index >= this.pronunciationLexicon.length) return;
+      this.pronunciationLexicon = this.pronunciationLexicon.filter((_, i) => i !== index);
+      this.persistPronunciationLexicon();
+      this.changed(false);
+      this.renderPronunciationLexicon();
+      this.setStatus('発音辞書から削除しました');
+    });
     const localDescription = this.required<HTMLInputElement>('#voice-voxlocal-description');
     localDescription.addEventListener('input', () => {
       this.settings.voxLocalDescription = localDescription.value.slice(0, 240);
@@ -2686,6 +2729,39 @@ export class VoiceMode {
     }
   }
 
+
+  private persistPronunciationLexicon(): void {
+    try { storePronunciationLexicon(localStorage, this.pronunciationLexicon); }
+    catch { this.setStatus('ブラウザ保存不可 · 発音辞書はこのセッションでのみ有効です'); }
+  }
+
+  private renderPronunciationLexicon(): void {
+    const list = this.required<HTMLElement>('#voice-lexicon-list');
+    list.replaceChildren();
+    if (!this.pronunciationLexicon.length) {
+      list.textContent = '未登録 · 読み間違える名前・用語だけ追加してください。';
+    }
+    this.pronunciationLexicon.forEach((item, index) => {
+      const row = document.createElement('div');
+      row.className = 'voice-lexicon-item';
+      const term = document.createElement('span');
+      term.textContent = `${item.word} → ${item.reading}`;
+      const remove = document.createElement('button');
+      remove.type = 'button';
+      remove.dataset.voiceLexiconDelete = String(index);
+      remove.setAttribute('aria-label', `${item.word} の登録を削除`);
+      remove.textContent = '削除';
+      row.append(term, remove);
+      list.append(row);
+    });
+    const raw = this.required<HTMLTextAreaElement>('#voice-text').value.trim();
+    const plain = parseVoiceMarkup(raw).plainText;
+    const changed = applyPronunciationLexicon(plain, this.pronunciationLexicon);
+    this.required<HTMLElement>('#voice-lexicon-preview').textContent = changed.replacements
+      ? `今回の文章で${changed.replacements}箇所を修正：${changed.matchedWords.join('、')} · モデルへの入力だけに適用`
+      : `登録${this.pronunciationLexicon.length}件 · この文章には適用箇所がありません`;
+  }
+
   private voxLocalDesign(): VoxLocalDesign {
     return {
       description: this.settings.voxLocalDescription,
@@ -2834,7 +2910,7 @@ export class VoiceMode {
     this.ensureProsodyEditLength(script.units.length);
     const edits = this.getProsodyEdits(script, resolved.localExpressions);
     const localPlan = this.synth.plan(script, this.settings, edits);
-    return buildNeuralProsodyPlan({
+    const plan = buildNeuralProsodyPlan({
       originalText: markup.plainText.trim(),
       script,
       timedUnits: localPlan.units,
@@ -2845,6 +2921,14 @@ export class VoiceMode {
       markupUsed: markup.markupUsed,
       globalExpression: this.settings.expression,
     });
+    if (this.pronunciationLexicon.length === 0
+      || (this.settings.engine !== 'vox-local' && this.settings.engine !== 'neural' && this.settings.engine !== 'neural-gpu')) return plan;
+    // Keep VOICE LAB script, phoneme-editor indices and ASR reference intact.
+    // Cache keys include each transformed segment text, so takes cannot collide.
+    return { ...plan, segments: plan.segments.map((segment) => ({
+      ...segment,
+      text: applyPronunciationLexicon(segment.text, this.pronunciationLexicon).text,
+    })) };
   }
 
   private preloadNeuralModel(): void {
