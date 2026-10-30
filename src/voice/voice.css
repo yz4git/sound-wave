@@ -1747,3 +1747,58 @@
   touch-action: manipulation;
   min-height: 36px;
 }
+
+
+/* Optional Haas-ASR intelligibility review. Kept off the main speech controls. */
+#voice-lab .voice-haas-audit {
+  margin-top: 14px;
+  border: 1px solid rgba(164,202,231,.42);
+  border-radius: 10px;
+  background: rgba(10,26,45,.65);
+  padding: 10px 12px;
+  min-width: 0;
+}
+#voice-lab .voice-haas-audit summary {
+  font: 700 13px/1.5 system-ui, sans-serif;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+#voice-lab .voice-haas-audit p,
+#voice-lab .voice-haas-audit label {
+  display: block;
+  font-size: 12px;
+  line-height: 1.55;
+  margin: 9px 0;
+}
+#voice-lab .voice-haas-audit textarea,
+#voice-lab .voice-haas-audit input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  margin-top: 5px;
+  padding: 9px;
+  box-sizing: border-box;
+  border: 1px solid rgba(184,206,228,.4);
+  border-radius: 8px;
+  color: #eff9ff;
+  background: rgba(4,12,23,.95);
+  font: 13px/1.45 system-ui, sans-serif;
+}
+#voice-lab .voice-haas-audit button {
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid rgba(145,213,244,.6);
+  background: rgba(29,75,104,.85);
+  color: white;
+  min-height: 41px;
+  touch-action: manipulation;
+}
+#voice-lab .voice-haas-audit button:disabled { opacity: .5; }
+#voice-lab .voice-haas-remote { margin: 12px 0; }
+#voice-lab #voice-haas-report, #voice-lab #voice-haas-silence {
+  padding: 8px;
+  border-radius: 6px;
+  background: rgba(23,54,79,.45);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
