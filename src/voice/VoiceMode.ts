@@ -384,6 +384,12 @@ export class VoiceMode {
           <strong>🔊 音声データ生成完了 · iPhone標準プレーヤー</strong>
           <p>自動再生で音が出ない場合、この再生ボタンをタップしてください。</p>
           <audio id="voice-voxlocal-native-audio" controls preload="none" playsinline></audio>
+          <details id="voice-signal-review" class="voice-signal-review">
+            <summary>🎧 音声品質チェック（クリップ・音量・長い無音）</summary>
+            <p id="voice-signal-overview">音声生成後に診断結果を表示します。</p>
+            <div id="voice-signal-warnings"></div>
+            <small>音量や無音の機械的検査であり、感情・発音・自然さの採点ではありません。音声は変更しません。</small>
+          </details>
         </div>
       </header>
 
@@ -600,6 +606,7 @@ export class VoiceMode {
       this.prosodyLoadedSignature = '';
       this.clearJapaneseAnalysis();
       this.refreshPlan();
+      this.renderPronunciationLexicon();
       void this.restoreCachedJapanese(text.value.trim());
     });
 
@@ -911,6 +918,17 @@ export class VoiceMode {
       event.preventDefault();
       this.testAudioOutput();
     }, { passive: false });
+    this.required<HTMLElement>('#voice-signal-warnings').addEventListener('click', (event) => {
+      const element = event.target;
+      if (!(element instanceof HTMLElement)) return;
+      const button = element.closest<HTMLButtonElement>('[data-voice-signal-seek]');
+      if (!button) return;
+      const time = Number(button.dataset.voiceSignalSeek);
+      const player = this.required<HTMLAudioElement>('#voice-voxlocal-native-audio');
+      if (!Number.isFinite(time) || !player.src || !Number.isFinite(player.duration)) return;
+      player.currentTime = Math.max(0, Math.min(player.duration, time));
+      void player.play().catch(() => this.setStatus('標準プレーヤーの再生ボタンを押してください'));
+    });
     this.required<HTMLButtonElement>('#voice-device-fallback').addEventListener('click', (event) => {
       event.preventDefault();
       this.playWithDeviceVoice();
@@ -2423,6 +2441,22 @@ export class VoiceMode {
     this.voxLocalPreviewUrl = URL.createObjectURL(wav);
     audio.src = this.voxLocalPreviewUrl;
     this.required<HTMLElement>('#voice-voxlocal-native').hidden = false;
+    const quality = this.voxLocal.cachedSignalReport(plan, design);
+    if (quality) {
+      this.required<HTMLElement>('#voice-signal-overview').textContent =
+        `長さ ${quality.durationSeconds.toFixed(1)}秒 · ピーク ${quality.peakDbfs.toFixed(1)}dBFS · 平均(RMS) ${quality.rmsDbfs.toFixed(1)}dBFS · 品質上の注意 ${quality.warnings.length}件`;
+      const warnings = this.required<HTMLElement>('#voice-signal-warnings');
+      warnings.replaceChildren();
+      if (!quality.warnings.length) warnings.textContent = '問題の兆候は検出されませんでした。聴感評価は別途必要です。';
+      for (const warning of quality.warnings) {
+        const seek = document.createElement('button');
+        seek.type = 'button';
+        seek.dataset.voiceSignalSeek = String(warning.timeSeconds);
+        seek.textContent = `${warning.timeSeconds.toFixed(2)}秒 · ${warning.message} ▶`;
+        seek.setAttribute('aria-label', `${warning.timeSeconds.toFixed(2)}秒から確認 · ${warning.message}`);
+        warnings.append(seek);
+      }
+    }
     const stats = this.voxLocal.cachedSilenceReport(plan, design);
     if (stats) {
       this.required<HTMLElement>('#voice-haas-silence').textContent =
