@@ -5,6 +5,7 @@ import type { NeuralVoicePlaybackOptions } from './NeuralVoice';
 import { analyzeVoxLocalAB, matchVoicePcmLevel, type VoxLocalABMetrics } from './VoxLocalCompare';
 import { planVoxConversation, VOX_CONVERSATION_VERSION, type VoxConversationStyle } from './VoxConversation';
 import { auditSpeechSilence, type SpeechSilenceReport } from './HaasAudit';
+import { inspectVoiceSignal, type VoiceSignalReport } from './VoiceSignalCheck';
 
 /**
  * Independent, on-device voice-design + acoustic reconstruction pipeline.
@@ -409,6 +410,13 @@ export class VoxLocalVoice {
     const key = JSON.stringify({ version: VOX_CONVERSATION_VERSION, plan, profile, quality: design.quality, energy: design.energy, tone: design.tone, conversation: design.conversation ?? 'natural' });
     if (!this.cached || this.cached.key !== key) return null;
     return auditSpeechSilence(this.cached.audio, this.cached.rate);
+  }
+
+  cachedSignalReport(plan: NeuralProsodyPlan, design: VoxLocalDesign): VoiceSignalReport | null {
+    const profile = designVoxLocalVoice(design);
+    const key = JSON.stringify({ version: VOX_CONVERSATION_VERSION, plan, profile, quality: design.quality, energy: design.energy, tone: design.tone, conversation: design.conversation ?? 'natural' });
+    if (!this.cached || this.cached.key !== key) return null;
+    return inspectVoiceSignal(this.cached.audio, this.cached.rate);
   }
 
   cachedWav(plan: NeuralProsodyPlan, design: VoxLocalDesign): Blob | null {
