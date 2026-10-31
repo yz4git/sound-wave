@@ -1846,3 +1846,37 @@
   background:rgba(78,50,32,.8); border:1px solid rgba(217,174,114,.55);
   font:500 11px/1.45 system-ui,sans-serif; touch-action:manipulation;
 }
+
+
+/* Native iPhone blind audio comparison: existing Kokoro, no upload. */
+#voice-lab .voice-blind-test {
+  margin: 12px 0; padding: 11px; border: 1px solid rgba(131,208,234,.50);
+  border-radius: 11px; background: rgba(10,34,49,.83); min-width: 0;
+}
+#voice-lab .voice-blind-test summary {
+  cursor: pointer; touch-action: manipulation; font: 700 13px/1.45 system-ui,sans-serif;
+}
+#voice-lab .voice-blind-test p {
+  font: 500 12px/1.55 system-ui,sans-serif; margin: 9px 0; overflow-wrap: anywhere;
+}
+#voice-lab .voice-blind-test button {
+  min-height: 42px; padding: 9px 12px; touch-action: manipulation;
+  color: #f5fcff; background: rgba(24,84,112,.85);
+  border: 1px solid rgba(162,217,241,.65); border-radius: 8px;
+  font: 700 12px/1.4 system-ui,sans-serif;
+}
+#voice-lab .voice-blind-test button:disabled { opacity: .6; }
+#voice-lab #voice-blind-players[hidden] { display: none !important; }
+#voice-lab #voice-blind-players { display: grid; gap: 10px; }
+#voice-lab #voice-blind-players label {
+  display: block; min-width: 0; font: 700 12px/1.6 system-ui,sans-serif;
+}
+#voice-lab #voice-blind-players audio {
+  display: block; margin: 5px 0; width: 100%; max-width: 100%; height: 45px;
+}
+#voice-lab .voice-blind-votes { display: flex; flex-wrap: wrap; gap: 8px; }
+#voice-lab .voice-blind-votes button { flex: 1 1 93px; }
+#voice-lab #voice-blind-status,
+#voice-lab #voice-blind-result {
+  background: rgba(21,60,82,.57); border-radius: 6px; padding: 7px 9px;
+}
