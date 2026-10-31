@@ -1,6 +1,7 @@
 import type { VocalStyle } from '../compose/VocalGenerator';
 import { VoxCpmRemoteVoice, voxCpmVoicePrompt, type VoxCpmRemoteOptions } from './VoxCpmRemote';
-import { VoxLocalVoice, type VoxLocalDesign, type VoxLocalQuality } from './VoxLocalVoice';
+import { VoxLocalVoice, encodeVoxLocalWav, type VoxLocalDesign, type VoxLocalQuality } from './VoxLocalVoice';
+import { randomBlindOrder, matchBlindConversationTakes, describeBlindVote, type BlindTakeOrder } from './VoxBlindAB';
 import type { VoxConversationStyle } from './VoxConversation';
 import { addPronunciationEntry, applyPronunciationLexicon, applyLexiconToNeuralPlan, lexiconFromStorage,
   storePronunciationLexicon, type VoicePronunciationEntry } from './VoicePronunciationLexicon';
@@ -152,6 +153,9 @@ export class VoiceMode {
   private speechWaitEngine: SpeechWaitEngine = 'vox-local';
   private speechWaitStage: SpeechWaitStage = 'preparing';
   private voxLocalPreviewUrl: string | null = null;
+  private blindUrls: string[] = [];
+  private blindOrder: BlindTakeOrder | null = null;
+  private blindEpoch = 0;
   private audioProbeContext: AudioContext | null = null;
   private haasAuditAbort: AbortController | null = null;
   private speechTrace: string[] = [];
@@ -451,6 +455,22 @@ export class VoiceMode {
               <button type="button" id="voice-voxlocal-ab-b">B · VOX LOCAL</button>
             </div>
             <p id="voice-voxlocal-ab-report" class="voice-voxlocal-report" aria-live="polite">A/B generates ONE identical underlying neural take. A = untouched neural audio; B = sound-designed, level-matched audio. Compare by ear; measured difference is NOT a quality score.</p>
+            <details id="voice-blind-test" class="voice-blind-test">
+              <summary>🎧 会話の自然さをブラインドA/B比較</summary>
+              <p>同じ文章・話者・声質で「従来版」と「文脈＋つなぎ目改善版」を作成し、音量をそろえてA/Bへランダムに配置します。回答後まで中身は表示しません。iPhoneでは短い文章（120文字以内）がおすすめです。</p>
+              <button type="button" id="voice-blind-generate">A/B音声を作成</button>
+              <p id="voice-blind-status" role="status" aria-live="polite">未作成</p>
+              <div id="voice-blind-players" hidden>
+                <label>音声 A <audio id="voice-blind-a" controls preload="none" playsinline></audio></label>
+                <label>音声 B <audio id="voice-blind-b" controls preload="none" playsinline></audio></label>
+                <div class="voice-blind-votes" role="group" aria-label="自然だと感じた音声を選ぶ">
+                  <button type="button" data-voice-blind-vote="a">Aが自然</button>
+                  <button type="button" data-voice-blind-vote="b">Bが自然</button>
+                  <button type="button" data-voice-blind-vote="tie">同じくらい</button>
+                </div>
+                <p id="voice-blind-result" aria-live="polite">どちらが改善版かは回答後に表示されます。</p>
+              </div>
+            </details>
             <details id="voice-haas-audit" class="voice-haas-audit">
               <summary>🔍 日本語の聞き取り・間をチェック（Haas-ASR参考）</summary>
               <p>生成されたVOX LOCALの無音区間を端末内で診断。Haas-ASRのGPU認識結果を照合すると、漢字・かな表記差と文字誤りを確認できます。CERは読み取り精度の指標で、会話の自然さそのものを測る値ではありません。</p>
@@ -1029,6 +1049,25 @@ export class VoiceMode {
       this.renderPronunciationLexicon();
       this.setStatus('発音辞書から削除しました');
     });
+    this.required<HTMLButtonElement>('#voice-blind-generate').addEventListener('click', () => {
+      void this.generateBlindConversationTest();
+    });
+    for (const side of ['a', 'b'] as const) {
+      this.required<HTMLAudioElement>(`#voice-blind-${side}`).addEventListener('play', () => {
+        const other = side === 'a' ? 'b' : 'a';
+        this.required<HTMLAudioElement>(`#voice-blind-${other}`).pause();
+        this.root.querySelector<HTMLAudioElement>('#voice-voxlocal-native-audio')?.pause();
+        this.voxLocal.stop();
+      });
+    }
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-voice-blind-vote]')) {
+      button.addEventListener('click', () => {
+        const vote = button.dataset.voiceBlindVote;
+        if (this.blindOrder && (vote === 'a' || vote === 'b' || vote === 'tie')) {
+          this.required<HTMLElement>('#voice-blind-result').textContent = describeBlindVote(this.blindOrder, vote);
+        }
+      });
+    }
     const localDescription = this.required<HTMLInputElement>('#voice-voxlocal-description');
     localDescription.addEventListener('input', () => {
       this.settings.voxLocalDescription = localDescription.value.slice(0, 240);
@@ -2634,6 +2673,7 @@ export class VoiceMode {
     this.neural.stop();
     this.voxCpm.stop();
     this.voxLocal.stop();
+    this.clearBlindComparison();
     this.voxCpmPlaybackEpoch++;
     this.systemSpeechGeneration += 1;
     if ('speechSynthesis' in window &&
