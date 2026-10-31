@@ -69,7 +69,8 @@ export function planVoxConversation(
       ...segment,
       rateScale: bound(
         segment.rateScale * pacingFactor(segment, index, plan.segments.length, style) * (cue?.rate ?? 1),
-        0.64, 1.55,
+        plan.edited ? 0.64 : 0.945,
+        plan.edited ? 1.55 : 1.08,
       ),
       energyScale: bound(segment.energyScale * (cue?.energy ?? 1), 0.58, 1.5),
       pitchSemitones: bound(segment.pitchSemitones + (cue?.pitchSemitones ?? 0), -0.65, 0.65),
