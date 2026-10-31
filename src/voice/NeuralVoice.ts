@@ -4,6 +4,7 @@ import { NeuralInferenceSingleFlight } from './NeuralInferenceSingleFlight';
 import { NeuralChunkPlayer, type NeuralStreamingChunk } from './NeuralChunkPlayer';
 import { splitLongNeuralText } from './NeuralLongText';
 import { effectiveConversationPause } from './VoxConversation';
+import { cleanNeuralJoinEdges } from './VoxSeamlessJoin';
 import {
   NeuralPhonemeCache,
   speakWithReusablePhonemes,
@@ -253,7 +254,8 @@ export function neuralPlaybackCacheKey(
   options: NeuralVoicePlaybackOptions,
 ): string {
   return JSON.stringify([
-    'kokoro-neural-pcm-v1',
+    'kokoro-neural-pcm-v3',
+    Boolean(options.conversationTiming),
     KOKORO_JP_CDN,
     options.backend === 'webgpu'
       ? ['webgpu', 'fp32', KOKORO_GPU_MODEL_ID]
@@ -1035,8 +1037,12 @@ export class BrowserNeuralVoice {
         if (!reusedPending) generatedNew = true;
       }
       const expressionControl = voiceExpressionControl(segment.expression);
+      const resampled = resampleForPitch(rendered.audio, pitchFactor);
+      const joined = options.conversationTiming && plan.segments.length > 1
+        ? cleanNeuralJoinEdges(resampled, rendered.sampleRate, index, plan.segments.length).audio
+        : resampled;
       const chunk: NeuralStreamingChunk = {
-        audio: resampleForPitch(rendered.audio, pitchFactor),
+        audio: joined,
         sampleRate: rendered.sampleRate,
         gain: clamp(
           options.energy
@@ -1046,7 +1052,7 @@ export class BrowserNeuralVoice {
           1.18,
         ),
         pauseAfter: options.conversationTiming
-          ? effectiveConversationPause(segment.pauseAfter, rendered.audio, rendered.sampleRate)
+          ? effectiveConversationPause(segment.pauseAfter, joined, rendered.sampleRate)
           : segment.pauseAfter,
       };
       if (onChunk) {
