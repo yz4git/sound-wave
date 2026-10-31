@@ -1,4 +1,5 @@
 import type { NeuralProsodyPlan, NeuralProsodySegment } from './NeuralVoice';
+import { dialogueCueMultiplier } from './VoxDialogueDirector';
 
 /**
  * A lightweight conversation-oriented rhythm layer, not a learned prosody
@@ -9,7 +10,7 @@ import type { NeuralProsodyPlan, NeuralProsodySegment } from './NeuralVoice';
  * invented fillers, or removed punctuation.
  */
 export type VoxConversationStyle = 'off' | 'natural' | 'relaxed' | 'lively';
-export const VOX_CONVERSATION_VERSION = 'natural-conversation-v1';
+export const VOX_CONVERSATION_VERSION = 'dialogue-directed-join-v2';
 
 const bound = (x: number, lo: number, hi: number): number =>
   Math.max(lo, Math.min(hi, Number.isFinite(x) ? x : 1));
@@ -61,12 +62,17 @@ export function planVoxConversation(
       segment.pauseAfter,
       conversationBoundaryPause(segment.text, style),
     );
+    // Explicit VOICE LAB phrasing/intonation overrides always take priority.
+    // The model already controls utterance prosody; keep semantic hints tiny.
+    const cue = plan.edited ? null : dialogueCueMultiplier(segment.text);
     return {
       ...segment,
       rateScale: bound(
-        segment.rateScale * pacingFactor(segment, index, plan.segments.length, style),
+        segment.rateScale * pacingFactor(segment, index, plan.segments.length, style) * (cue?.rate ?? 1),
         0.64, 1.55,
       ),
+      energyScale: bound(segment.energyScale * (cue?.energy ?? 1), 0.58, 1.5),
+      pitchSemitones: bound(segment.pitchSemitones + (cue?.pitchSemitones ?? 0), -0.65, 0.65),
       pauseAfter: pause,
     };
   });
