@@ -2858,7 +2858,7 @@ export class VoiceMode {
       if (epoch !== this.blindEpoch || !this.active) return;
       const plan = this.prepareNeuralPlan(parseVoiceMarkup(rawText), rawText);
       const design = this.voxLocalDesign();
-      const style = design.conversation === 'off' ? 'natural' : design.conversation;
+      const style = !design.conversation || design.conversation === 'off' ? 'natural' : design.conversation;
       // ONNX inference MUST remain serial on iPhone. Voice/design/content
       // are identical; only the conversational processing differs.
       const old = await this.voxLocal.synthesize(
