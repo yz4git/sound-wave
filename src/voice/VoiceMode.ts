@@ -2816,6 +2816,94 @@ export class VoiceMode {
   }
 
 
+  /** Free browser Blob URLs and cancel stale comparisons whenever settings change. */
+  private clearBlindComparison(): void {
+    this.blindEpoch++;
+    this.blindOrder = null;
+    for (const side of ['a', 'b'] as const) {
+      const player = this.root.querySelector<HTMLAudioElement>(`#voice-blind-${side}`);
+      if (!player) continue;
+      player.pause();
+      player.removeAttribute('src');
+      player.load();
+    }
+    for (const url of this.blindUrls) URL.revokeObjectURL(url);
+    this.blindUrls = [];
+    const panel = this.root.querySelector<HTMLElement>('#voice-blind-players');
+    if (panel) panel.hidden = true;
+    const status = this.root.querySelector<HTMLElement>('#voice-blind-status');
+    if (status) status.textContent = '文章や設定が変わりました。新しいA/B音声を作成してください。';
+    const button = this.root.querySelector<HTMLButtonElement>('#voice-blind-generate');
+    if (button) button.disabled = false;
+  }
+
+  private async generateBlindConversationTest(): Promise<void> {
+    if (this.settings.engine !== 'vox-local') return;
+    const rawText = this.required<HTMLTextAreaElement>('#voice-text').value.trim();
+    const plain = parseVoiceMarkup(rawText).plainText.trim();
+    const status = this.required<HTMLElement>('#voice-blind-status');
+    if (!plain) { status.textContent = '比較する文章を入力してください。'; return; }
+    if (Array.from(plain).length > 120) {
+      status.textContent = 'iPhoneの負荷を抑えるため、120文字以内の文章にしてください。';
+      return;
+    }
+    this.stop();
+    const epoch = this.blindEpoch;
+    const button = this.required<HTMLButtonElement>('#voice-blind-generate');
+    button.disabled = true;
+    status.textContent = '2種類の音声を準備中…（初回はモデルの読み込みが必要です）';
+    try {
+      // Safari must paint the busy state before expensive WASM inference.
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve())));
+      if (epoch !== this.blindEpoch || !this.active) return;
+      const plan = this.prepareNeuralPlan(parseVoiceMarkup(rawText), rawText);
+      const design = this.voxLocalDesign();
+      const style = design.conversation === 'off' ? 'natural' : design.conversation;
+      // ONNX inference MUST remain serial on iPhone. Voice/design/content
+      // are identical; only the conversational processing differs.
+      const old = await this.voxLocal.synthesize(
+        plan, { ...design, conversation: 'off' },
+        (message) => { if (epoch === this.blindEpoch) status.textContent = '1/2 生成中 · ' + message; },
+      );
+      if (epoch !== this.blindEpoch || !this.active || !old) return;
+      const improved = await this.voxLocal.synthesize(
+        plan, { ...design, conversation: style },
+        (message) => { if (epoch === this.blindEpoch) status.textContent = '2/2 生成中 · ' + message; },
+      );
+      if (epoch !== this.blindEpoch || !this.active || !improved) return;
+      if (!old.audio.length || !improved.audio.length
+          || old.audio.length > 3_000_000 || improved.audio.length > 3_000_000
+          || old.rate !== improved.rate) {
+        throw new Error('音声が長すぎるか、2種類の音声フォーマットが一致しません');
+      }
+      const matched = matchBlindConversationTakes(old.audio, improved.audio);
+      const originalUrl = URL.createObjectURL(encodeVoxLocalWav(matched.original, old.rate));
+      const directedUrl = URL.createObjectURL(encodeVoxLocalWav(matched.directed, improved.rate));
+      if (epoch !== this.blindEpoch || !this.active) {
+        URL.revokeObjectURL(originalUrl); URL.revokeObjectURL(directedUrl);
+        return;
+      }
+      this.blindUrls = [originalUrl, directedUrl];
+      this.blindOrder = randomBlindOrder();
+      for (const side of ['a', 'b'] as const) {
+        const kind = this.blindOrder[side];
+        this.required<HTMLAudioElement>(`#voice-blind-${side}`).src =
+          kind === 'original' ? originalUrl : directedUrl;
+      }
+      this.required<HTMLElement>('#voice-blind-players').hidden = false;
+      this.required<HTMLElement>('#voice-blind-result').textContent =
+        'AとBを聴いてから選択してください。どちらが改善版かは回答後に表示します。';
+      status.textContent =
+        `準備完了 · 同じ声・文章 · 音量差 ${matched.levelDifferenceDb.toFixed(1)}dB · A/Bを聴き比べてください。`;
+    } catch (error) {
+      if (epoch === this.blindEpoch) {
+        status.textContent = error instanceof Error ? error.message : 'A/B音声の生成に失敗しました。';
+      }
+    } finally {
+      if (epoch === this.blindEpoch) button.disabled = false;
+    }
+  }
+
   private persistPronunciationLexicon(): void {
     try { storePronunciationLexicon(localStorage, this.pronunciationLexicon); }
     catch { this.setStatus('ブラウザ保存不可 · 発音辞書はこのセッションでのみ有効です'); }
