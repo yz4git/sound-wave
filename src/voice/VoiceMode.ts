@@ -1494,7 +1494,7 @@ export class VoiceMode {
     let timer = 0;
     try {
       status.textContent = '音声を読み込んでいます（元データを変更しません）…';
-      await new Promise<void>((resolve) => window.requestAnimationFrame(resolve));
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
       if (job !== this.reuseJob || !this.active) return;
       context = new AudioContext();
       const decoded = await context.decodeAudioData(await file.arrayBuffer());
@@ -1507,7 +1507,7 @@ export class VoiceMode {
       for (let channel = 0; channel < decoded.numberOfChannels; channel++) {
         const samples = decoded.getChannelData(channel);
         const scale = 1 / decoded.numberOfChannels;
-        for (let i = 0; i < frames; i++) mono[i] += (samples[i] ?? 0) * scale;
+        for (let i = 0; i < frames; i++) mono[i] = (mono[i] ?? 0) + (samples[i] ?? 0) * scale;
       }
       const original = sampleRate === decoded.sampleRate
         ? mono : resampleVoiceReference(mono, decoded.sampleRate, sampleRate);
@@ -1567,7 +1567,7 @@ export class VoiceMode {
         const channelData = new Float32Array(enhanced.length);
         for (let c=0;c<enhanced.numberOfChannels;c++) {
           const samples=enhanced.getChannelData(c);
-          for (let i=0;i<enhanced.length;i++)channelData[i]+=(samples[i]??0)/enhanced.numberOfChannels;
+          for (let i=0;i<enhanced.length;i++)channelData[i]=(channelData[i]??0)+(samples[i]??0)/enhanced.numberOfChannels;
         }
         output=outputRate===enhanced.sampleRate
           ? channelData : resampleVoiceReference(channelData,enhanced.sampleRate,outputRate);
