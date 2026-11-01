@@ -1436,6 +1436,177 @@ export class VoiceMode {
     this.refreshPlan();
   }
 
+  private clearReuseEnhanced(): void {
+    this.reuseAbort?.abort();
+    this.reuseAbort = null;
+    this.reuseJob++;
+    for (const side of ['original', 'enhanced'] as const) {
+      const player = this.root.querySelector<HTMLAudioElement>(`#voice-reuse-${side}`);
+      if (player) {
+        player.pause();
+        player.removeAttribute('src');
+        player.load();
+      }
+    }
+    for (const url of this.reuseUrls) URL.revokeObjectURL(url);
+    this.reuseUrls = [];
+    this.reuseOriginal = null;
+    this.reuseEnhanced = null;
+    const result = this.root.querySelector<HTMLElement>('#voice-reuse-result');
+    if (result) result.hidden = true;
+    const button = this.root.querySelector<HTMLButtonElement>('#voice-reuse-process');
+    if (button) button.disabled = false;
+  }
+
+  private clearReuseWorkspace(): void {
+    this.clearReuseEnhanced();
+    // Uploaded audio never persists in browser storage.
+  }
+
+  private async processReuseReference(): Promise<void> {
+    const input = this.required<HTMLInputElement>('#voice-reuse-file');
+    const file = input.files?.[0];
+    const status = this.required<HTMLElement>('#voice-reuse-status');
+    if (!file) { status.textContent = '修復する音声ファイルを選択してください。'; return; }
+    if (file.size > 12 * 1024 * 1024) {
+      status.textContent = 'iPhoneのメモリ保護のため、ファイルは12MBまでです。';
+      return;
+    }
+    const remote = this.required<HTMLSelectElement>('#voice-reuse-mode').value === 'gpu';
+    let endpoint: URL | null = null;
+    if (remote) {
+      try {
+        endpoint = reuseEndpoint(this.required<HTMLInputElement>('#voice-reuse-endpoint').value);
+      } catch (e) {
+        status.textContent = e instanceof Error ? e.message : 'HTTPSの送信先を指定してください。';
+        return;
+      }
+      if (!this.required<HTMLInputElement>('#voice-reuse-token').value.trim()) {
+        status.textContent = 'GPUサーバーのAPIトークンを入力してください。';
+        return;
+      }
+    }
+    this.clearReuseEnhanced();
+    const job = this.reuseJob;
+    const button = this.required<HTMLButtonElement>('#voice-reuse-process');
+    button.disabled = true;
+    let context: AudioContext | null = null;
+    let timer = 0;
+    try {
+      status.textContent = '音声を読み込んでいます（元データを変更しません）…';
+      await new Promise<void>((resolve) => window.requestAnimationFrame(resolve));
+      if (job !== this.reuseJob || !this.active) return;
+      context = new AudioContext();
+      const decoded = await context.decodeAudioData(await file.arrayBuffer());
+      if (decoded.duration < 0.2 || decoded.duration > 20.0) {
+        throw new Error('音声の長さは0.2〜20秒にしてください');
+      }
+      const sampleRate = decoded.sampleRate > 48000 ? 48000 : decoded.sampleRate;
+      const frames = decoded.length;
+      const mono = new Float32Array(frames);
+      for (let channel = 0; channel < decoded.numberOfChannels; channel++) {
+        const samples = decoded.getChannelData(channel);
+        const scale = 1 / decoded.numberOfChannels;
+        for (let i = 0; i < frames; i++) mono[i] += (samples[i] ?? 0) * scale;
+      }
+      const original = sampleRate === decoded.sampleRate
+        ? mono : resampleVoiceReference(mono, decoded.sampleRate, sampleRate);
+      if (job !== this.reuseJob || !this.active) return;
+      let output: Float32Array;
+      let outputRate = sampleRate;
+      let summary: string;
+      if (remote && endpoint) {
+        const controller = new AbortController();
+        this.reuseAbort = controller;
+        timer = window.setTimeout(() => controller.abort(), 180_000);
+        status.textContent = '指定したGPUサーバーへWAVを送信し、RE-USEで修復しています…';
+        const token = this.required<HTMLInputElement>('#voice-reuse-token').value.trim();
+        const data = new FormData();
+        data.append('audio', encodeVoxLocalWav(original, sampleRate), 'sound-wave-reference.wav');
+        const response = await fetch(endpoint.toString(), {
+          method: 'POST', mode: 'cors', credentials: 'omit', cache: 'no-store',
+          headers: { Authorization: `Bearer ${token}` }, body: data, signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`GPUサーバーからHTTP ${response.status}が返されました`);
+        const contentType = response.headers.get('content-type') ?? '';
+        if (!/^(audio\/(wav|x-wav|wave)|application\/octet-stream)/i.test(contentType)) {
+          throw new Error('GPUサーバーはWAV音声を返してください');
+        }
+        const maxBytes = 12 * 1024 * 1024;
+        if (Number(response.headers.get('content-length')) > maxBytes) {
+          throw new Error('GPUサーバーの出力音声が12MBを超えています');
+        }
+        const reader = response.body?.getReader();
+        let bytes: ArrayBuffer;
+        if (reader) {
+          const parts: Uint8Array[] = [];
+          let total = 0;
+          while (true) {
+            const piece = await reader.read();
+            if (piece.done) break;
+            total += piece.value.byteLength;
+            if (total > maxBytes) {
+              await reader.cancel();
+              throw new Error('GPUサーバーの応答が12MBを超えました');
+            }
+            parts.push(piece.value);
+          }
+          const joined = new Uint8Array(total);
+          let offset = 0;
+          for (const part of parts) { joined.set(part, offset); offset += part.length; }
+          bytes = joined.buffer;
+        } else {
+          bytes = await response.arrayBuffer();
+          if (bytes.byteLength > maxBytes) throw new Error('GPUサーバーの応答が12MBを超えました');
+        }
+        const enhanced = await context.decodeAudioData(bytes);
+        if (enhanced.duration < .15 || enhanced.duration > 21 || enhanced.sampleRate < 8000) {
+          throw new Error('GPUサーバーのWAVが無効です');
+        }
+        outputRate = enhanced.sampleRate > 48000 ? 48000 : enhanced.sampleRate;
+        const channelData = new Float32Array(enhanced.length);
+        for (let c=0;c<enhanced.numberOfChannels;c++) {
+          const samples=enhanced.getChannelData(c);
+          for (let i=0;i<enhanced.length;i++)channelData[i]+=(samples[i]??0)/enhanced.numberOfChannels;
+        }
+        output=outputRate===enhanced.sampleRate
+          ? channelData : resampleVoiceReference(channelData,enhanced.sampleRate,outputRate);
+        summary = '指定GPUサーバーが返した修復WAVを読み込みました。原音と比較してください。';
+      } else {
+        status.textContent = '端末内で静かな部分を検出中…';
+        const processed = repairReferenceQuietFloor(original, sampleRate);
+        output = processed.audio;
+        summary = processed.report.mode === 'unchanged'
+          ? '原音を分析しましたが、安全に補正できる静かなノイズ区間が少ないため、無加工で保持しました。'
+          : `静かな部分の${Math.round(processed.report.attenuatedFraction * 100)}%を緩やかに抑制。発声中の音は原則変更していません（RE-USEニューラルモデルとは別の軽補正）。`;
+      }
+      if (job !== this.reuseJob || !this.active) return;
+      if (!output.length || output.some(x => !Number.isFinite(x))) {
+        throw new Error('修復された音声に不正なサンプルが含まれています');
+      }
+      this.reuseOriginal = { audio: original, sampleRate };
+      this.reuseEnhanced = { audio: output, sampleRate: outputRate };
+      const originalUrl = URL.createObjectURL(encodeVoxLocalWav(original,sampleRate));
+      const enhancedUrl = URL.createObjectURL(encodeVoxLocalWav(output,outputRate));
+      this.reuseUrls = [originalUrl,enhancedUrl];
+      this.required<HTMLAudioElement>('#voice-reuse-original').src = originalUrl;
+      this.required<HTMLAudioElement>('#voice-reuse-enhanced').src = enhancedUrl;
+      this.required<HTMLElement>('#voice-reuse-result').hidden = false;
+      status.textContent = summary;
+    } catch (error) {
+      if (job !== this.reuseJob) return;
+      const message = error instanceof Error ? error.message : '音声の修復に失敗しました';
+      status.textContent = `${message}。元の音声ファイルは変更されていません。`;
+    } finally {
+      if (timer) window.clearTimeout(timer);
+      if (context) void context.close();
+      if (job === this.reuseJob) {
+        button.disabled = false;
+        this.reuseAbort = null;
+      }
+    }
+  }
+
   private async loadVoiceImprint(file: File): Promise<void> {
     const loadButton = this.required<HTMLButtonElement>('#voice-imprint-load');
     if (file.size > 48 * 1024 * 1024) {
