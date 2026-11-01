@@ -162,6 +162,7 @@ export class VoiceMode {
   private reuseAbort: AbortController | null = null;
   private reuseJob = 0;
   private reuseUrls: string[] = [];
+  private reuseSelectedGenerated: Blob | null = null;
   private reuseOriginal: { audio: Float32Array; sampleRate: number } | null = null;
   private reuseEnhanced: { audio: Float32Array; sampleRate: number } | null = null;
   private speechTrace: string[] = [];
@@ -268,6 +269,9 @@ export class VoiceMode {
   deactivate(): void {
     this.active = false;
     this.clearReuseWorkspace();
+    this.reuseSelectedGenerated = null;
+    const reuseInput = this.root.querySelector<HTMLInputElement>('#voice-reuse-file');
+    if (reuseInput) reuseInput.value = '';
     this.clearNativeVoxPreview();
     this.stop();
     this.synth.suspend();
@@ -429,6 +433,7 @@ export class VoiceMode {
             <label>取り込む音声（20秒まで）
               <input type="file" id="voice-reuse-file" accept="audio/*,.wav,.m4a,.mp3" />
             </label>
+            <button type="button" id="voice-reuse-from-vox">生成済みVOX LOCAL音声を取り込む</button>
             <div class="voice-reuse-mode">
               <label>処理方法
                 <select id="voice-reuse-mode">
@@ -1035,11 +1040,31 @@ export class VoiceMode {
         gpu ? 'GPUサーバーに音声を送る前に送信先とトークンを確認してください。' : 'iPhone内で軽い補正を行います。';
     });
     this.required<HTMLInputElement>('#voice-reuse-file').addEventListener('change', () => {
+      this.reuseSelectedGenerated = null;
       this.clearReuseWorkspace();
       this.required<HTMLElement>('#voice-reuse-status').textContent =
         this.required<HTMLInputElement>('#voice-reuse-file').files?.[0]
           ? '音声ファイルを選択しました。「修復する」で開始します。'
           : '音声ファイルを選択してください。';
+    });
+    this.required<HTMLButtonElement>('#voice-reuse-from-vox').addEventListener('click', () => {
+      if (this.settings.engine !== 'vox-local') {
+        this.required<HTMLElement>('#voice-reuse-status').textContent = '先にVOX LOCALを選んでSPEAKしてください。';
+        return;
+      }
+      const input = this.required<HTMLTextAreaElement>('#voice-text').value.trim();
+      const plan = this.prepareNeuralPlan(parseVoiceMarkup(input), input);
+      const wav = this.voxLocal.cachedWav(plan, this.voxLocalDesign());
+      if (!wav) {
+        this.required<HTMLElement>('#voice-reuse-status').textContent =
+          '一致する生成済みWAVがありません。VOX LOCALでSPEAKしてから選択してください。';
+        return;
+      }
+      this.clearReuseWorkspace();
+      this.reuseSelectedGenerated = wav;
+      this.required<HTMLInputElement>('#voice-reuse-file').value = '';
+      this.required<HTMLElement>('#voice-reuse-status').textContent =
+        '直前に生成したVOX LOCAL音声を選択しました。清潔な合成音声は通常補正不要です。「修復する」で比較できます。';
     });
     this.required<HTMLButtonElement>('#voice-reuse-process').addEventListener('click', () => {
       void this.processReuseReference();
@@ -1465,7 +1490,7 @@ export class VoiceMode {
 
   private async processReuseReference(): Promise<void> {
     const input = this.required<HTMLInputElement>('#voice-reuse-file');
-    const file = input.files?.[0];
+    const file = this.reuseSelectedGenerated ?? input.files?.[0];
     const status = this.required<HTMLElement>('#voice-reuse-status');
     if (!file) { status.textContent = '修復する音声ファイルを選択してください。'; return; }
     if (file.size > 12 * 1024 * 1024) {
