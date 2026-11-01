@@ -6,6 +6,7 @@ import type { VoxConversationStyle } from './VoxConversation';
 import { addPronunciationEntry, applyPronunciationLexicon, applyLexiconToNeuralPlan, lexiconFromStorage,
   storePronunciationLexicon, type VoicePronunciationEntry } from './VoicePronunciationLexicon';
 import { auditCompareJapanese, parseHaasTranscript, validateHaasAuditEndpoint } from './HaasAudit';
+import { repairReferenceQuietFloor, reuseEndpoint } from './NemotronReuseRepair';
 import { isIPhoneBrowser, shouldUseDeviceSpeech, type PlaybackEnvironment } from './IPhoneSpeechPolicy';
 import { speechWaitStageFromStatus, speechWaitView, type SpeechWaitEngine, type SpeechWaitStage } from './SpeechWaitStatus';
 import { downloadBlob } from '../compose/SongExport';
@@ -158,6 +159,11 @@ export class VoiceMode {
   private blindEpoch = 0;
   private audioProbeContext: AudioContext | null = null;
   private haasAuditAbort: AbortController | null = null;
+  private reuseAbort: AbortController | null = null;
+  private reuseJob = 0;
+  private reuseUrls: string[] = [];
+  private reuseOriginal: { audio: Float32Array; sampleRate: number } | null = null;
+  private reuseEnhanced: { audio: Float32Array; sampleRate: number } | null = null;
   private speechTrace: string[] = [];
   private lastSpeechError = '';
   private readonly playbackEnvironment: PlaybackEnvironment = {
@@ -261,6 +267,7 @@ export class VoiceMode {
 
   deactivate(): void {
     this.active = false;
+    this.clearReuseWorkspace();
     this.clearNativeVoxPreview();
     this.stop();
     this.synth.suspend();
@@ -416,6 +423,41 @@ export class VoiceMode {
             <button type="button" data-voice-engine="vox-local">VOX LOCAL · NO SERVER</button>
             <button type="button" data-voice-engine="voxcpm2">VOXCPM2 · SERVER</button>
           </div>
+          <details id="voice-reuse-workspace" class="voice-reuse-workspace">
+            <summary>🎚️ RE-USE参考 · 録音音声の修復と原音A/B</summary>
+            <p>NVIDIA NemotronLabs RE-USEは録音のノイズ・残響・圧縮劣化を修復するAIです。端末内の「軽補正」は独自の静音部分のみのノイズ抑制で、RE-USEモデルそのものではありません。きれいな音声は変更せず保持します。</p>
+            <label>取り込む音声（20秒まで）
+              <input type="file" id="voice-reuse-file" accept="audio/*,.wav,.m4a,.mp3" />
+            </label>
+            <div class="voice-reuse-mode">
+              <label>処理方法
+                <select id="voice-reuse-mode">
+                  <option value="local">iPhone内 · 原音を守る軽補正</option>
+                  <option value="gpu">本物のRE-USE · 自分のGPUサーバー</option>
+                </select>
+              </label>
+            </div>
+            <div id="voice-reuse-gpu-config" hidden>
+              <p>RE-USE本体はLinux/NVIDIA GPUで実行。指定URLへのWAV送信は「修復する」を押した時だけ行います。トークンとURLはブラウザ保存しません。会話・笑い声を残したい場合はRE-USE-laughterをサーバー側で選択してください。</p>
+              <label>HTTPS処理API URL
+                <input type="url" id="voice-reuse-endpoint" maxlength="512" inputmode="url" autocomplete="off" placeholder="https://your-gpu.example/api/enhance" />
+              </label>
+              <label>APIトークン（保存しません）
+                <input type="password" id="voice-reuse-token" maxlength="256" autocomplete="off" />
+              </label>
+            </div>
+            <button type="button" id="voice-reuse-process">取り込んだ音声を修復する</button>
+            <p id="voice-reuse-status" role="status" aria-live="polite">音声ファイルを選択してください。自動アップロードは行いません。</p>
+            <div id="voice-reuse-result" hidden>
+              <label>原音 <audio id="voice-reuse-original" controls playsinline preload="none"></audio></label>
+              <label>修復版 <audio id="voice-reuse-enhanced" controls playsinline preload="none"></audio></label>
+              <div class="voice-reuse-actions">
+                <button type="button" id="voice-reuse-export">修復版WAVを保存</button>
+                <button type="button" id="voice-reuse-imprint">修復版をVOICE IMPRINTへ</button>
+              </div>
+              <p>音声を削除・変更するのはこのワークスペース内の処理結果のみです。通常のSPEAK、Kokoro、VOX LOCALの生成音には自動適用しません。</p>
+            </div>
+          </details>
           <div id="voice-voxlocal-config" class="voice-voxcpm-config" hidden>
             <strong>VOX LOCAL · ON-DEVICE VOICE DESIGN</strong>
             <p>Independent Sound Wave voice designer + neural acoustic reconstruction. Uses the existing lightweight Kokoro model locally, not VoxCPM2 weights. No Python, server URL or account needed. First use downloads model assets.</p>
@@ -985,6 +1027,43 @@ export class VoiceMode {
       void this.exportWav();
     }, { passive: false });
 
+    this.required<HTMLSelectElement>('#voice-reuse-mode').addEventListener('change', () => {
+      const gpu = this.required<HTMLSelectElement>('#voice-reuse-mode').value === 'gpu';
+      this.required<HTMLElement>('#voice-reuse-gpu-config').hidden = !gpu;
+      this.clearReuseEnhanced();
+      this.required<HTMLElement>('#voice-reuse-status').textContent =
+        gpu ? 'GPUサーバーに音声を送る前に送信先とトークンを確認してください。' : 'iPhone内で軽い補正を行います。';
+    });
+    this.required<HTMLInputElement>('#voice-reuse-file').addEventListener('change', () => {
+      this.clearReuseWorkspace();
+      this.required<HTMLElement>('#voice-reuse-status').textContent =
+        this.required<HTMLInputElement>('#voice-reuse-file').files?.[0]
+          ? '音声ファイルを選択しました。「修復する」で開始します。'
+          : '音声ファイルを選択してください。';
+    });
+    this.required<HTMLButtonElement>('#voice-reuse-process').addEventListener('click', () => {
+      void this.processReuseReference();
+    });
+    for (const side of ['original', 'enhanced'] as const) {
+      this.required<HTMLAudioElement>(`#voice-reuse-${side}`).addEventListener('play', () => {
+        this.required<HTMLAudioElement>(`#voice-reuse-${side === 'original' ? 'enhanced' : 'original'}`).pause();
+      });
+    }
+    this.required<HTMLButtonElement>('#voice-reuse-export').addEventListener('click', () => {
+      if (!this.reuseEnhanced) return;
+      const item=this.reuseEnhanced;
+      downloadBlob(encodeVoxLocalWav(item.audio,item.sampleRate),'sound-wave-repaired-reference.wav');
+    });
+    this.required<HTMLButtonElement>('#voice-reuse-imprint').addEventListener('click', () => {
+      if (!this.reuseEnhanced) return;
+      if (this.settings.engine !== 'local') {
+        this.required<HTMLElement>('#voice-reuse-status').textContent = 'VOICE IMPRINTに使用するには SOUND WAVE DSP を選択してください。';
+        return;
+      }
+      const item=this.reuseEnhanced;
+      const wav=encodeVoxLocalWav(item.audio,item.sampleRate);
+      void this.loadVoiceImprint(new File([wav], 'repaired-reference.wav', {type:'audio/wav'}));
+    });
     const imprintFile = this.required<HTMLInputElement>('#voice-imprint-file');
     this.required<HTMLButtonElement>('#voice-imprint-load').addEventListener('pointerdown', (event) => {
       event.preventDefault();
