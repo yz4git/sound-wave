@@ -6,6 +6,7 @@ import type { VoxConversationStyle } from './VoxConversation';
 import { addPronunciationEntry, applyPronunciationLexicon, applyLexiconToNeuralPlan, lexiconFromStorage,
   storePronunciationLexicon, type VoicePronunciationEntry } from './VoicePronunciationLexicon';
 import { auditCompareJapanese, parseHaasTranscript, validateHaasAuditEndpoint } from './HaasAudit';
+import { generateMingJapanese, type MingTtsVariant } from './MingTtsReference';
 import { repairReferenceQuietFloor, reuseEndpoint } from './NemotronReuseRepair';
 import { isIPhoneBrowser, shouldUseDeviceSpeech, type PlaybackEnvironment } from './IPhoneSpeechPolicy';
 import { speechWaitStageFromStatus, speechWaitView, type SpeechWaitEngine, type SpeechWaitStage } from './SpeechWaitStatus';
@@ -159,6 +160,11 @@ export class VoiceMode {
   private blindEpoch = 0;
   private audioProbeContext: AudioContext | null = null;
   private haasAuditAbort: AbortController | null = null;
+  private mingAbort: AbortController | null = null;
+  private mingTimeout = 0;
+  private mingEpoch = 0;
+  private mingUrls: string[] = [];
+  private mingWav: Blob | null = null;
   private reuseAbort: AbortController | null = null;
   private reuseJob = 0;
   private reuseUrls: string[] = [];
@@ -268,6 +274,11 @@ export class VoiceMode {
 
   deactivate(): void {
     this.active = false;
+    this.clearMingPreview();
+    const mingReference = this.root.querySelector<HTMLInputElement>('#voice-ming-reference');
+    if (mingReference) mingReference.value = '';
+    const mingToken = this.root.querySelector<HTMLInputElement>('#voice-ming-token');
+    if (mingToken) mingToken.value = '';
     this.clearReuseWorkspace();
     this.reuseSelectedGenerated = null;
     const reuseInput = this.root.querySelector<HTMLInputElement>('#voice-reuse-file');
@@ -461,6 +472,39 @@ export class VoiceMode {
                 <button type="button" id="voice-reuse-imprint">修復版をVOICE IMPRINTへ</button>
               </div>
               <p>音声を削除・変更するのはこのワークスペース内の処理結果のみです。通常のSPEAK、Kokoro、VOX LOCALの生成音には自動適用しません。</p>
+            </div>
+          </details>
+          <details id="voice-ming-workspace" class="voice-ming-workspace">
+            <summary>🎙️ Ming-3.0 日本語TTS · GPU比較</summary>
+            <p>Ant Group inclusionAIの公開モデルを、自分で管理するGPUサーバーで実行するための比較機能です。iPhoneへのモデルダウンロードはありません。日本語はMULTILINGUALタスクを使い、参照WAVとその書き起こしが必須です。声の説明・笑い声タグなど別タスクの機能は同時に適用しません。</p>
+            <label>GPUモデル
+              <select id="voice-ming-variant">
+                <option value="0.5b">0.5B · 日本語音声生成</option>
+                <option value="tiny">tiny · 7.9B MoE / 1.3B active</option>
+              </select>
+            </label>
+            <label>参照音声WAV（本人の同意・利用権限のある声のみ）
+              <input id="voice-ming-reference" type="file" accept=".wav,audio/wav,audio/x-wav" />
+            </label>
+            <label>参照音声で実際に話している文章
+              <textarea id="voice-ming-prompt-text" rows="2" maxlength="420" placeholder="参照WAVの内容を正確に書き起こしてください"></textarea>
+            </label>
+            <label>HTTPS GPUサーバーURL
+              <input id="voice-ming-endpoint" type="url" inputmode="url" maxlength="512" autocomplete="off" placeholder="https://your-gpu.example" />
+            </label>
+            <label>GPUサーバーAPIトークン（保存されません）
+              <input id="voice-ming-token" type="password" maxlength="256" autocomplete="off" />
+            </label>
+            <label class="voice-ming-consent"><input id="voice-ming-consent" type="checkbox" /> 参照音声の使用権限があり、指定したGPUサーバーへの音声送信に同意します</label>
+            <button type="button" id="voice-ming-generate">現在の文章をMing-3.0で生成</button>
+            <p id="voice-ming-status" role="status" aria-live="polite">サーバーを設定すると日本語TTSを比較できます。現在のKokoroは変更されません。</p>
+            <div id="voice-ming-result" hidden>
+              <label>Ming-3.0 TTS <audio id="voice-ming-play" controls preload="none" playsinline></audio></label>
+              <label id="voice-ming-kokoro-row" hidden>VOX LOCAL（同じ文章・別の声質）
+                <audio id="voice-ming-kokoro" controls preload="none" playsinline></audio>
+              </label>
+              <button type="button" id="voice-ming-export">生成されたMing WAVを保存</button>
+              <p>二つのモデルは話者が異なる場合があります。聴き比べは参考で、客観的な自然さの採点ではありません。</p>
             </div>
           </details>
           <div id="voice-voxlocal-config" class="voice-voxcpm-config" hidden>
@@ -664,6 +708,7 @@ export class VoiceMode {
     const text = this.required<HTMLTextAreaElement>('#voice-text');
     text.addEventListener('input', () => {
       this.clearNativeVoxPreview();
+      this.clearMingPreview();
       if (this.settings.engine === 'vox-local') {
         this.stop();
         this.required<HTMLElement>('#voice-voxlocal-ab-report').textContent =
@@ -1089,6 +1134,22 @@ export class VoiceMode {
       const wav=encodeVoxLocalWav(item.audio,item.sampleRate);
       void this.loadVoiceImprint(new File([wav], 'repaired-reference.wav', {type:'audio/wav'}));
     });
+    this.required<HTMLButtonElement>('#voice-ming-generate').addEventListener('click', () => {
+      void this.generateMingReference();
+    });
+    this.required<HTMLButtonElement>('#voice-ming-export').addEventListener('click', () => {
+      if (this.mingWav) downloadBlob(this.mingWav, 'sound-wave-ming3-japanese.wav');
+    });
+    for (const selector of ['#voice-ming-variant', '#voice-ming-reference', '#voice-ming-prompt-text',
+      '#voice-ming-endpoint', '#voice-ming-token', '#voice-ming-consent']) {
+      this.required<HTMLElement>(selector).addEventListener('change', () => this.clearMingPreview());
+    }
+    for (const side of ['#voice-ming-play','#voice-ming-kokoro'] as const) {
+      this.required<HTMLAudioElement>(side).addEventListener('play', () => {
+        const other=side==='#voice-ming-play'?'#voice-ming-kokoro':'#voice-ming-play';
+        this.required<HTMLAudioElement>(other).pause();
+      });
+    }
     const imprintFile = this.required<HTMLInputElement>('#voice-imprint-file');
     this.required<HTMLButtonElement>('#voice-imprint-load').addEventListener('pointerdown', (event) => {
       event.preventDefault();
@@ -2948,6 +3009,7 @@ export class VoiceMode {
     this.neural.stop();
     this.voxCpm.stop();
     this.voxLocal.stop();
+    this.clearMingPreview();
     this.clearBlindComparison();
     this.voxCpmPlaybackEpoch++;
     this.systemSpeechGeneration += 1;
