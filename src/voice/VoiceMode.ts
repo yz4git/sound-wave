@@ -1522,6 +1522,100 @@ export class VoiceMode {
     this.refreshPlan();
   }
 
+  private clearMingPreview(): void {
+    this.mingEpoch++;
+    this.mingAbort?.abort();
+    this.mingAbort = null;
+    if (this.mingTimeout) window.clearTimeout(this.mingTimeout);
+    this.mingTimeout = 0;
+    this.mingWav = null;
+    for (const selector of ['#voice-ming-play','#voice-ming-kokoro'] as const) {
+      const player = this.root.querySelector<HTMLAudioElement>(selector);
+      if (player) {
+        player.pause();
+        player.removeAttribute('src');
+        player.load();
+      }
+    }
+    for (const url of this.mingUrls) URL.revokeObjectURL(url);
+    this.mingUrls = [];
+    const container = this.root.querySelector<HTMLElement>('#voice-ming-result');
+    if (container) container.hidden = true;
+    const button = this.root.querySelector<HTMLButtonElement>('#voice-ming-generate');
+    if (button) button.disabled = false;
+  }
+
+  private async generateMingReference(): Promise<void> {
+    const status = this.required<HTMLElement>('#voice-ming-status');
+    const text = parseVoiceMarkup(this.required<HTMLTextAreaElement>('#voice-text').value.trim()).plainText.trim();
+    const reference = this.required<HTMLInputElement>('#voice-ming-reference').files?.[0];
+    const permission = this.required<HTMLInputElement>('#voice-ming-consent').checked;
+    if (!permission) {
+      status.textContent = '参照音声の使用権限と、指定GPUへの送信同意が必要です。';
+      return;
+    }
+    if (!reference) {
+      status.textContent = '参照音声WAVを選択してください。日本語は参照音声が必要です。';
+      return;
+    }
+    const variant = this.required<HTMLSelectElement>('#voice-ming-variant').value as MingTtsVariant;
+    const promptText = this.required<HTMLTextAreaElement>('#voice-ming-prompt-text').value.trim();
+    const endpoint = this.required<HTMLInputElement>('#voice-ming-endpoint').value.trim();
+    const token = this.required<HTMLInputElement>('#voice-ming-token').value;
+    // Do not use the app's SPEAK handler or change the preferred engine.
+    // The real Ming model is used only by this explicit experiment.
+    this.clearMingPreview();
+    const epoch = this.mingEpoch;
+    const button = this.required<HTMLButtonElement>('#voice-ming-generate');
+    button.disabled = true;
+    const controller = new AbortController();
+    this.mingAbort = controller;
+    this.mingTimeout = window.setTimeout(() => controller.abort(), 180000);
+    try {
+      status.textContent = '日本語音声をGPUサーバーに要求する準備中…';
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
+      if (epoch !== this.mingEpoch || !this.active) return;
+      const wav = await generateMingJapanese(
+        { endpoint, token, variant, text, promptText, promptWav: reference },
+        controller.signal,
+        (message) => {
+          if (epoch === this.mingEpoch && this.active) status.textContent = message;
+        },
+      );
+      if (epoch !== this.mingEpoch || !this.active) return;
+      const url = URL.createObjectURL(wav);
+      this.mingUrls.push(url);
+      this.mingWav = wav;
+      this.required<HTMLAudioElement>('#voice-ming-play').src = url;
+      const compare = this.required<HTMLElement>('#voice-ming-kokoro-row');
+      compare.hidden = true;
+      if (this.settings.engine === 'vox-local') {
+        const rawText = this.required<HTMLTextAreaElement>('#voice-text').value.trim();
+        const plan = this.prepareNeuralPlan(parseVoiceMarkup(rawText), rawText);
+        const old = this.voxLocal.cachedWav(plan, this.voxLocalDesign());
+        if (old) {
+          const compareUrl = URL.createObjectURL(old);
+          this.mingUrls.push(compareUrl);
+          this.required<HTMLAudioElement>('#voice-ming-kokoro').src = compareUrl;
+          compare.hidden = false;
+        }
+      }
+      this.required<HTMLElement>('#voice-ming-result').hidden = false;
+      status.textContent = compare.hidden
+        ? 'Mingの日本語WAVが完成しました。VOX LOCALとの比較には、同じ文章をVOX LOCALでSPEAKしてからMingを再生成してください。'
+        : 'MingとVOX LOCALの同一文章を比較できます。話者や声質が違うため、発音・滑らかさを聴き分けてください。';
+    } catch (error) {
+      if (epoch !== this.mingEpoch || !this.active) return;
+      const message = error instanceof Error ? error.message : 'Mingの音声生成に失敗しました';
+      status.textContent = `${message} · HTTPS、CORS、参照音声のWAV形式、GPUサーバーの起動と認証を確認してください。`;
+    } finally {
+      if (this.mingTimeout) window.clearTimeout(this.mingTimeout);
+      this.mingTimeout = 0;
+      if (this.mingAbort === controller) this.mingAbort = null;
+      if (epoch === this.mingEpoch) button.disabled = false;
+    }
+  }
+
   private clearReuseEnhanced(): void {
     this.reuseAbort?.abort();
     this.reuseAbort = null;
