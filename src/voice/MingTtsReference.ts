@@ -96,5 +96,7 @@ export async function generateMingJapanese(
   }
   if (signal.aborted) throw new Error('比較処理が中断されました');
   if (!isMingWav(bytes)) throw new Error('GPUから正しいWAVが返されませんでした');
-  return new Blob([bytes], { type: 'audio/wav' });
+  const safeBuffer = new ArrayBuffer(bytes.byteLength);
+  new Uint8Array(safeBuffer).set(bytes);
+  return new Blob([safeBuffer], { type: 'audio/wav' });
 }
