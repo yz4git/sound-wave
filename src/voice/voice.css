@@ -1967,3 +1967,60 @@
 #voice-lab #voice-ming-status {
   padding:8px 9px; background:rgba(30,70,92,.65); border-radius:7px; overflow-wrap:anywhere;
 }
+
+
+/* VibeVoice-informed local multi-speaker dialogue workstation. */
+#voice-lab .voice-vibe-dialogue {
+  min-width:0; margin:12px 0; padding:10px 12px;
+  border:1px solid rgba(119,190,230,.55);
+  border-radius:11px; background:rgba(9,30,50,.82);
+}
+#voice-lab .voice-vibe-dialogue summary {
+  cursor:pointer; touch-action:manipulation;
+  font:700 13px/1.5 system-ui,sans-serif;
+}
+#voice-lab .voice-vibe-dialogue p,
+#voice-lab .voice-vibe-dialogue small {
+  display:block; margin:8px 0;
+  font:500 12px/1.55 system-ui,sans-serif;
+  overflow-wrap:anywhere;
+}
+#voice-lab .voice-vibe-dialogue label {
+  min-width:0; display:block; font:600 12px/1.5 system-ui,sans-serif;
+}
+#voice-lab .voice-vibe-dialogue textarea,
+#voice-lab .voice-vibe-dialogue select {
+  display:block; box-sizing:border-box; width:100%; min-width:0;
+  margin:5px 0 8px; border:1px solid rgba(155,210,238,.52);
+  border-radius:8px; padding:9px 10px;
+  background:rgba(4,13,27,.92); color:#f7fbff;
+  font:14px/1.55 system-ui,sans-serif;
+}
+#voice-lab .voice-vibe-dialogue textarea {resize:vertical; min-height:120px;}
+#voice-lab .voice-vibe-speakers {
+  display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px;
+}
+#voice-lab .voice-vibe-actions {display:flex; flex-wrap:wrap; gap:8px; margin:8px 0;}
+#voice-lab .voice-vibe-dialogue button {
+  min-height:43px; border-radius:8px; padding:9px 11px;
+  border:1px solid rgba(140,213,239,.63);
+  background:rgba(24,83,110,.87); color:#f2fcff;
+  font:700 12px/1.5 system-ui,sans-serif; touch-action:manipulation;
+}
+#voice-lab .voice-vibe-actions button {flex:1 1 130px;}
+#voice-lab .voice-vibe-dialogue button:disabled {opacity:.5;}
+#voice-lab #voice-vibe-result[hidden] {display:none !important;}
+#voice-lab #voice-vibe-result audio {
+  width:100%; max-width:100%; display:block; height:46px; margin:8px 0;
+}
+#voice-lab #voice-vibe-status {
+  background:rgba(22,66,88,.65); border-radius:7px;
+  padding:8px 10px;
+}
+#voice-lab .voice-vibe-timeline {display:grid;gap:6px;}
+#voice-lab .voice-vibe-timeline button {
+  width:100%; text-align:left; overflow-wrap:anywhere; background:rgba(34,65,85,.95);
+}
+@media (max-width:390px) {
+  #voice-lab .voice-vibe-speakers {grid-template-columns:minmax(0,1fr);}
+}
