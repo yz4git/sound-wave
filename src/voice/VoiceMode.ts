@@ -7,6 +7,9 @@ import { addPronunciationEntry, applyPronunciationLexicon, applyLexiconToNeuralP
   storePronunciationLexicon, type VoicePronunciationEntry } from './VoicePronunciationLexicon';
 import { auditCompareJapanese, parseHaasTranscript, validateHaasAuditEndpoint } from './HaasAudit';
 import { generateMingJapanese, type MingTtsVariant } from './MingTtsReference';
+import { assembleVibeDialogueAudio, parseVibeDialogueScript, VIBE_SPEAKERS,
+  type VibeDialogueBoundary, type VibeSpeaker } from './VibeDialogue';
+import { splitLongNeuralText } from './NeuralLongText';
 import { repairReferenceQuietFloor, reuseEndpoint } from './NemotronReuseRepair';
 import { isIPhoneBrowser, shouldUseDeviceSpeech, type PlaybackEnvironment } from './IPhoneSpeechPolicy';
 import { speechWaitStageFromStatus, speechWaitView, type SpeechWaitEngine, type SpeechWaitStage } from './SpeechWaitStatus';
@@ -158,6 +161,10 @@ export class VoiceMode {
   private blindUrls: string[] = [];
   private blindOrder: BlindTakeOrder | null = null;
   private blindEpoch = 0;
+  private vibeEpoch = 0;
+  private vibeUrl: string | null = null;
+  private vibeWav: Blob | null = null;
+  private vibeBoundaries: VibeDialogueBoundary[] = [];
   private audioProbeContext: AudioContext | null = null;
   private haasAuditAbort: AbortController | null = null;
   private mingAbort: AbortController | null = null;
@@ -546,6 +553,39 @@ export class VoiceMode {
               <button type="button" id="voice-voxlocal-ab-b">B · VOX LOCAL</button>
             </div>
             <p id="voice-voxlocal-ab-report" class="voice-voxlocal-report" aria-live="polite">A/B generates ONE identical underlying neural take. A = untouched neural audio; B = sound-designed, level-matched audio. Compare by ear; measured difference is NOT a quality score.</p>
+            <details id="voice-vibe-dialogue" class="voice-vibe-dialogue">
+              <summary>🎙️ 4人会話スタジオ · VibeVoice参考</summary>
+              <p>台本をA〜Dの話者ごとに独立生成し、声の種類と間を保って結合します。iPhone内のKokoroを使用。VibeVoiceの7.5Hzトークナイザーや拡散モデルを移植したものではありません。</p>
+              <label>会話台本 · 1行1発話 / 最大10行・合計420文字
+                <textarea id="voice-vibe-script" rows="5" maxlength="1000" spellcheck="false">A: おはようございます。今日はどうしましょうか？
+B: そうですね。まずは音声の品質を確認しましょう。
+A: いいですね。一緒に試してみましょう。</textarea>
+              </label>
+              <div class="voice-vibe-speakers" role="group" aria-label="話者の声の種類">
+                <label>A <select id="voice-vibe-speaker-a">
+                  <option value="soft" selected>柔らかい声</option><option value="natural">自然な声</option><option value="clear">明瞭な声</option><option value="airy">ささやく声</option><option value="power">低い力強い声</option>
+                </select></label>
+                <label>B <select id="voice-vibe-speaker-b">
+                  <option value="power" selected>低い力強い声</option><option value="natural">自然な声</option><option value="clear">明瞭な声</option><option value="soft">柔らかい声</option><option value="airy">ささやく声</option>
+                </select></label>
+                <label>C <select id="voice-vibe-speaker-c">
+                  <option value="clear" selected>明瞭な声</option><option value="natural">自然な声</option><option value="soft">柔らかい声</option><option value="airy">ささやく声</option><option value="power">低い力強い声</option>
+                </select></label>
+                <label>D <select id="voice-vibe-speaker-d">
+                  <option value="airy" selected>ささやく声</option><option value="natural">自然な声</option><option value="soft">柔らかい声</option><option value="clear">明瞭な声</option><option value="power">低い力強い声</option>
+                </select></label>
+              </div>
+              <div class="voice-vibe-actions">
+                <button type="button" id="voice-vibe-generate">会話を生成する</button>
+                <button type="button" id="voice-vibe-export" disabled>会話WAVを保存</button>
+              </div>
+              <p id="voice-vibe-status" role="status" aria-live="polite">台本のA〜Dが話者です。生成にはiPhoneのメモリと処理時間が必要です。</p>
+              <div id="voice-vibe-result" hidden>
+                <audio id="voice-vibe-player" controls playsinline preload="none"></audio>
+                <div id="voice-vibe-timeline" class="voice-vibe-timeline" aria-label="会話の発話位置"></div>
+                <small>話者をタップすると、その発話から試聴します。内容はローカルで処理され、サーバーへ送信しません。</small>
+              </div>
+            </details>
             <details id="voice-blind-test" class="voice-blind-test">
               <summary>🎧 会話の自然さをブラインドA/B比較</summary>
               <p>同じ文章・話者・声質で「従来版」と「文脈＋つなぎ目改善版」を作成し、音量をそろえてA/Bへランダムに配置します。回答後まで中身は表示しません。iPhoneでは短い文章（120文字以内）がおすすめです。</p>
@@ -1213,6 +1253,43 @@ export class VoiceMode {
       this.changed(false);
       this.renderPronunciationLexicon();
       this.setStatus('発音辞書から削除しました');
+    });
+    this.required<HTMLButtonElement>('#voice-vibe-generate').addEventListener('click', () => {
+      void this.generateVibeDialogue();
+    });
+    this.required<HTMLButtonElement>('#voice-vibe-export').addEventListener('click', () => {
+      if (this.vibeWav) downloadBlob(this.vibeWav, 'sound-wave-multispeaker-dialogue.wav');
+    });
+    for (const selector of ['#voice-vibe-script', '#voice-vibe-speaker-a', '#voice-vibe-speaker-b',
+      '#voice-vibe-speaker-c', '#voice-vibe-speaker-d']) {
+      this.required<HTMLElement>(selector).addEventListener('input', () => {
+        this.clearVibeDialogue();
+        this.required<HTMLElement>('#voice-vibe-status').textContent =
+          '台本または話者の声を変更しました。「会話を生成する」で更新してください。';
+      });
+    }
+    this.required<HTMLElement>('#voice-vibe-timeline').addEventListener('click', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement)) return;
+      const seek = target.closest<HTMLButtonElement>('[data-voice-vibe-seek]');
+      if (!seek) return;
+      const seconds = Number(seek.dataset.voiceVibeSeek);
+      const player = this.required<HTMLAudioElement>('#voice-vibe-player');
+      if (!Number.isFinite(seconds) || !player.src) return;
+      const playFrom = (): void => {
+        if (!Number.isFinite(player.duration)) return;
+        player.currentTime = Math.min(player.duration, Math.max(0, seconds));
+        void player.play().catch(() => {
+          this.required<HTMLElement>('#voice-vibe-status').textContent =
+            'iPhone標準プレーヤーの再生ボタンをタップしてください。';
+        });
+      };
+      if (player.readyState >= HTMLMediaElement.HAVE_METADATA) playFrom();
+      else {
+        player.addEventListener('loadedmetadata', playFrom, { once: true });
+        player.preload='metadata';
+        player.load();
+      }
     });
     this.required<HTMLButtonElement>('#voice-blind-generate').addEventListener('click', () => {
       void this.generateBlindConversationTest();
@@ -3139,6 +3216,7 @@ export class VoiceMode {
     this.neural.stop();
     this.voxCpm.stop();
     this.voxLocal.stop();
+    this.clearVibeDialogue();
     this.clearMingPreview();
     this.clearBlindComparison();
     this.voxCpmPlaybackEpoch++;
