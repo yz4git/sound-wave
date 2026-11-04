@@ -3362,6 +3362,147 @@ A: いいですね。一緒に試してみましょう。</textarea>
 
 
   /** Free browser Blob URLs and cancel stale comparisons whenever settings change. */
+  private clearVibeDialogue(): void {
+    this.vibeEpoch++;
+    const player = this.root.querySelector<HTMLAudioElement>('#voice-vibe-player');
+    if (player) {
+      player.pause();
+      player.removeAttribute('src');
+      player.load();
+    }
+    if (this.vibeUrl) URL.revokeObjectURL(this.vibeUrl);
+    this.vibeUrl = null;
+    this.vibeWav = null;
+    this.vibeBoundaries = [];
+    const result = this.root.querySelector<HTMLElement>('#voice-vibe-result');
+    if (result) result.hidden = true;
+    const exportButton = this.root.querySelector<HTMLButtonElement>('#voice-vibe-export');
+    if (exportButton) exportButton.disabled = true;
+    const generateButton = this.root.querySelector<HTMLButtonElement>('#voice-vibe-generate');
+    if (generateButton) generateButton.disabled = false;
+  }
+
+  private async generateVibeDialogue(): Promise<void> {
+    const status = this.required<HTMLElement>('#voice-vibe-status');
+    if (this.settings.engine !== 'vox-local') {
+      status.textContent = 'VOX LOCAL · NO SERVERを選んでください。';
+      return;
+    }
+    let turns: ReturnType<typeof parseVibeDialogueScript>;
+    try {
+      turns = parseVibeDialogueScript(this.required<HTMLTextAreaElement>('#voice-vibe-script').value);
+    } catch (error) {
+      status.textContent = error instanceof Error ? error.message : '台本の形式が不正です';
+      return;
+    }
+    const descriptions = {
+      soft: 'やさしい柔らかい女性の声',
+      natural: '自然な女性の声',
+      clear: '透き通る明瞭な女性の声',
+      airy: '息混じりのささやく声',
+      power: '重厚な低音の男性の声',
+    } as const;
+    const assignments = new Map<VibeSpeaker, typeof VOICE_CHARACTER_PRESETS[number]>();
+    for (const entry of VIBE_SPEAKERS) {
+      const raw = this.required<HTMLSelectElement>(
+        `#voice-vibe-speaker-${entry.speaker.toLowerCase()}`,
+      ).value;
+      if (!VOICE_CHARACTER_PRESETS.some((x) => x === raw)) {
+        status.textContent = '話者の声の指定が不正です';
+        return;
+      }
+      assignments.set(entry.speaker, raw as typeof VOICE_CHARACTER_PRESETS[number]);
+    }
+    // Existing output can be safely stopped; do not disable normal SPEAK.
+    this.stop();
+    const epoch = this.vibeEpoch;
+    const button = this.required<HTMLButtonElement>('#voice-vibe-generate');
+    button.disabled = true;
+    status.textContent = `会話音声を準備中：${turns.length}発話 / ${new Set(turns.map(x => x.speaker)).size}話者`;
+    try {
+      await new Promise<void>((resolve) => window.requestAnimationFrame(
+        () => window.requestAnimationFrame(() => resolve()),
+      ));
+      if (epoch !== this.vibeEpoch || !this.active || this.settings.engine !== 'vox-local') return;
+      const takes: Parameters<typeof assembleVibeDialogueAudio>[0][number][] = [];
+      for (const [index, turn] of turns.entries()) {
+        if (epoch !== this.vibeEpoch || !this.active || this.settings.engine !== 'vox-local') return;
+        const speaker = VIBE_SPEAKERS.find((x) => x.speaker === turn.speaker);
+        const character = assignments.get(turn.speaker);
+        if (!speaker || !character) throw new Error('話者の割り当てがありません');
+        const chunks = splitLongNeuralText(turn.text);
+        const basePlan: NeuralProsodyPlan = {
+          edited: false,
+          segments: chunks.map((text) => ({
+            text,
+            startUnit: 0,
+            endUnit: 0,
+            rateScale: 1,
+            energyScale: 1,
+            pitchSemitones: 0,
+            pauseAfter: 0,
+            expression: { ...this.settings.expression },
+          })),
+        };
+        const plan = applyLexiconToNeuralPlan(basePlan, this.pronunciationLexicon);
+        const base = this.voxLocalDesign();
+        const design: VoxLocalDesign = {
+          ...base,
+          // 24k native output avoids iPhone memory spikes from upsampling.
+          quality: 'fast',
+          description: descriptions[character],
+          fallbackCharacter: character,
+          pitch: Math.max(45, Math.min(76, base.pitch + speaker.pitchOffset)),
+        };
+        status.textContent = `${index+1}/${turns.length} 発話を生成中 · 話者${turn.speaker}`;
+        const result = await this.voxLocal.synthesize(plan, design, (msg) => {
+          if (epoch === this.vibeEpoch && this.active)
+            status.textContent = `${index+1}/${turns.length} 話者${turn.speaker} · ${msg}`;
+        });
+        if (epoch !== this.vibeEpoch || !this.active) return;
+        if (!result || !result.audio.length) throw new Error('一部の発話を生成できませんでした');
+        takes.push({speaker:turn.speaker,text:turn.text,audio:result.audio,rate:result.rate});
+      }
+      const mix = assembleVibeDialogueAudio(takes);
+      if (epoch !== this.vibeEpoch || !this.active) return;
+      const wav = encodeVoxLocalWav(mix.audio, mix.rate);
+      const url = URL.createObjectURL(wav);
+      if (epoch !== this.vibeEpoch || !this.active) {
+        URL.revokeObjectURL(url);
+        return;
+      }
+      this.vibeUrl = url;
+      this.vibeWav = wav;
+      this.vibeBoundaries = mix.boundaries;
+      const player = this.required<HTMLAudioElement>('#voice-vibe-player');
+      player.src = url;
+      player.addEventListener('play', () => {
+        this.root.querySelector<HTMLAudioElement>('#voice-voxlocal-native-audio')?.pause();
+        this.root.querySelector<HTMLAudioElement>('#voice-blind-a')?.pause();
+        this.root.querySelector<HTMLAudioElement>('#voice-blind-b')?.pause();
+        this.voxLocal.stop();
+      }, { once: true });
+      const timeline = this.required<HTMLElement>('#voice-vibe-timeline');
+      timeline.replaceChildren();
+      for (const [index, boundary] of mix.boundaries.entries()) {
+        const seek = document.createElement('button');
+        seek.type = 'button';
+        seek.dataset.voiceVibeSeek = String(boundary.startSeconds);
+        seek.textContent = `${index+1}. ${boundary.speaker} · ${boundary.startSeconds.toFixed(1)}秒 · ${boundary.text.slice(0,30)}`;
+        seek.setAttribute('aria-label', `話者${boundary.speaker}の${index+1}番目の発話から再生`);
+        timeline.append(seek);
+      }
+      this.required<HTMLElement>('#voice-vibe-result').hidden = false;
+      this.required<HTMLButtonElement>('#voice-vibe-export').disabled = false;
+      status.textContent = `会話WAV生成完了 · ${mix.seconds.toFixed(1)}秒 · ${turns.length}発話 · ${mix.rate}Hz。iPhone標準プレーヤーで試聴してください。`;
+    } catch (error) {
+      if (epoch === this.vibeEpoch)
+        status.textContent = error instanceof Error ? error.message : '会話生成に失敗しました';
+    } finally {
+      if (epoch === this.vibeEpoch) button.disabled = false;
+    }
+  }
+
   private clearBlindComparison(): void {
     this.blindEpoch++;
     this.blindOrder = null;
