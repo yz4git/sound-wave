@@ -483,8 +483,8 @@ export class VoiceMode {
                 <option value="tiny">tiny · 7.9B MoE / 1.3B active</option>
               </select>
             </label>
-            <label>参照音声WAV（本人の同意・利用権限のある声のみ）
-              <input id="voice-ming-reference" type="file" accept=".wav,audio/wav,audio/x-wav" />
+            <label>参照音声（WAV・iPhoneのm4aなど。権限のある声のみ）
+              <input id="voice-ming-reference" type="file" accept="audio/*,.wav,.m4a,.mp3" />
             </label>
             <label>参照音声で実際に話している文章
               <textarea id="voice-ming-prompt-text" rows="2" maxlength="420" placeholder="参照WAVの内容を正確に書き起こしてください"></textarea>
@@ -1545,6 +1545,37 @@ export class VoiceMode {
     if (button) button.disabled = false;
   }
 
+  /** Decode 0.5-20s iPhone recordings into the PCM16 WAV required by Ming.
+   * No audio bytes leave the device before the user clicks Generate.
+   */
+  private async prepareMingPrompt(file: File): Promise<File> {
+    if (file.size > 12 * 1024 * 1024 || file.size < 44) {
+      throw new Error('参照音声は12MB以内のファイルを選んでください');
+    }
+    const context = new AudioContext();
+    try {
+      const buffer = await context.decodeAudioData(await file.arrayBuffer());
+      if (buffer.duration < 0.5 || buffer.duration > 20 || buffer.sampleRate < 8000) {
+        throw new Error('参照録音は0.5〜20秒にしてください');
+      }
+      const mono = new Float32Array(buffer.length);
+      for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
+        const samples = buffer.getChannelData(channel);
+        const scale = 1 / buffer.numberOfChannels;
+        for (let i = 0; i < buffer.length; i++) {
+          mono[i] = (mono[i] ?? 0) + (samples[i] ?? 0) * scale;
+        }
+      }
+      const rate = Math.min(buffer.sampleRate, 48000);
+      const pcm = rate === buffer.sampleRate ? mono : resampleVoiceReference(mono, buffer.sampleRate, rate);
+      const wav = encodeVoxLocalWav(pcm, rate);
+      if (wav.size > 8 * 1024 * 1024) throw new Error('WAV変換後の音声が8MBを超えました');
+      return new File([wav], 'reference.wav', { type: 'audio/wav' });
+    } finally {
+      void context.close();
+    }
+  }
+
   private async generateMingReference(): Promise<void> {
     const status = this.required<HTMLElement>('#voice-ming-status');
     const text = parseVoiceMarkup(this.required<HTMLTextAreaElement>('#voice-text').value.trim()).plainText.trim();
@@ -1575,8 +1606,11 @@ export class VoiceMode {
       status.textContent = '日本語音声をGPUサーバーに要求する準備中…';
       await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
       if (epoch !== this.mingEpoch || !this.active) return;
+      status.textContent = 'iPhone内で参照音声をWAVへ変換しています…';
+      const referenceWav = await this.prepareMingPrompt(reference);
+      if (epoch !== this.mingEpoch || !this.active) return;
       const wav = await generateMingJapanese(
-        { endpoint, token, variant, text, promptText, promptWav: reference },
+        { endpoint, token, variant, text, promptText, promptWav: referenceWav },
         controller.signal,
         (message) => {
           if (epoch === this.mingEpoch && this.active) status.textContent = message;
@@ -1609,10 +1643,12 @@ export class VoiceMode {
       const message = error instanceof Error ? error.message : 'Mingの音声生成に失敗しました';
       status.textContent = `${message} · HTTPS、CORS、参照音声のWAV形式、GPUサーバーの起動と認証を確認してください。`;
     } finally {
-      if (this.mingTimeout) window.clearTimeout(this.mingTimeout);
-      this.mingTimeout = 0;
-      if (this.mingAbort === controller) this.mingAbort = null;
-      if (epoch === this.mingEpoch) button.disabled = false;
+      if (epoch === this.mingEpoch) {
+        if (this.mingTimeout) window.clearTimeout(this.mingTimeout);
+        this.mingTimeout = 0;
+        if (this.mingAbort === controller) this.mingAbort = null;
+        button.disabled = false;
+      }
     }
   }
 
