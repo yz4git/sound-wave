@@ -13,6 +13,10 @@ import { auditVibeDialogueAsr, parseVibeAsrSegments, formatVibeSrt,
   type VibeAsrSegment } from './VibeDialogueAudit';
 import { requestVibeAsr } from './VibeAsrRemote';
 import { reviewLocalVibeDialogue, type VibeLocalReview } from './VibeDialogueQC';
+import { prepareVibeRealtimeAB, shuffledVibeRealtimeOrder, revealVibeRealtimeChoice,
+  validateVibeRealtimeText, VIBE_REALTIME_FILE_LIMIT, VIBE_REALTIME_MAX_SECONDS,
+  type VibeRealtimeChoice, type VibeRealtimeCriterion,
+  type VibeRealtimeOrder } from './VibeRealtimeCompare';
 import { splitLongNeuralText } from './NeuralLongText';
 import { repairReferenceQuietFloor, reuseEndpoint } from './NemotronReuseRepair';
 import { isIPhoneBrowser, shouldUseDeviceSpeech, type PlaybackEnvironment } from './IPhoneSpeechPolicy';
@@ -172,6 +176,9 @@ export class VoiceMode {
   private vibeDuration = 0;
   private vibeAsrAbort: AbortController | null = null;
   private vibeAsrTimeout = 0;
+  private vibeRtEpoch = 0;
+  private vibeRtUrls: string[] = [];
+  private vibeRtOrder: VibeRealtimeOrder | null = null;
   private audioProbeContext: AudioContext | null = null;
   private haasAuditAbort: AbortController | null = null;
   private mingAbort: AbortController | null = null;
@@ -630,6 +637,40 @@ A: いいですね。一緒に試してみましょう。</textarea>
                   <div id="voice-vibe-audit-results" class="voice-vibe-audit-results" aria-label="発話ごとの認識結果"></div>
                   <small>CERは文字認識の目安で、音声の自然さの評価値ではありません。話者違いは時間対応に基づく参考判定です。</small>
                 </details>
+              </div>
+            </details>
+            <details id="voice-vibe-realtime" class="voice-vibe-realtime">
+              <summary>⚡ VibeVoice-Realtime 日本語A/B · WAV持ち込み</summary>
+              <p>Microsoft VibeVoice-Realtime-0.5Bは単一話者の長文TTSです。英語中心に開発されており、日本語は実験的で品質未保証。VibeVoice音声は公式Colab等で先に作成し、このiPhoneにWAVを取り込んでください。Kokoro / VOX LOCALはここで生成します。</p>
+              <p><a href="https://colab.research.google.com/github/microsoft/VibeVoice/blob/main/demo/vibevoice_realtime_colab.ipynb" target="_blank" rel="noopener noreferrer">Microsoft公式 VibeVoice-Realtime Colabを開く</a> · <a href="https://github.com/microsoft/VibeVoice/blob/main/docs/vibevoice-realtime-0.5b.md" target="_blank" rel="noopener noreferrer">公式説明と日本語実験音声の情報</a></p>
+              <label>両モデルに読ませる同一の日本語原稿 · 12〜180文字
+                <textarea id="voice-vibe-rt-text" rows="3" maxlength="200" spellcheck="false">こんにちは。今日は音声の自然さを比較します。少し長い文章を読んだ時にも、語尾や文章のつながりが滑らかでしょうか？</textarea>
+              </label>
+              <label>VibeVoice-Realtimeの出力WAV（最大12MB）
+                <input id="voice-vibe-rt-file" type="file" accept=".wav,audio/wav,audio/x-wav" />
+              </label>
+              <p>同じ文章で生成したWAVを選択してください。話者の声が異なるため、自然さ・発音・語尾を中心に評価します。音声データは端末からアップロードされません。</p>
+              <div class="voice-vibe-rt-actions">
+                <button type="button" id="voice-vibe-rt-generate">音量を合わせてブラインド比較</button>
+                <button type="button" id="voice-vibe-rt-cancel" disabled>中断</button>
+              </div>
+              <p id="voice-vibe-rt-status" role="status" aria-live="polite">VibeVoiceのWAVを選択すると、iPhone内でKokoro比較音声を作成できます。</p>
+              <div id="voice-vibe-rt-result" hidden>
+                <label>音声 A <audio id="voice-vibe-rt-a" controls playsinline preload="none"></audio></label>
+                <label>音声 B <audio id="voice-vibe-rt-b" controls playsinline preload="none"></audio></label>
+                <label>今回の評価項目
+                  <select id="voice-vibe-rt-criterion">
+                    <option value="natural">声の自然さ</option>
+                    <option value="pronunciation">日本語の発音</option>
+                    <option value="flow">語尾・文章のつながり</option>
+                  </select>
+                </label>
+                <div class="voice-vibe-rt-votes" role="group" aria-label="音声の比較評価">
+                  <button type="button" data-voice-vibe-rt-vote="a">Aが良い</button>
+                  <button type="button" data-voice-vibe-rt-vote="b">Bが良い</button>
+                  <button type="button" data-voice-vibe-rt-vote="tie">ほぼ同じ</button>
+                </div>
+                <p id="voice-vibe-rt-answer" aria-live="polite">どちらのモデルかは、評価ボタンを押した後に表示されます。</p>
               </div>
             </details>
             <details id="voice-blind-test" class="voice-blind-test">
