@@ -306,6 +306,8 @@ export class VoiceMode {
     if (vibeToken) vibeToken.value = '';
     const vibeConsent = this.root.querySelector<HTMLInputElement>('#voice-vibe-asr-consent');
     if (vibeConsent) vibeConsent.checked = false;
+    const realtimeFile = this.root.querySelector<HTMLInputElement>('#voice-vibe-rt-file');
+    if (realtimeFile) realtimeFile.value = '';
     const reuseInput = this.root.querySelector<HTMLInputElement>('#voice-reuse-file');
     if (reuseInput) reuseInput.value = '';
     this.clearNativeVoxPreview();
@@ -1400,6 +1402,41 @@ A: いいですね。一緒に試してみましょう。</textarea>
         player.preload='metadata';
         player.load();
       }
+      });
+    }
+    this.required<HTMLButtonElement>('#voice-vibe-rt-generate').addEventListener('click', () => {
+      void this.generateVibeRealtimeComparison();
+    });
+    this.required<HTMLButtonElement>('#voice-vibe-rt-cancel').addEventListener('click', () => {
+      this.clearVibeRealtimeComparison();
+      this.voxLocal.stop();
+      this.required<HTMLElement>('#voice-vibe-rt-status').textContent =
+        '比較音声の準備を中断しました。取り込んだWAVは送信・変更されていません。';
+    });
+    for (const selector of ['#voice-vibe-rt-text', '#voice-vibe-rt-file']) {
+      this.required<HTMLElement>(selector).addEventListener('input', () => {
+        this.clearVibeRealtimeComparison();
+        this.voxLocal.stop();
+        this.required<HTMLElement>('#voice-vibe-rt-status').textContent =
+          '比較用原稿またはWAVが変更されました。再度A/B音声を準備してください。';
+      });
+    }
+    for (const side of ['a', 'b'] as const) {
+      this.required<HTMLAudioElement>(`#voice-vibe-rt-${side}`).addEventListener('play', () => {
+        this.required<HTMLAudioElement>(`#voice-vibe-rt-${side === 'a' ? 'b' : 'a'}`).pause();
+        this.root.querySelector<HTMLAudioElement>('#voice-voxlocal-native-audio')?.pause();
+        this.root.querySelector<HTMLAudioElement>('#voice-vibe-player')?.pause();
+        this.voxLocal.stop();
+      });
+    }
+    for (const button of this.root.querySelectorAll<HTMLButtonElement>('[data-voice-vibe-rt-vote]')) {
+      button.addEventListener('click', () => {
+        const choice = button.dataset.voiceVibeRtVote as VibeRealtimeChoice | undefined;
+        if (!this.vibeRtOrder || !choice || !['a', 'b', 'tie'].includes(choice)) return;
+        const criterion = this.required<HTMLSelectElement>('#voice-vibe-rt-criterion').value as VibeRealtimeCriterion;
+        if (!['natural','pronunciation','flow'].includes(criterion)) return;
+        this.required<HTMLElement>('#voice-vibe-rt-answer').textContent =
+          revealVibeRealtimeChoice(this.vibeRtOrder, criterion, choice);
       });
     }
     this.required<HTMLButtonElement>('#voice-blind-generate').addEventListener('click', () => {
@@ -3327,6 +3364,7 @@ A: いいですね。一緒に試してみましょう。</textarea>
     this.neural.stop();
     this.voxCpm.stop();
     this.voxLocal.stop();
+    this.clearVibeRealtimeComparison();
     this.clearVibeDialogue();
     this.clearMingPreview();
     this.clearBlindComparison();
