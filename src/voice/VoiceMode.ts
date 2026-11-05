@@ -1295,6 +1295,28 @@ A: いいですね。一緒に試してみましょう。</textarea>
     this.required<HTMLButtonElement>('#voice-vibe-export').addEventListener('click', () => {
       if (this.vibeWav) downloadBlob(this.vibeWav, 'sound-wave-multispeaker-dialogue.wav');
     });
+    this.required<HTMLButtonElement>('#voice-vibe-srt').addEventListener('click', () => {
+      if (!this.vibeWav || !this.vibeBoundaries.length) return;
+      downloadBlob(
+        new Blob([formatVibeSrt(this.vibeBoundaries)], {type:'application/x-subrip;charset=utf-8'}),
+        'sound-wave-multispeaker-dialogue.srt',
+      );
+    });
+    this.required<HTMLButtonElement>('#voice-vibe-audit-json').addEventListener('click', () => {
+      if (!this.vibeWav) return;
+      try {
+        const result = parseVibeAsrSegments(
+          this.required<HTMLTextAreaElement>('#voice-vibe-asr-json').value, this.vibeDuration,
+        );
+        this.renderVibeAsrReport(result);
+      } catch (error) {
+        this.required<HTMLElement>('#voice-vibe-asr-status').textContent =
+          error instanceof Error ? error.message : 'ASRのJSON形式を確認してください';
+      }
+    });
+    this.required<HTMLButtonElement>('#voice-vibe-asr-request').addEventListener('click', () => {
+      void this.requestVibeAsrAudit();
+    });
     for (const selector of ['#voice-vibe-script', '#voice-vibe-speaker-a', '#voice-vibe-speaker-b',
       '#voice-vibe-speaker-c', '#voice-vibe-speaker-d']) {
       this.required<HTMLElement>(selector).addEventListener('input', () => {
@@ -1303,7 +1325,8 @@ A: いいですね。一緒に試してみましょう。</textarea>
           '台本または話者の声を変更しました。「会話を生成する」で更新してください。';
       });
     }
-    this.required<HTMLElement>('#voice-vibe-timeline').addEventListener('click', (event) => {
+    for (const selector of ['#voice-vibe-timeline', '#voice-vibe-audit-results']) {
+      this.required<HTMLElement>(selector).addEventListener('click', (event) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
       const seek = target.closest<HTMLButtonElement>('[data-voice-vibe-seek]');
@@ -1325,7 +1348,8 @@ A: いいですね。一緒に試してみましょう。</textarea>
         player.preload='metadata';
         player.load();
       }
-    });
+      });
+    }
     this.required<HTMLButtonElement>('#voice-blind-generate').addEventListener('click', () => {
       void this.generateBlindConversationTest();
     });
@@ -3399,6 +3423,10 @@ A: いいですね。一緒に試してみましょう。</textarea>
   /** Free browser Blob URLs and cancel stale comparisons whenever settings change. */
   private clearVibeDialogue(): void {
     this.vibeEpoch++;
+    this.vibeAsrAbort?.abort();
+    this.vibeAsrAbort = null;
+    if (this.vibeAsrTimeout) window.clearTimeout(this.vibeAsrTimeout);
+    this.vibeAsrTimeout = 0;
     const player = this.root.querySelector<HTMLAudioElement>('#voice-vibe-player');
     if (player) {
       player.pause();
@@ -3409,10 +3437,19 @@ A: いいですね。一緒に試してみましょう。</textarea>
     this.vibeUrl = null;
     this.vibeWav = null;
     this.vibeBoundaries = [];
+    this.vibeDuration = 0;
+    const auditResults = this.root.querySelector<HTMLElement>('#voice-vibe-audit-results');
+    if (auditResults) auditResults.replaceChildren();
+    const auditStatus = this.root.querySelector<HTMLElement>('#voice-vibe-asr-status');
+    if (auditStatus) auditStatus.textContent = '認識結果はまだありません。';
+    const requestButton = this.root.querySelector<HTMLButtonElement>('#voice-vibe-asr-request');
+    if (requestButton) requestButton.disabled = false;
     const result = this.root.querySelector<HTMLElement>('#voice-vibe-result');
     if (result) result.hidden = true;
     const exportButton = this.root.querySelector<HTMLButtonElement>('#voice-vibe-export');
     if (exportButton) exportButton.disabled = true;
+    const subtitleButton = this.root.querySelector<HTMLButtonElement>('#voice-vibe-srt');
+    if (subtitleButton) subtitleButton.disabled = true;
     const generateButton = this.root.querySelector<HTMLButtonElement>('#voice-vibe-generate');
     if (generateButton) generateButton.disabled = false;
   }
@@ -3509,6 +3546,7 @@ A: いいですね。一緒に試してみましょう。</textarea>
       this.vibeUrl = url;
       this.vibeWav = wav;
       this.vibeBoundaries = mix.boundaries;
+      this.vibeDuration = mix.seconds;
       const player = this.required<HTMLAudioElement>('#voice-vibe-player');
       player.src = url;
       player.addEventListener('play', () => {
@@ -3529,6 +3567,7 @@ A: いいですね。一緒に試してみましょう。</textarea>
       }
       this.required<HTMLElement>('#voice-vibe-result').hidden = false;
       this.required<HTMLButtonElement>('#voice-vibe-export').disabled = false;
+      this.required<HTMLButtonElement>('#voice-vibe-srt').disabled = false;
       status.textContent = `会話WAV生成完了 · ${mix.seconds.toFixed(1)}秒 · ${turns.length}発話 · ${mix.rate}Hz。iPhone標準プレーヤーで試聴してください。`;
     } catch (error) {
       if (epoch === this.vibeEpoch)
