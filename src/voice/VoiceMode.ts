@@ -9,6 +9,9 @@ import { auditCompareJapanese, parseHaasTranscript, validateHaasAuditEndpoint } 
 import { generateMingJapanese, type MingTtsVariant } from './MingTtsReference';
 import { assembleVibeDialogueAudio, parseVibeDialogueScript, VIBE_SPEAKERS,
   type VibeDialogueBoundary, type VibeSpeaker } from './VibeDialogue';
+import { auditVibeDialogueAsr, parseVibeAsrSegments, formatVibeSrt,
+  type VibeAsrSegment } from './VibeDialogueAudit';
+import { requestVibeAsr } from './VibeAsrRemote';
 import { splitLongNeuralText } from './NeuralLongText';
 import { repairReferenceQuietFloor, reuseEndpoint } from './NemotronReuseRepair';
 import { isIPhoneBrowser, shouldUseDeviceSpeech, type PlaybackEnvironment } from './IPhoneSpeechPolicy';
@@ -165,6 +168,9 @@ export class VoiceMode {
   private vibeUrl: string | null = null;
   private vibeWav: Blob | null = null;
   private vibeBoundaries: VibeDialogueBoundary[] = [];
+  private vibeDuration = 0;
+  private vibeAsrAbort: AbortController | null = null;
+  private vibeAsrTimeout = 0;
   private audioProbeContext: AudioContext | null = null;
   private haasAuditAbort: AbortController | null = null;
   private mingAbort: AbortController | null = null;
@@ -578,12 +584,41 @@ A: いいですね。一緒に試してみましょう。</textarea>
               <div class="voice-vibe-actions">
                 <button type="button" id="voice-vibe-generate">会話を生成する</button>
                 <button type="button" id="voice-vibe-export" disabled>会話WAVを保存</button>
+                <button type="button" id="voice-vibe-srt" disabled>話者付きSRT字幕を保存</button>
               </div>
               <p id="voice-vibe-status" role="status" aria-live="polite">台本のA〜Dが話者です。生成にはiPhoneのメモリと処理時間が必要です。</p>
               <div id="voice-vibe-result" hidden>
                 <audio id="voice-vibe-player" controls playsinline preload="none"></audio>
                 <div id="voice-vibe-timeline" class="voice-vibe-timeline" aria-label="会話の発話位置"></div>
-                <small>話者をタップすると、その発話から試聴します。内容はローカルで処理され、サーバーへ送信しません。</small>
+                <small>ここに表示する台本と時刻はSound Waveで生成した値です。音声認識した結果ではありません。再生位置をタップできます。</small>
+                <details id="voice-vibe-asr" class="voice-vibe-asr">
+                  <summary>🔍 VibeVoice-ASRで会話を検証 · 誰が・いつ・何を</summary>
+                  <p>会話WAVに対して、Microsoft VibeVoice-ASRの認識結果を比較します。話者IDは認識モデル独自の番号なので、A/B/C/Dと直接一致するとは限りません。</p>
+                  <label>ASRのJSONを貼り付けて照合（サーバー不要）
+                    <textarea id="voice-vibe-asr-json" rows="3" maxlength="25000" spellcheck="false" placeholder='{"segments":[{"start_time":0,"end_time":1.2,"speaker_id":"Speaker 0","text":"こんにちは"}]}'></textarea>
+                  </label>
+                  <button type="button" id="voice-vibe-audit-json">貼り付けた認識結果を照合</button>
+                  <details>
+                    <summary>自分のGPUサーバーに送信して自動認識（任意）</summary>
+                    <p>VibeVoice-ASR 7BをGPU側で起動する必要があります。送信ボタンを押した時だけ生成音声をアップロードします。URLとトークンはブラウザに保存しません。</p>
+                    <label>HTTPSサーバーURL
+                      <input id="voice-vibe-asr-endpoint" type="url" inputmode="url" maxlength="512" autocomplete="off" placeholder="https://your-gpu.example"/>
+                    </label>
+                    <label>APIトークン
+                      <input id="voice-vibe-asr-token" type="password" maxlength="256" autocomplete="off" />
+                    </label>
+                    <label>専門用語・固有名詞（任意）
+                      <input id="voice-vibe-asr-hotwords" type="text" maxlength="160" autocomplete="off" placeholder="Sound Wave、VibeVoice"/>
+                    </label>
+                    <label class="voice-vibe-asr-consent">
+                      <input id="voice-vibe-asr-consent" type="checkbox"/> 指定したGPUサーバーへの生成音声送信に同意します
+                    </label>
+                    <button type="button" id="voice-vibe-asr-request">VibeVoice-ASRへWAVを送信</button>
+                  </details>
+                  <p id="voice-vibe-asr-status" role="status" aria-live="polite">認識結果はまだありません。SRTは音声認識がなくても保存できます。</p>
+                  <div id="voice-vibe-audit-results" class="voice-vibe-audit-results" aria-label="発話ごとの認識結果"></div>
+                  <small>CERは文字認識の目安で、音声の自然さの評価値ではありません。話者違いは時間対応に基づく参考判定です。</small>
+                </details>
               </div>
             </details>
             <details id="voice-blind-test" class="voice-blind-test">
