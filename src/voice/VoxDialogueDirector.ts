@@ -5,7 +5,7 @@
  */
 export type DialogueAct =
   | 'question' | 'acknowledgement' | 'reassurance' | 'celebration'
-  | 'caution' | 'explanation' | 'statement';
+  | 'caution' | 'explanation' | 'gratitude' | 'statement';
 
 export interface DialogueCue {
   act: DialogueAct;
@@ -27,9 +27,18 @@ export function classifyJapaneseDialogue(text: string): DialogueCue {
   const plain = unquoted.replace(/[。！？!?]+$/u, '').trim();
   // Do not treat isolated particles or a sentence containing 'なんで'
   // inside a noun as a high-confidence question without supporting cues.
-  const isQuestion = /[?？]$/u.test(unquoted)
+  const explicitQuestion = /[?？]$/u.test(unquoted);
+  // 「そうですか。」 is usually a reply, unlike 「そうですか？」.
+  // Writer-supplied punctuation takes priority over ambiguous particles.
+  if (!explicitQuestion && /^(?:そうですか|そうなんですか)$/u.test(plain)) {
+    return { act: 'acknowledgement', confidence: 'high', rate: 0.965, energy: 0.98, pitchSemitones: -0.04 };
+  }
+  // A question word quoted inside a statement is not a question of its own:
+  // 「なぜ？」と聞きました。 must keep the model-native statement delivery.
+  const isQuestion = explicitQuestion
     || /(?:ですか|ますか|でしょうか|ませんか|なのか|だろうか|なの\s*|かな)$/u.test(plain)
-    || /^(?:なぜ|どうして|どこ|いつ|誰|だれ|いくつ|いくら|どんな|どうやって)/u.test(plain);
+    || (/^(?:なぜ|どうして|なんで|どこ|いつ|誰|だれ|いくつ|いくら|どんな|どうやって)/u.test(plain)
+      && /(?:の|か|かな|だろう|でしょう)$/u.test(plain));
   if (isQuestion) return {
     act: 'question', confidence: 'high', rate: 0.982, energy: 1.01, pitchSemitones: 0.09,
   };
@@ -38,6 +47,11 @@ export function classifyJapaneseDialogue(text: string): DialogueCue {
   }
   if (/(?:大丈夫ですよ|安心してください|無理しないで|心配しないで|ご安心ください)/u.test(plain)) {
     return { act: 'reassurance', confidence: 'high', rate: 0.968, energy: 0.96, pitchSemitones: -0.08 };
+  }
+  // Thank-you replies are neither celebrations nor neutral explanations.
+  // Keep the modulation subtle; Kokoro still controls phonemes and contours.
+  if (/^(?:ありがとう(?:ございます|ね)?|どうもありがとう(?:ございます)?|助かりました|感謝しています)(?:[、，,\s]|$)/u.test(plain)) {
+    return { act: 'gratitude', confidence: 'high', rate: 0.975, energy: 0.97, pitchSemitones: -0.06 };
   }
   if (/(?:やった[！!]?|すごい[！!]?|おめでとう|よかったね|うれしい|嬉しい)/u.test(plain)) {
     return { act: 'celebration', confidence: 'high', rate: 1.035, energy: 1.045, pitchSemitones: 0.10 };

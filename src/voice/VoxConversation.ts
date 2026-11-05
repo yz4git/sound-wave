@@ -10,7 +10,7 @@ import { dialogueCueMultiplier } from './VoxDialogueDirector';
  * invented fillers, or removed punctuation.
  */
 export type VoxConversationStyle = 'off' | 'natural' | 'relaxed' | 'lively';
-export const VOX_CONVERSATION_VERSION = 'dialogue-directed-join-v2';
+export const VOX_CONVERSATION_VERSION = 'dialogue-directed-join-v3';
 
 const bound = (x: number, lo: number, hi: number): number =>
   Math.max(lo, Math.min(hi, Number.isFinite(x) ? x : 1));
