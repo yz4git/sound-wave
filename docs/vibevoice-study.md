@@ -98,3 +98,43 @@ iPhone側は`https://your-gpu.example`（または`/api/vibe-asr`を含むURL）
 - ASRが出す話者IDはA/B/C/Dと番号が一致しません。時間の重なりから推定対応しているため、隣り合う短い発話や誤認識では誤判定する可能性があります。
 - 認識されなかった発話は「未認識」と表示し、正しく読み上げた扱いにしません。数値は信頼できる自然さの尺度ではありません。
 - 公式の長文VibeVoice-TTSモデルをSound Wave内に組み込んだわけではなく、ブラウザでは今までどおりKokoroを使います。
+
+
+## 2026-11-05 夜: Realtime日本語のKokoroブラインド比較を追加
+
+公式VibeVoice-Realtime-0.5Bは**単一話者用**で、英語中心に訓練されています。2025年12月公開の追加実験プリセットに日本語音声がありますが、日本語での発音・自然さの品質はMicrosoft公式でも保証されていません。最大10分程度の長文に対応するモデルですが、iPhone内で同じ時間のPCMを扱うのは負荷が大きいため、Sound Waveでは**12〜180文字の日本語文章、70秒以下・12MB以下の比較WAV**に制限しました。
+
+### iPhoneで比較する方法（自前GPUサーバー不要）
+
+1. Microsoftの[公式Realtime Colab](https://colab.research.google.com/github/microsoft/VibeVoice/blob/main/demo/vibevoice_realtime_colab.ipynb)を開き、同じ日本語原稿を使ってVibeVoice-Realtime音声を生成し、WAVをiPhoneのファイルに保存する。日本語用実験音声を使用する場合は、公式の`demo/download_experimental_voices.sh`と現行ノートブックの対応状況を確認する。Colabではアカウントや実行枠が必要な場合があります。
+2. [Sound Wave](https://yz4git.github.io/sound-wave/latest.html)でVOICE LAB → VOX LOCAL · NO SERVERを選ぶ。
+3. 「VibeVoice-Realtime 日本語A/B · WAV持ち込み」を開く。Colabで使った日本語原稿をそのまま貼り付け、生成WAVを選択。
+4. 「音量を合わせてブラインド比較」を押す。iPhoneのKokoroが**同一原稿**を生成します（初回はモデルの読み込みが必要）。
+5. A/Bはランダム配置でモデル名を伏せています。自然さ、発音、文章のつながりのいずれかを選んで投票するとA/Bのモデル名が表示されます。
+
+**モデルに送る音声データはありません。** VibeVoice音声はWAVをiPhone内で読み取るだけで、音声ファイル自体はアップロード・永続保存されません。Kokoroは従来どおり端末上のモデルを使用します。※ Microsoft Colab側で音声を生成する過程は、Colabのクラウドサービス上で実行されます。
+
+### 品質比較の仕組み
+
+`src/voice/VibeRealtimeCompare.ts`で、両モデルのPCMをそれぞれ測定し、平均RMSの幾何平均を共通の目標にして**増幅は最大約4dBまで**の控えめな音量マッチングをします。音量差が残る場合や再生時間差が1.5倍以上ある場合、長い無音がある場合は注意を出します。元のWAVは改変せず、比較用のコピーのみ加工します。元の文章を「同じもの」として生成したかは利用者が確認する必要があります。
+
+この比較からは機械的に「どちらが高品質か」を決めません。VibeVoiceの声プリセットとKokoroの話者は同一人物ではないため、音色の好みと日本語の発音・リズムを混同しないよう注意が必要です。発音辞書を登録している場合、Kokoro側には辞書が適用されるため、それも評価条件の差となります。
+
+### 公式GPUで一括生成する場合
+
+Microsoftの[公式コマンド例](https://github.com/microsoft/VibeVoice/blob/main/docs/vibevoice-realtime-0.5b.md)と[推論スクリプト](https://github.com/microsoft/VibeVoice/blob/main/demo/realtime_model_inference_from_file.py)を利用します。公式追加プリセットは次のコマンドで取得します。
+
+```sh
+bash demo/download_experimental_voices.sh
+python demo/realtime_model_inference_from_file.py \
+  --model_path microsoft/VibeVoice-Realtime-0.5B \
+  --txt_path /path/to/japanese-plain-text.txt \
+  --speaker_name THE_EXACT_INSTALLED_JAPANESE_PRESET_NAME \
+  --output_dir ./outputs
+```
+
+`--speaker_name`は、ダウンロードした実験プリセット内の`.pt`ファイル名（拡張子なし）を確認して指定してください。適当な名前にすると、公式スクリプトは別の音声を自動選択することがあるため、無指定・不正名のまま日本語比較には使わないでください。
+
+### 比較後に改善すべき点
+
+発音がより自然だった文、語尾が不自然だった文、長文で息切れ・読み飛ばしが起こった文を集め、同じ台本で繰り返しA/B確認してください。**iPhoneの比較画面は完成していますが、VibeVoiceのGPU推論とiPhone実機での聴感評価は未検証です。** GPUやColabが準備できない場合、独自の音声生成機能が増えたわけではありません。
