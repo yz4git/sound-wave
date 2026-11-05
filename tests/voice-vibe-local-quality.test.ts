@@ -11,7 +11,7 @@ const tone=(seconds:number,amp:number):Float32Array=>{
 };
 describe('VibeVoice-inspired mobile acoustic quality checks',()=>{
  it('reports the utterances, identities, duration and averaged signal levels',()=>{
-  const a=tone(.7,.13),b=tone(.9,.1);
+  const a=tone(1.3,.13),b=tone(1.2,.1);
   const out=assembleVibeDialogueAudio([
    {speaker:'A',text:'おはようございます。',audio:a,rate:sr},
    {speaker:'B',text:'おはようございます。',audio:b,rate:sr},
