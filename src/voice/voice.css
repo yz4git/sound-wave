@@ -2067,3 +2067,19 @@
 #voice-lab .voice-vibe-audit-turn .voice-vibe-audit-warning {
   color:#ffdb9a;
 }
+
+
+/* Opt-in model-independent signal diagnostics for locally rendered dialogue. */
+#voice-lab .voice-vibe-quality-review {
+  margin: 10px 0; padding: 9px; border-radius: 9px;
+  border: 1px solid rgba(119,194,230,.43); background: rgba(12,36,53,.72);
+}
+#voice-lab .voice-vibe-quality-review summary {
+  cursor: pointer; touch-action: manipulation;
+  font: 700 12px/1.6 system-ui,sans-serif;
+}
+#voice-lab .voice-vibe-quality-warnings { display: grid; gap: 6px; }
+#voice-lab .voice-vibe-quality-warnings button {
+  min-width: 0; width: 100%; text-align: left;
+  padding: 7px 9px; font: 600 12px/1.5 system-ui,sans-serif;
+}
