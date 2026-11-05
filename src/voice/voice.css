@@ -2083,3 +2083,67 @@
   min-width: 0; width: 100%; text-align: left;
   padding: 7px 9px; font: 600 12px/1.5 system-ui,sans-serif;
 }
+
+
+/* VibeVoice-Realtime imported-WAV blind comparison.
+ * Keep native iOS audio controls large enough for single-finger interaction.
+ */
+#voice-lab .voice-vibe-realtime {
+  margin: 13px 0; padding: 11px; min-width: 0;
+  border-radius: 11px; border: 1px solid rgba(152,214,237,.52);
+  background: rgba(11,34,50,.83);
+}
+#voice-lab .voice-vibe-realtime summary {
+  cursor: pointer; touch-action: manipulation;
+  font: 700 13px/1.5 system-ui,sans-serif;
+}
+#voice-lab .voice-vibe-realtime p {
+  font: 500 12px/1.55 system-ui,sans-serif;
+  margin: 9px 0; overflow-wrap: anywhere;
+}
+#voice-lab .voice-vibe-realtime a {
+  color: #b9e7ff; text-decoration: underline; overflow-wrap: anywhere;
+}
+#voice-lab .voice-vibe-realtime label {
+  min-width: 0; display: block; margin: 8px 0;
+  font: 600 12px/1.5 system-ui,sans-serif;
+}
+#voice-lab .voice-vibe-realtime textarea,
+#voice-lab .voice-vibe-realtime select,
+#voice-lab .voice-vibe-realtime input[type=file] {
+  box-sizing: border-box; width: 100%; min-width: 0;
+  display: block; margin-top: 5px; padding: 9px 10px;
+  background: rgba(2,14,29,.94); color: #f5fcff;
+  border: 1px solid rgba(143,204,231,.5); border-radius: 7px;
+  font: 14px/1.5 system-ui,sans-serif;
+}
+#voice-lab .voice-vibe-realtime textarea {resize: vertical; min-height: 89px;}
+#voice-lab .voice-vibe-realtime input[type=file] {
+  min-height: 45px; font-size: 12px;
+}
+#voice-lab .voice-vibe-realtime button {
+  min-height: 44px; padding: 9px 10px;
+  border-radius: 8px; border: 1px solid rgba(158,214,234,.65);
+  background: rgba(23,82,110,.85); color: #fff;
+  touch-action: manipulation; font: 700 12px/1.45 system-ui,sans-serif;
+}
+#voice-lab .voice-vibe-realtime button:disabled {opacity: .5;}
+#voice-lab .voice-vibe-rt-actions,
+#voice-lab .voice-vibe-rt-votes {
+  display: flex; gap: 8px; flex-wrap: wrap;
+}
+#voice-lab .voice-vibe-rt-actions button,
+#voice-lab .voice-vibe-rt-votes button {
+  flex: 1 1 110px;
+}
+#voice-lab #voice-vibe-rt-result[hidden] {display: none !important;}
+#voice-lab #voice-vibe-rt-result {display: grid; gap: 8px;}
+#voice-lab #voice-vibe-rt-result audio {
+  display: block; width: 100%; max-width: 100%;
+  height: 46px; margin: 5px 0 3px;
+}
+#voice-lab #voice-vibe-rt-status,
+#voice-lab #voice-vibe-rt-answer {
+  padding: 8px 10px; border-radius: 7px;
+  background: rgba(25,68,92,.65); overflow-wrap: anywhere;
+}
