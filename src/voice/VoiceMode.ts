@@ -1336,7 +1336,7 @@ A: いいですね。一緒に試してみましょう。</textarea>
           '台本または話者の声を変更しました。「会話を生成する」で更新してください。';
       });
     }
-    for (const selector of ['#voice-vibe-timeline', '#voice-vibe-audit-results']) {
+    for (const selector of ['#voice-vibe-timeline', '#voice-vibe-audit-results', '#voice-vibe-quality-warnings']) {
       this.required<HTMLElement>(selector).addEventListener('click', (event) => {
       const target = event.target;
       if (!(target instanceof HTMLElement)) return;
@@ -3451,6 +3451,10 @@ A: いいですね。一緒に試してみましょう。</textarea>
     this.vibeDuration = 0;
     const auditResults = this.root.querySelector<HTMLElement>('#voice-vibe-audit-results');
     if (auditResults) auditResults.replaceChildren();
+    const localWarnings = this.root.querySelector<HTMLElement>('#voice-vibe-quality-warnings');
+    if (localWarnings) localWarnings.replaceChildren();
+    const localOverview = this.root.querySelector<HTMLElement>('#voice-vibe-quality-overview');
+    if (localOverview) localOverview.textContent = '生成後、各発話の音量と無音の状況を調べます。';
     const auditStatus = this.root.querySelector<HTMLElement>('#voice-vibe-asr-status');
     if (auditStatus) auditStatus.textContent = '認識結果はまだありません。';
     const requestButton = this.root.querySelector<HTMLButtonElement>('#voice-vibe-asr-request');
@@ -3463,6 +3467,24 @@ A: いいですね。一緒に試してみましょう。</textarea>
     if (subtitleButton) subtitleButton.disabled = true;
     const generateButton = this.root.querySelector<HTMLButtonElement>('#voice-vibe-generate');
     if (generateButton) generateButton.disabled = false;
+  }
+
+  private renderVibeLocalReview(report: VibeLocalReview): void {
+    this.required<HTMLElement>('#voice-vibe-quality-overview').textContent =
+      `${report.speakerCount}人 / ${report.turnCount}発話 · ${report.durationSeconds.toFixed(1)}秒 · 発話別平均RMS ${report.averageRmsDbfs.toFixed(1)}dBFS · 注意 ${report.warnings.length}件`;
+    const list = this.required<HTMLElement>('#voice-vibe-quality-warnings');
+    list.replaceChildren();
+    if (!report.warnings.length) {
+      list.textContent = '大きな音響信号上の問題は検出されませんでした。発話の自然さは実際に聴き比べてください。';
+      return;
+    }
+    for(const warning of report.warnings) {
+      const jump=document.createElement('button');
+      jump.type='button';
+      jump.dataset.voiceVibeSeek=String(warning.seconds);
+      jump.textContent=`話者${warning.speaker} · ${warning.seconds.toFixed(2)}秒 · ${warning.message} ▶`;
+      list.append(jump);
+    }
   }
 
   private renderVibeAsrReport(recognized: readonly VibeAsrSegment[]): void {
@@ -3629,6 +3651,7 @@ A: いいですね。一緒に試してみましょう。</textarea>
       }
       const mix = assembleVibeDialogueAudio(takes);
       if (epoch !== this.vibeEpoch || !this.active) return;
+      const acousticReview = reviewLocalVibeDialogue(mix);
       const wav = encodeVoxLocalWav(mix.audio, mix.rate);
       const url = URL.createObjectURL(wav);
       if (epoch !== this.vibeEpoch || !this.active) {
@@ -3658,6 +3681,7 @@ A: いいですね。一緒に試してみましょう。</textarea>
         timeline.append(seek);
       }
       this.required<HTMLElement>('#voice-vibe-result').hidden = false;
+      this.renderVibeLocalReview(acousticReview);
       this.required<HTMLButtonElement>('#voice-vibe-export').disabled = false;
       this.required<HTMLButtonElement>('#voice-vibe-srt').disabled = false;
       status.textContent = `会話WAV生成完了 · ${mix.seconds.toFixed(1)}秒 · ${turns.length}発話 · ${mix.rate}Hz。iPhone標準プレーヤーで試聴してください。`;
