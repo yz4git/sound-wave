@@ -2024,3 +2024,46 @@
 @media (max-width:390px) {
   #voice-lab .voice-vibe-speakers {grid-template-columns:minmax(0,1fr);}
 }
+
+
+/* VibeVoice-ASR transcript audit: separate from authored script timeline. */
+#voice-lab .voice-vibe-asr {
+  min-width:0; margin-top:10px; padding:10px;
+  background:rgba(5,25,40,.75); border:1px solid rgba(144,193,224,.48);
+  border-radius:10px;
+}
+#voice-lab .voice-vibe-asr summary {
+  font:700 12px/1.6 system-ui,sans-serif; cursor:pointer; touch-action:manipulation;
+}
+#voice-lab .voice-vibe-asr label {
+  display:block; margin-top:8px; min-width:0; font:600 12px/1.55 system-ui,sans-serif;
+}
+#voice-lab .voice-vibe-asr textarea,
+#voice-lab .voice-vibe-asr input:not([type=checkbox]) {
+  display:block; margin:5px 0; box-sizing:border-box; width:100%; min-width:0;
+  padding:9px; min-height:42px; color:#fff; background:rgba(5,15,27,.96);
+  border:1px solid rgba(163,207,230,.48); border-radius:7px;
+  font:13px/1.45 system-ui,sans-serif;
+}
+#voice-lab .voice-vibe-asr-consent {
+  display:flex !important; align-items:center; gap:8px;
+}
+#voice-lab .voice-vibe-asr-consent input {
+  flex:0 0 auto; width:20px; height:20px;
+}
+#voice-lab .voice-vibe-audit-results {
+  display:grid; gap:8px; max-width:100%; min-width:0;
+}
+#voice-lab .voice-vibe-audit-turn {
+  padding:8px; border-radius:8px;
+  background:rgba(40,70,94,.63); min-width:0;
+}
+#voice-lab .voice-vibe-audit-turn button {
+  width:100%; text-align:left;
+}
+#voice-lab .voice-vibe-audit-turn p {
+  white-space:pre-wrap; overflow-wrap:anywhere; margin:7px 0 0;
+}
+#voice-lab .voice-vibe-audit-turn .voice-vibe-audit-warning {
+  color:#ffdb9a;
+}
