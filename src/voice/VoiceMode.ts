@@ -3576,7 +3576,7 @@ A: いいですね。一緒に試してみましょう。</textarea>
         || decoded.numberOfChannels<1 || decoded.numberOfChannels>2) {
         throw new Error('VibeVoiceのWAVは0.2〜70秒、モノラルまたはステレオにしてください');
       }
-      let voice=new Float32Array(decoded.length);
+      let voice: Float32Array = new Float32Array(decoded.length);
       for (let channel=0;channel<decoded.numberOfChannels;channel++) {
         const original=decoded.getChannelData(channel);
         for (let i=0;i<voice.length;i++) {
