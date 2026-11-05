@@ -3511,6 +3511,130 @@ A: いいですね。一緒に試してみましょう。</textarea>
 
 
   /** Free browser Blob URLs and cancel stale comparisons whenever settings change. */
+  private clearVibeRealtimeComparison(): void {
+    this.vibeRtEpoch++;
+    this.vibeRtOrder = null;
+    for (const side of ['a','b'] as const) {
+      const player=this.root.querySelector<HTMLAudioElement>(`#voice-vibe-rt-${side}`);
+      if (!player) continue;
+      player.pause();
+      player.removeAttribute('src');
+      player.load();
+    }
+    for (const url of this.vibeRtUrls) URL.revokeObjectURL(url);
+    this.vibeRtUrls=[];
+    const panel=this.root.querySelector<HTMLElement>('#voice-vibe-rt-result');
+    if (panel) panel.hidden=true;
+    const button=this.root.querySelector<HTMLButtonElement>('#voice-vibe-rt-generate');
+    if (button) button.disabled=false;
+    const cancel=this.root.querySelector<HTMLButtonElement>('#voice-vibe-rt-cancel');
+    if (cancel) cancel.disabled=true;
+  }
+
+  private async generateVibeRealtimeComparison(): Promise<void> {
+    const status=this.required<HTMLElement>('#voice-vibe-rt-status');
+    if (this.settings.engine !== 'vox-local') {
+      status.textContent='VOX LOCAL · NO SERVER を選んでから比較してください。';
+      return;
+    }
+    let text: string;
+    try {text=validateVibeRealtimeText(this.required<HTMLTextAreaElement>('#voice-vibe-rt-text').value);}
+    catch (error) {
+      status.textContent=error instanceof Error?error.message:'日本語原稿を入力してください';
+      return;
+    }
+    const file=this.required<HTMLInputElement>('#voice-vibe-rt-file').files?.[0];
+    if (!file) {
+      status.textContent='公式VibeVoiceで同じ原稿を読み上げたWAVを選んでください。';
+      return;
+    }
+    if (!/\.wav$/i.test(file.name) || file.size<44 || file.size>VIBE_REALTIME_FILE_LIMIT) {
+      status.textContent='WAVファイルを選択してください（12MB以下）。';
+      return;
+    }
+    this.stop();
+    const epoch=this.vibeRtEpoch;
+    const button=this.required<HTMLButtonElement>('#voice-vibe-rt-generate');
+    const cancel=this.required<HTMLButtonElement>('#voice-vibe-rt-cancel');
+    button.disabled=true;
+    cancel.disabled=false;
+    let audioContext:AudioContext|null=null;
+    status.textContent='VibeVoice WAVの内容・長さを確認しています…';
+    try {
+      // Keep the iPhone UI responsive before PCM decoding / ONNX inference.
+      await new Promise<void>((resolve)=>window.requestAnimationFrame(()=>resolve()));
+      if (epoch!==this.vibeRtEpoch || !this.active) return;
+      const prefix=new Uint8Array(await file.slice(0,12).arrayBuffer());
+      if (String.fromCharCode(...prefix.slice(0,4))!=='RIFF'
+        ||String.fromCharCode(...prefix.slice(8,12))!=='WAVE') {
+        throw new Error('標準のRIFF WAVE形式の音声が必要です');
+      }
+      audioContext=new AudioContext();
+      const decoded=await audioContext.decodeAudioData(await file.arrayBuffer());
+      if (epoch!==this.vibeRtEpoch || !this.active) return;
+      if (decoded.duration<.2 || decoded.duration>VIBE_REALTIME_MAX_SECONDS
+        || decoded.numberOfChannels<1 || decoded.numberOfChannels>2) {
+        throw new Error('VibeVoiceのWAVは0.2〜70秒、モノラルまたはステレオにしてください');
+      }
+      let voice=new Float32Array(decoded.length);
+      for (let channel=0;channel<decoded.numberOfChannels;channel++) {
+        const original=decoded.getChannelData(channel);
+        for (let i=0;i<voice.length;i++) {
+          voice[i]=(voice[i]??0)+(original[i]??0)/decoded.numberOfChannels;
+        }
+      }
+      const remoteRate=Math.min(48000,decoded.sampleRate);
+      if (remoteRate!==decoded.sampleRate)
+        voice=resampleVoiceReference(voice,decoded.sampleRate,remoteRate);
+      if (epoch!==this.vibeRtEpoch || !this.active) return;
+      status.textContent='Kokoro / VOX LOCALで同じ原稿を生成中…';
+      const phrases=splitLongNeuralText(text);
+      const plan: NeuralProsodyPlan={
+        edited:false,
+        segments:phrases.map((phrase)=>({
+          text:phrase, startUnit:0,endUnit:0,rateScale:1,
+          energyScale:1,pitchSemitones:0,pauseAfter:0,
+          expression:{...this.settings.expression},
+        })),
+      };
+      const inferencePlan=applyLexiconToNeuralPlan(plan,this.pronunciationLexicon);
+      const design:VoxLocalDesign={...this.voxLocalDesign(),quality:'fast'};
+      const local=await this.voxLocal.synthesize(inferencePlan,design,(msg)=>{
+        if (epoch===this.vibeRtEpoch && this.active)
+          status.textContent='iPhone内で比較音声を生成中 · '+msg;
+      });
+      if (epoch!==this.vibeRtEpoch || !this.active) return;
+      if(!local||!local.audio.length)throw new Error('Kokoroの音声生成が中断されました');
+      const pair=prepareVibeRealtimeAB(
+        {audio:local.audio,rate:local.rate},
+        {audio:voice,rate:remoteRate},
+      );
+      const localUrl=URL.createObjectURL(encodeVoxLocalWav(pair.kokoro.audio,pair.kokoro.rate));
+      const remoteUrl=URL.createObjectURL(encodeVoxLocalWav(pair.realtime.audio,pair.realtime.rate));
+      if (epoch!==this.vibeRtEpoch || !this.active) {
+        URL.revokeObjectURL(localUrl);URL.revokeObjectURL(remoteUrl);
+        return;
+      }
+      this.vibeRtUrls=[localUrl,remoteUrl];
+      this.vibeRtOrder=shuffledVibeRealtimeOrder();
+      for (const side of ['a','b'] as const) {
+        const source=this.vibeRtOrder[side];
+        this.required<HTMLAudioElement>(`#voice-vibe-rt-${side}`).src=
+          source==='kokoro'?localUrl:remoteUrl;
+      }
+      this.required<HTMLElement>('#voice-vibe-rt-result').hidden=false;
+      this.required<HTMLElement>('#voice-vibe-rt-answer').textContent=
+        'どちらのモデルかは投票後に表示されます。2つの音声が同じ原稿か確認してお聴きください。';
+      status.textContent=`比較準備完了 · A/Bをランダム配置 · 音量差 約${Math.abs(pair.levelDifferenceDb).toFixed(1)}dB · ${pair.warnings.length}件の参考注意。単一話者・声質が異なる可能性があります。`;
+    } catch(error) {
+      if (epoch===this.vibeRtEpoch && this.active)
+        status.textContent=error instanceof Error?error.message:'比較用音声の生成に失敗しました';
+    } finally {
+      if (audioContext) void audioContext.close();
+      if (epoch===this.vibeRtEpoch) {button.disabled=false;cancel.disabled=true;}
+    }
+  }
+
   private clearVibeDialogue(): void {
     this.vibeEpoch++;
     this.vibeAsrAbort?.abort();
