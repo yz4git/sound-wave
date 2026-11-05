@@ -294,6 +294,10 @@ export class VoiceMode {
     if (mingToken) mingToken.value = '';
     this.clearReuseWorkspace();
     this.reuseSelectedGenerated = null;
+    const vibeToken = this.root.querySelector<HTMLInputElement>('#voice-vibe-asr-token');
+    if (vibeToken) vibeToken.value = '';
+    const vibeConsent = this.root.querySelector<HTMLInputElement>('#voice-vibe-asr-consent');
+    if (vibeConsent) vibeConsent.checked = false;
     const reuseInput = this.root.querySelector<HTMLInputElement>('#voice-reuse-file');
     if (reuseInput) reuseInput.value = '';
     this.clearNativeVoxPreview();
@@ -3452,6 +3456,87 @@ A: いいですね。一緒に試してみましょう。</textarea>
     if (subtitleButton) subtitleButton.disabled = true;
     const generateButton = this.root.querySelector<HTMLButtonElement>('#voice-vibe-generate');
     if (generateButton) generateButton.disabled = false;
+  }
+
+  private renderVibeAsrReport(recognized: readonly VibeAsrSegment[]): void {
+    if (!this.vibeWav || !this.vibeBoundaries.length) return;
+    const report = auditVibeDialogueAsr(this.vibeBoundaries,recognized);
+    const status = this.required<HTMLElement>('#voice-vibe-asr-status');
+    status.textContent = report.meanCer === null
+      ? `認識結果なし · ${report.total}発話のうち照合できる発話がありません。`
+      : `認識照合：${report.matched}/${report.total}発話 · 発話別平均CER ${(report.meanCer*100).toFixed(1)}% · 話者IDの一貫性に注意 ${report.speakerInconsistencies}件。録音の自然さの点数ではありません。`;
+    const list = this.required<HTMLElement>('#voice-vibe-audit-results');
+    list.replaceChildren();
+    for (const turn of report.turns) {
+      const item = document.createElement('div');
+      item.className = 'voice-vibe-audit-turn';
+      const jump = document.createElement('button');
+      jump.type = 'button';
+      jump.dataset.voiceVibeSeek = String(turn.startSeconds);
+      jump.textContent = `${turn.index+1}. ${turn.speaker} · ${turn.startSeconds.toFixed(2)}秒 · ${turn.cer === null ? '未認識' : 'CER '+(turn.cer*100).toFixed(1)+'%'} ▶`;
+      item.append(jump);
+      const expected = document.createElement('p');
+      expected.textContent = `元の台本：${turn.expected}`;
+      item.append(expected);
+      const heard = document.createElement('p');
+      heard.textContent = turn.recognized
+        ? `ASR認識（${turn.recognizedSpeaker}）：${turn.recognized}`
+        : 'ASR認識：該当セグメントなし';
+      item.append(heard);
+      for (const note of turn.notes) {
+        const warning = document.createElement('p');
+        warning.className = 'voice-vibe-audit-warning';
+        warning.textContent = note;
+        item.append(warning);
+      }
+      list.append(item);
+    }
+  }
+
+  private async requestVibeAsrAudit(): Promise<void> {
+    const status = this.required<HTMLElement>('#voice-vibe-asr-status');
+    const checkbox = this.required<HTMLInputElement>('#voice-vibe-asr-consent');
+    if (!checkbox.checked) {
+      status.textContent = 'GPUサーバーへの生成音声送信に同意してください。';
+      return;
+    }
+    const wav = this.vibeWav;
+    if (!wav || !this.vibeDuration) {
+      status.textContent = '先に会話WAVを生成してください。';
+      return;
+    }
+    const endpoint = this.required<HTMLInputElement>('#voice-vibe-asr-endpoint').value;
+    const token = this.required<HTMLInputElement>('#voice-vibe-asr-token').value;
+    const hotwords = this.required<HTMLInputElement>('#voice-vibe-asr-hotwords').value;
+    if (this.vibeAsrAbort) this.vibeAsrAbort.abort();
+    if (this.vibeAsrTimeout) window.clearTimeout(this.vibeAsrTimeout);
+    const controller = new AbortController();
+    this.vibeAsrAbort = controller;
+    const epoch = this.vibeEpoch;
+    const button = this.required<HTMLButtonElement>('#voice-vibe-asr-request');
+    button.disabled = true;
+    this.vibeAsrTimeout = window.setTimeout(() => controller.abort(),180000);
+    try {
+      const segments = await requestVibeAsr(
+        endpoint,token,wav,this.vibeDuration,controller.signal,
+        (text)=>{if (epoch===this.vibeEpoch && this.active)status.textContent=text;},
+        hotwords,
+      );
+      if (epoch!==this.vibeEpoch || !this.active) return;
+      this.renderVibeAsrReport(segments);
+    } catch (error) {
+      if (epoch===this.vibeEpoch && this.active)
+        status.textContent = error instanceof Error
+          ? `VibeVoice-ASRエラー：${error.message}`
+          : 'VibeVoice-ASRの認識に失敗しました';
+    } finally {
+      if (epoch===this.vibeEpoch && this.vibeAsrAbort===controller) {
+        if (this.vibeAsrTimeout) window.clearTimeout(this.vibeAsrTimeout);
+        this.vibeAsrTimeout=0;
+        this.vibeAsrAbort=null;
+        button.disabled=false;
+      }
+    }
   }
 
   private async generateVibeDialogue(): Promise<void> {
