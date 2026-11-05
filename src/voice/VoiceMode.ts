@@ -12,6 +12,7 @@ import { assembleVibeDialogueAudio, parseVibeDialogueScript, VIBE_SPEAKERS,
 import { auditVibeDialogueAsr, parseVibeAsrSegments, formatVibeSrt,
   type VibeAsrSegment } from './VibeDialogueAudit';
 import { requestVibeAsr } from './VibeAsrRemote';
+import { reviewLocalVibeDialogue, type VibeLocalReview } from './VibeDialogueQC';
 import { splitLongNeuralText } from './NeuralLongText';
 import { repairReferenceQuietFloor, reuseEndpoint } from './NemotronReuseRepair';
 import { isIPhoneBrowser, shouldUseDeviceSpeech, type PlaybackEnvironment } from './IPhoneSpeechPolicy';
@@ -595,6 +596,12 @@ A: いいですね。一緒に試してみましょう。</textarea>
                 <audio id="voice-vibe-player" controls playsinline preload="none"></audio>
                 <div id="voice-vibe-timeline" class="voice-vibe-timeline" aria-label="会話の発話位置"></div>
                 <small>ここに表示する台本と時刻はSound Waveで生成した値です。音声認識した結果ではありません。再生位置をタップできます。</small>
+                <details id="voice-vibe-quality-review" class="voice-vibe-quality-review">
+                  <summary>🎧 会話音声のローカル品質チェック</summary>
+                  <p id="voice-vibe-quality-overview">生成後、各発話の音量と無音の状況を調べます。</p>
+                  <div id="voice-vibe-quality-warnings" class="voice-vibe-quality-warnings"></div>
+                  <small>音響信号のみの参考検査です。発音の正誤や感情の自然さを判定しません。</small>
+                </details>
                 <details id="voice-vibe-asr" class="voice-vibe-asr">
                   <summary>🔍 VibeVoice-ASRで会話を検証 · 誰が・いつ・何を</summary>
                   <p>会話WAVに対して、Microsoft VibeVoice-ASRの認識結果を比較します。話者IDは認識モデル独自の番号なので、A/B/C/Dと直接一致するとは限りません。</p>
