@@ -41,7 +41,10 @@ export function shuffledVibeRealtimeOrder(random: () => number = Math.random): V
     ? {a:'kokoro',b:'realtime'}
     : {a:'realtime',b:'kokoro'};
 }
-export function prepareVibeRealtimeAudio(take: VibeRealtimeTake): VibeRealtimeMatchedTake {
+export function prepareVibeRealtimeAudio(
+  take: VibeRealtimeTake,
+  targetRms = 10 ** (-25 / 20),
+): VibeRealtimeMatchedTake {
   if (!Number.isInteger(take.rate) || take.rate < 8000 || take.rate > 48000)
     throw new Error('音声のサンプルレートが8〜48kHzの範囲外です');
   const duration=take.audio.length / take.rate;
@@ -52,9 +55,10 @@ export function prepareVibeRealtimeAudio(take: VibeRealtimeTake): VibeRealtimeMa
     throw new Error('音声が無音または極端に音割れしています');
   for (let i=0;i<take.audio.length;i++)
     if (!Number.isFinite(take.audio[i]))throw new Error('音声に不正なサンプルが含まれています');
-  // Fixed target of -21 dBFS for both models: no loudness-based preference bias.
-  // Keep processing gentle (no more than +4dB), do not reconstruct phonemes.
-  const targetRms=10**(-21/20);
+  // Shared A/B target, never >+4dB boost to avoid amplifying noise.
+  // This is RMS matching, not perceptual LUFS or phoneme reconstruction.
+  if(!Number.isFinite(targetRms) || targetRms<.001 || targetRms>.5)
+    throw new Error('音量の共通目標値が不正です');
   const gain=Math.min(1.6,Math.max(.625,targetRms/before.rms),
     .98/Math.max(1e-6,before.peak));
   const output=new Float32Array(take.audio.length);
@@ -65,8 +69,13 @@ export function prepareVibeRealtimeAudio(take: VibeRealtimeTake): VibeRealtimeMa
   };
 }
 export function prepareVibeRealtimeAB(kokoro:VibeRealtimeTake,realtime:VibeRealtimeTake): VibeRealtimeAB {
-  const k=prepareVibeRealtimeAudio(kokoro);
-  const r=prepareVibeRealtimeAudio(realtime);
+  // Geometric mean asks both takes to move toward the same center without
+  // boosting either as aggressively as a fixed high target would.
+  const a=measureVoicePcm(kokoro.audio).rms;
+  const b=measureVoicePcm(realtime.audio).rms;
+  const target=Math.max(.02,Math.min(.15,Math.sqrt(a*b)));
+  const k=prepareVibeRealtimeAudio(kokoro,target);
+  const r=prepareVibeRealtimeAudio(realtime,target);
   const warnings:string[]=[];
   const difference=Math.abs(k.stats.rmsDbfs-r.stats.rmsDbfs);
   if (difference>2.5)
